@@ -28,8 +28,15 @@ export const OPS_JWT_SECRET = (() => {
 export const OPS_DASHBOARD_PASSWORD =
   process.env.OPS_DASHBOARD_PASSWORD?.trim() ?? '';
 
-export const OPS_DASHBOARD_ORIGIN =
-  process.env.OPS_DASHBOARD_ORIGIN ?? 'http://localhost:5174';
+function normalizeOrigin(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+export const OPS_DASHBOARD_ORIGIN = normalizeOrigin(
+  process.env.OPS_DASHBOARD_ORIGIN ?? 'http://localhost:5174',
+);
 
 export const OPS_TOKEN_TTL_SEC = Number(
   process.env.OPS_TOKEN_TTL_SEC ?? 8 * 60 * 60,

@@ -38,13 +38,19 @@ export const JWT_SECRET = (() => {
 export const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
 
+function normalizeOrigin(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 /** Comma-separated origins (prod CORS). Falls back to FRONTEND_ORIGIN. */
 export function listFrontendOrigins(): string[] {
   const multi = process.env.FRONTEND_ORIGINS?.split(/[\s,]+/)
-    .map((s) => s.trim())
+    .map((s) => normalizeOrigin(s))
     .filter(Boolean);
   if (multi && multi.length > 0) return multi;
-  return [FRONTEND_ORIGIN];
+  return [normalizeOrigin(FRONTEND_ORIGIN)];
 }
 
 /** Short-lived bearer JWT (seconds). */

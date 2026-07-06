@@ -1,0 +1,72 @@
+# Ekasi Pay — Render Blueprint
+# Repo layout: app code lives under "Ekasi pay/" (note the space).
+# Set secret env vars in the Render dashboard after the first sync:
+#   DATABASE_URL, SMS_PROVIDER (+ Twilio/Clickatell keys), OPS_DASHBOARD_PASSWORD
+
+services:
+  - type: web
+    name: ekasi-pay-api
+    runtime: node
+    rootDir: Ekasi pay/backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: SMS_PROVIDER
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: CLICKATELL_API_KEY
+        sync: false
+      - key: FRONTEND_ORIGINS
+        fromService:
+          name: ekasi-pay-web
+          type: web
+          property: host
+
+  - type: web
+    name: ekasi-pay-web
+    runtime: static
+    rootDir: Ekasi pay
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: ekasi-pay-api
+          type: web
+          property: host
+
+  - type: web
+    name: ekasi-ops-dashboard
+    runtime: node
+    rootDir: Ekasi pay/ops-dashboard
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPS_JWT_SECRET
+        generateValue: true
+      - key: OPS_DASHBOARD_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: OPS_DASHBOARD_ORIGIN
+        fromService:
+          name: ekasi-ops-dashboard
+          type: web
+          property: host

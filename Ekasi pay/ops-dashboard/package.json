@@ -7,8 +7,9 @@
     "dev": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
-    "build": "vite build",
-    "start": "tsx server/index.ts",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build": "npm run build:server && vite build",
+    "start": "node dist-server/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json"
   },
   "dependencies": {

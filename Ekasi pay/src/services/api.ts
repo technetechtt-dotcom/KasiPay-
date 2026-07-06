@@ -6,7 +6,10 @@ export function apiBaseUrl(): string {
     typeof import.meta !== 'undefined'
       ? (import.meta.env.VITE_API_URL as string | undefined)
       : undefined;
-  const base = (v ?? '').replace(/\/$/, '');
+  let base = (v ?? '').replace(/\/$/, '');
+  if (base && !/^https?:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
 
   // Capacitor native builds do not use the Vite dev proxy, so an explicit API
   // origin is required to avoid silent same-origin `/api` failures.
