@@ -183,7 +183,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
       recipientPhone,
-      recipientIdDocument: recipientSaId,
+      recipientIdDocument: '',
       amount: 50,
       atmPin: voucherPin,
     });
@@ -200,7 +200,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
       recipientPhone,
-      recipientIdDocument: recipientSaId,
+      recipientIdDocument: '',
       amount: 50,
       atmPin: voucherPin,
     });
@@ -221,7 +221,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
       recipientPhone: `081${String(num + 3).padStart(7, '0')}`.slice(0, 10),
-      recipientIdDocument: recipientSaId,
+      recipientIdDocument: '',
       amount: 25,
       atmPin: voucherPin,
     });

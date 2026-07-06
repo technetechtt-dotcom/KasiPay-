@@ -36,6 +36,11 @@ import {
 } from '../../lib/senderKycProfile';
 import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
 import { saIdValidationMessage } from '../../lib/saIdValidation';
+import {
+  isSaCellphoneInput,
+  parseCashSendVoucherReference,
+} from '../../lib/cashSendReference';
+import { ApiError, apiLookupCashSend } from '../../services/api';
 import { CashSendConsentGate } from '../../components/consent/CashSendDataConsent';
 
 export type CashSendCreatePayload = {
@@ -47,7 +52,7 @@ export type CashSendCreatePayload = {
   recipientFirstName: string;
   recipientLastName: string;
   recipientPhone: string;
-  recipientIdDocument: string;
+    recipientIdDocument?: string;
   amount: number;
   pin: string;
 };
@@ -110,9 +115,10 @@ export const MoneyServices = ({
     () => inferCashSendTabFromDraft(initialTab),
   );
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="flex flex-col h-full min-h-0 bg-slate-50">
       <CashSendConsentGate>
-      <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 sticky top-0">
+      <div className="flex flex-col flex-1 min-h-0">
+      <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center mb-4">
           {showBackButton &&
           <button
@@ -150,7 +156,7 @@ export const MoneyServices = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-24">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {activeTab === 'send' &&
         <SendCashFlow
           wallet={wallet}
@@ -168,11 +174,13 @@ export const MoneyServices = ({
 
         }
         {activeTab === 'vouchers' &&
-        <VouchersList
-          vouchers={cashSendVouchers}
-          cancelCashSend={cancelCashSend} />
-
+        <div className="flex-1 min-h-0 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+          <VouchersList
+            vouchers={cashSendVouchers}
+            cancelCashSend={cancelCashSend} />
+        </div>
         }
+      </div>
       </div>
       </CashSendConsentGate>
     </PageTransition>);
@@ -286,11 +294,6 @@ const SendCashFlow = ({
   const [voucher, setVoucher] = useState<CashSendVoucher | null>(null);
 
   useEffect(() => {
-    const p = onlyDigits(authenticatedUserPhone);
-    if (p.length >= 10) setSenderPhone(p);
-  }, [authenticatedUserPhone]);
-
-  useEffect(() => {
     let usedDraft = false;
     try {
       const raw = sessionStorage.getItem(SEND_CASH_SCAN_DRAFT_KEY);
@@ -330,6 +333,9 @@ const SendCashFlow = ({
         setSenderLastName(stored.lastName);
         setSenderId(stored.idDocument);
         setSenderAddress(stored.address);
+        if (stored.senderCellphone && onlyDigits(stored.senderCellphone).length >= 10) {
+          setSenderPhone(onlyDigits(stored.senderCellphone));
+        }
       }
     }
     const sid = consumePendingSenderSaId();
@@ -341,7 +347,7 @@ const SendCashFlow = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot mount
   }, []);
 
-  const openSendIdScanner = (capture: 'sender-id' | 'beneficiary-id') => {
+  const openSendIdScanner = () => {
     sessionStorage.setItem(
       SEND_CASH_SCAN_DRAFT_KEY,
       JSON.stringify({
@@ -360,7 +366,7 @@ const SendCashFlow = ({
       }),
     );
     writeScannerSession({
-      capture,
+      capture: 'sender-id',
       returnPage: scanReturnRoute,
     });
     navigate('scanner');
@@ -387,16 +393,13 @@ const SendCashFlow = ({
       return;
     }
     if (step === 2) {
-      const recipientIdMsg = saIdValidationMessage(onlyDigits(recipientId));
       if (
         !recipientFirstName.trim() ||
         !recipientLastName.trim() ||
-        onlyDigits(recipientPhone).length < 10 ||
-        recipientIdMsg
+        onlyDigits(recipientPhone).length < 10
       ) {
         setError(
-          recipientIdMsg ??
-            'Complete beneficiary details: name, surname, phone, and valid 13-digit SA ID (as on their document).'
+          'Complete beneficiary details: name, surname, and cellphone number.'
         );
         return;
       }
@@ -431,7 +434,7 @@ const SendCashFlow = ({
           recipientFirstName: recipientFirstName.trim(),
           recipientLastName: recipientLastName.trim(),
           recipientPhone: onlyDigits(recipientPhone),
-          recipientIdDocument: onlyDigits(recipientId),
+          recipientIdDocument: '',
           amount: Number(amount),
           pin,
         });
@@ -439,11 +442,12 @@ const SendCashFlow = ({
           // Cache the sender KYC for the next voucher — saves four
           // re-keystrokes per send and reduces transcription errors.
           saveSenderKycProfile({
-            phone: onlyDigits(senderPhone),
+            phone: onlyDigits(authenticatedUserPhone),
             firstName: senderFirstName.trim(),
             lastName: senderLastName.trim(),
             idDocument: onlyDigits(senderId),
             address: senderAddress.trim(),
+            senderCellphone: onlyDigits(senderPhone),
             savedAt: new Date().toISOString(),
           });
           setVoucher(newVoucher);
@@ -466,12 +470,9 @@ const SendCashFlow = ({
       `${voucher.recipientFirstName ?? ''} ${voucher.recipientLastName ?? ''}`.trim() ||
       voucher.recipientName ||
       voucher.recipientPhone;
-    const idHint = voucher.recipientIdLast4
-      ? ` Beneficiary SA ID ends in ${voucher.recipientIdLast4}.`
-      : '';
-    const text = `KasiPay Cash Send for ${beneficiary}.${idHint} Amount R${voucher.amount.toFixed(
+    const text = `KasiPay Cash Send for ${beneficiary}. Amount R${voucher.amount.toFixed(
       2
-    )}. Ref: ${voucher.referenceNumber} PIN: ${voucher.atmPin}. At collection the shop scans their ID—it must match the ID you captured.`;
+    )}. Ref: ${voucher.referenceNumber} PIN: ${voucher.atmPin}. At collection the shop will scan the beneficiary’s SA ID.`;
     navigator.clipboard.writeText(text);
     toast.success('Details copied to clipboard');
   };
@@ -517,9 +518,8 @@ const SendCashFlow = ({
         <div className="bg-amber-50 text-amber-800 p-4 rounded-xl text-sm w-full mb-6 flex items-start gap-3 text-left">
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
           <p>
-            The beneficiary needs the <strong>reference</strong> and{' '}
-            <strong>PIN</strong>. At payout the spaza will <strong>scan their SA ID</strong>{' '}
-            — it must match the ID you entered. Voucher expires in 14 days.
+            The beneficiary needs the <strong>voucher reference</strong> and{' '}
+            <strong>4-digit PIN</strong> from the sender. At collection they must present both, then the shop scans their SA ID. Voucher expires in 14 days.
           </p>
         </div>
 
@@ -542,7 +542,8 @@ const SendCashFlow = ({
 
   }
   return (
-    <div className="p-6 flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-4">
       <AnimatePresence mode="wait">
         {step === 1 &&
         <motion.div
@@ -584,9 +585,11 @@ const SendCashFlow = ({
               <div className="flex-1 min-w-0">
                 <KPInput
                 label="Sender SA ID number (13 digits)"
-                type="text"
+                type="tel"
                 inputMode="numeric"
-                placeholder="8XXXXXXXXXXXX"
+                autoComplete="off"
+                maxLength={13}
+                placeholder="Type 13 digits or scan"
                 value={senderId}
                 onChange={(e) =>
                 setSenderId(onlyDigits(e.target.value).slice(0, 13))
@@ -595,9 +598,10 @@ const SendCashFlow = ({
               <KPButton
                 type="button"
                 variant="outline"
+                fullWidth={false}
                 className="shrink-0 px-3 h-11 self-end mb-0.5"
                 aria-label="Scan sender ID with camera"
-                onClick={() => openSendIdScanner('sender-id')}>
+                onClick={() => openSendIdScanner()}>
                 
                 <Camera className="w-5 h-5" />
               </KPButton>
@@ -605,9 +609,13 @@ const SendCashFlow = ({
             <KPInput
             label="Sender cellphone"
             type="tel"
-            placeholder="0821234567"
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="Customer's 10-digit number"
             value={senderPhone}
-            readOnly />
+            onChange={(e) =>
+              setSenderPhone(onlyDigits(e.target.value).slice(0, 10))
+            } />
             <KPInput
             label="Sender physical address"
             placeholder="Street, suburb, city"
@@ -640,7 +648,7 @@ const SendCashFlow = ({
               </div>
               <div>
                 <h3 className="font-bold text-slate-900">Beneficiary</h3>
-                <p className="text-xs text-slate-500">Step 2 of 4</p>
+                <p className="text-xs text-slate-500">Step 2 of 4 — who receives the cash</p>
               </div>
             </div>
             <KPInput
@@ -659,28 +667,9 @@ const SendCashFlow = ({
             placeholder="0719876543"
             value={recipientPhone}
             onChange={(e) => setRecipientPhone(e.target.value)} />
-            <div className="flex gap-2 items-end">
-              <div className="flex-1 min-w-0">
-                <KPInput
-                label="Beneficiary SA ID (13 digits — as on their ID book/card)"
-                type="text"
-                inputMode="numeric"
-                placeholder="Match document for scan at payout"
-                value={recipientId}
-                onChange={(e) =>
-                setRecipientId(onlyDigits(e.target.value).slice(0, 13))
-                } />
-              </div>
-              <KPButton
-                type="button"
-                variant="outline"
-                className="shrink-0 px-3 h-11 self-end mb-0.5"
-                aria-label="Scan beneficiary ID with camera"
-                onClick={() => openSendIdScanner('beneficiary-id')}>
-                
-                <Camera className="w-5 h-5" />
-              </KPButton>
-            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Their SA ID is only scanned when they withdraw the cash at a shop — you do not need it now.
+            </p>
           
           </motion.div>
         }
@@ -778,10 +767,11 @@ const SendCashFlow = ({
           </motion.div>
         }
       </AnimatePresence>
+      </div>
 
-      <div className="mt-8 pt-4">
+      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
         {error &&
-        <p className="text-red-500 text-sm mb-4 text-center">{error}</p>
+        <p className="text-red-500 text-sm mb-3 text-center">{error}</p>
         }
         <div className="flex gap-3">
           {step > 1 &&
@@ -863,18 +853,43 @@ const CollectCashFlow = ({
     navigate('scanner');
   };
 
-  const goToIdStep = () => {
+  const goToIdStep = async () => {
     setError('');
-    const refTrim = reference.trim();
-    if (refTrim.length < 10) {
-      setError('Enter the full voucher reference.');
+    if (isSaCellphoneInput(reference)) {
+      setError(
+        'Cash can only be collected with the voucher number (CS…) from the sender — not a cellphone number.',
+      );
+      return;
+    }
+    const refNorm = parseCashSendVoucherReference(reference);
+    if (!refNorm) {
+      setError(
+        'Enter the voucher number (starts with CS…) and 4-digit PIN the beneficiary received from the sender.',
+      );
       return;
     }
     if (pin.length !== 4) {
-      setError('Enter the beneficiary’s 4-digit PIN.');
+      setError('Enter the 4-digit PIN the beneficiary received from the sender.');
       return;
     }
-    setStep(2);
+    setBusy(true);
+    try {
+      const lookup = await apiLookupCashSend({ reference: refNorm, pin });
+      if (lookup.status !== 'active') {
+        setError(`This voucher is ${lookup.status} and cannot be collected.`);
+        return;
+      }
+      setReference(lookup.referenceNumber);
+      setStep(2);
+    } catch (e) {
+      setError(
+        e instanceof ApiError ?
+          e.message
+        : 'Could not verify voucher — check the reference and PIN from the sender.',
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handlePayout = async () => {
@@ -887,7 +902,12 @@ const CollectCashFlow = ({
     }
     setBusy(true);
     try {
-      const result = await collectCashSend(reference.trim(), pin, digits);
+      const refNorm = parseCashSendVoucherReference(reference);
+      if (!refNorm) {
+        setError('Enter a valid voucher number (CS…) and PIN.');
+        return;
+      }
+      const result = await collectCashSend(refNorm, pin, digits);
       if (result.success && result.voucher) {
         setVoucher(result.voucher);
         setStep(3);
@@ -941,7 +961,8 @@ const CollectCashFlow = ({
 
   }
   return (
-    <div className="p-6">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-4">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
           <Download className="w-5 h-5" />
@@ -950,8 +971,8 @@ const CollectCashFlow = ({
           <h3 className="font-bold text-slate-900">Collect cash</h3>
           <p className="text-xs text-slate-500">
             {step === 1 ?
-              'Reference & PIN — then scan ID'
-            : 'Verify ID barcode / card number'}
+              'Beneficiary presents voucher ref + PIN'
+            : 'Scan beneficiary SA ID'}
             
           </p>
         </div>
@@ -961,37 +982,35 @@ const CollectCashFlow = ({
       <div className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            Reference number
+            Voucher number (CS… only)
           </label>
           <input
             type="text"
-            placeholder="CS1234567890"
+            placeholder="CS1783348762065946"
             value={reference}
             onChange={(e) => setReference(e.target.value.toUpperCase())}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-lg font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-400 uppercase" />
-          
+          <p className="text-xs text-slate-500 mt-1.5">
+            The beneficiary must show the unique CS… number they received from the sender (SMS or receipt).
+          </p>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            ATM PIN
+            4-digit voucher PIN (from sender)
           </label>
           <PinInput value={pin} onChange={setPin} />
+          <p className="text-xs text-slate-500 mt-1.5">
+            The beneficiary must also present the PIN the sender chose when creating this send.
+          </p>
         </div>
 
         <div className="bg-blue-50 text-blue-800 p-4 rounded-xl text-sm flex items-start gap-3">
           <InfoIcon className="w-5 h-5 shrink-0 mt-0.5" />
-          <p>Next step: scan the beneficiary’s SA ID barcode (or keypad-enter the 13 digits). It must match the ID on record for this send.</p>
+          <p>
+            After the reference and PIN check, scan the beneficiary’s SA ID to confirm identity before handing over cash.
+          </p>
         </div>
-
-        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-
-        <KPButton
-          onClick={goToIdStep}
-          className="w-full bg-amber-600 hover:bg-amber-700">
-          
-          Continue to ID verification
-        </KPButton>
       </div>
       }
 
@@ -999,9 +1018,9 @@ const CollectCashFlow = ({
       <div className="space-y-6">
         <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-6 text-center">
           <ScanLine className="w-10 h-10 text-amber-600 mx-auto mb-3" />
-          <p className="font-semibold text-slate-900 mb-1">Scan point-of-sale ID</p>
+          <p className="font-semibold text-slate-900 mb-1">Beneficiary SA ID</p>
           <p className="text-xs text-slate-600 mb-4">
-            Use your device camera or USB barcode scanner. Most scanners automatically type digits into the field below.
+            Type the 13-digit ID number below, or open the camera scanner. USB barcode scanners will fill the field automatically.
           </p>
           <KPButton
             type="button"
@@ -1013,19 +1032,25 @@ const CollectCashFlow = ({
             Open camera ID scanner
           </KPButton>
           <KPInput
-            label="Scanned SA ID number (13 digits)"
-            type="text"
+            label="SA ID number (13 digits)"
+            type="tel"
             inputMode="numeric"
-            placeholder="From ID book / card barcode"
+            autoComplete="off"
+            maxLength={13}
+            placeholder="Type 13 digits from ID book / card"
             value={scannedIdDoc}
             onChange={(e) =>
             setScannedIdDoc(onlyDigits(e.target.value).slice(0, 13))
             } />
 
         </div>
+      </div>
+      }
+      </div>
 
-        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-
+      {step === 2 &&
+      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+        {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
         <div className="flex gap-3">
           <KPButton variant="outline" onClick={() => setStep(1)} className="w-1/3">
             Back
@@ -1038,6 +1063,19 @@ const CollectCashFlow = ({
             {busy ? 'Processing…' : 'Verify ID & pay out'}
           </KPButton>
         </div>
+      </div>
+      }
+
+      {step === 1 &&
+      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+        {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
+        <KPButton
+          onClick={() => void goToIdStep()}
+          disabled={busy}
+          className="w-full bg-amber-600 hover:bg-amber-700">
+          
+          {busy ? 'Checking reference…' : 'Continue to ID verification'}
+        </KPButton>
       </div>
       }
     </div>);

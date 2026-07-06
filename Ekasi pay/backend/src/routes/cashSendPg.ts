@@ -5,9 +5,12 @@ import { z } from 'zod';
 
 import {
   cashSendIdsMatch,
+  isSaCellphoneInput,
   normalizeCashSendId,
+  parseCashSendVoucherReference,
   validateSaIdDigits,
 } from '../cashSendKyc.js';
+import { optionalSaIdBody, saIdBody } from '../cashSendSchemas.js';
 import { getPgPool } from '../dbPg.js';
 import { toCashSendVoucher } from '../extraMappers.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
@@ -66,6 +69,61 @@ cashSendRouterPg.get('/cash-send/me', requireAuth, async (req, res) => {
   return res.json({ vouchers: r.rows.map((row) => toCashSendVoucher(row)) });
 });
 
+async function findVoucherByReferencePg(
+  pool: ReturnType<typeof getPgPool>,
+  rawReference: string,
+): Promise<VoucherRow | undefined> {
+  const ref = parseCashSendVoucherReference(rawReference);
+  if (!ref) return undefined;
+  const byRef = await pool.query<VoucherRow>(
+    `SELECT * FROM cash_send_vouchers WHERE reference_number = $1`,
+    [ref],
+  );
+  return byRef.rows[0];
+}
+
+const COLLECT_REFERENCE_MSG =
+  'Cash can only be collected with the voucher number (starts with CS…) and 4-digit PIN from the sender.';
+
+cashSendRouterPg.get('/cash-send/lookup', requireAuth, async (req, res) => {
+  const rawRef = String(req.query.reference ?? '').trim();
+  const pin = String(req.query.pin ?? '').trim();
+
+  if (!rawRef) {
+    return res.status(400).json({ error: 'Enter the voucher number.' });
+  }
+  if (!/^\d{4}$/.test(pin)) {
+    return res.status(400).json({ error: 'Enter the 4-digit voucher PIN.' });
+  }
+  const ref = parseCashSendVoucherReference(rawRef);
+  if (!ref) {
+    return res.status(400).json({
+      error: isSaCellphoneInput(rawRef) ?
+        'Use the voucher number (CS…) from the sender — not a cellphone number.'
+      : COLLECT_REFERENCE_MSG,
+    });
+  }
+
+  const pool = getPgPool();
+  const row = await findVoucherByReferencePg(pool, ref);
+  if (!row) {
+    return res.status(404).json({
+      error:
+        'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
+    });
+  }
+  if (!verifyPin(pin, row.pin_hash)) {
+    return res.status(401).json({ error: 'Incorrect PIN for this voucher.' });
+  }
+  return res.json({
+    referenceNumber: row.reference_number,
+    status: row.status,
+    amount: row.amount,
+    recipientPhone: row.recipient_phone,
+    expiresAt: row.expires_at,
+  });
+});
+
 const phoneDigits = z
   .string()
   .min(9)
@@ -84,12 +142,6 @@ const addressField = z
   .max(500)
   .transform((s) => s.trim());
 
-const saIdBody = z
-  .string()
-  .min(1)
-  .transform((v) => normalizeCashSendId(v))
-  .refine((v) => validateSaIdDigits(v), 'SA identity number must be 13 digits with a valid checksum');
-
 const createBody = z.object({
   senderFirstName: nameField,
   senderLastName: nameField,
@@ -99,7 +151,7 @@ const createBody = z.object({
   recipientFirstName: nameField,
   recipientLastName: nameField,
   recipientPhone: phoneDigits,
-  recipientIdDocument: saIdBody,
+  recipientIdDocument: optionalSaIdBody,
   amount: z.coerce.number().positive(),
   atmPin: cashSendVoucherPin,
 });
@@ -116,11 +168,6 @@ cashSendRouterPg.post(
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
-    }
-    if (!digitsOnlyPhoneSame(parsed.data.senderPhone, req.auth!.phone)) {
-      return res.status(400).json({
-        error: 'Sender cell number must match the logged-in shop account.',
-      });
     }
     if (
       digitsOnlyPhoneSame(parsed.data.recipientPhone, parsed.data.senderPhone)
@@ -254,7 +301,13 @@ cashSendRouterPg.post(
 );
 
 const collectBody = z.object({
-  referenceNumber: z.string().min(1),
+  referenceNumber: z
+    .string()
+    .min(1)
+    .transform((v) => parseCashSendVoucherReference(v))
+    .refine((v): v is string => v !== null, {
+      message: COLLECT_REFERENCE_MSG,
+    }),
   pin: cashSendVoucherPin,
   scannedIdDocument: z.string().min(1),
 });
@@ -269,14 +322,17 @@ cashSendRouterPg.post(
       return res.status(400).json({ error: parsed.error.flatten() });
     }
     const pool = getPgPool();
-    const rowQ = await pool.query<VoucherRow>(
-      `SELECT * FROM cash_send_vouchers WHERE reference_number = $1`,
-      [parsed.data.referenceNumber],
+    const row = await findVoucherByReferencePg(
+      pool,
+      parsed.data.referenceNumber,
     );
-    const row = rowQ.rows[0];
     if (!row) {
-      return res.status(404).json({ error: 'Voucher not found' });
+      return res.status(404).json({
+        error:
+          'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
+      });
     }
+    const voucherRef = row.reference_number;
     if (row.status !== 'active') {
       return res.status(400).json({ error: 'Voucher is not active' });
     }
@@ -352,7 +408,7 @@ cashSendRouterPg.post(
     }
 
     try {
-      await ensureCollectNotLockedPg(pool, parsed.data.referenceNumber);
+      await ensureCollectNotLockedPg(pool, voucherRef);
     } catch (e: unknown) {
       const err = e as { status?: number; message?: string };
       return res.status(err.status ?? 423).json({
@@ -361,11 +417,11 @@ cashSendRouterPg.post(
     }
 
     if (!verifyPin(parsed.data.pin, row.pin_hash)) {
-      await recordCollectPinFailurePg(pool, parsed.data.referenceNumber);
+      await recordCollectPinFailurePg(pool, voucherRef);
       return res.status(401).json({ error: 'Incorrect PIN' });
     }
 
-    await clearCollectPinFailuresPg(pool, parsed.data.referenceNumber);
+    await clearCollectPinFailuresPg(pool, voucherRef);
 
     const storedRecipientId = normalizeCashSendId(
       row.recipient_id_document ?? '',
@@ -425,13 +481,16 @@ cashSendRouterPg.post(
         referencePrefix: 'CSC',
         description: `Cash Send payout (${row.reference_number}) principal ${row.amount} from escrow (${poolId}); fee ${row.fee} retained in escrow`,
       });
-      const verified = storedRecipientId.length >= 13 ? 1 : 0;
       await client.query(
         `UPDATE cash_send_vouchers
             SET status = 'collected', collected_at = $1,
-                collector_scanned_id = $2, collected_with_id_verified = $3
-          WHERE id = $4`,
-        [nowIso, scannedNorm, verified, row.id],
+                collector_scanned_id = $2, collected_with_id_verified = 1,
+                recipient_id_document = CASE
+                  WHEN COALESCE(recipient_id_document, '') = '' THEN $2
+                  ELSE recipient_id_document
+                END
+          WHERE id = $3`,
+        [nowIso, scannedNorm, row.id],
       );
       await client.query('COMMIT');
     } catch (e) {

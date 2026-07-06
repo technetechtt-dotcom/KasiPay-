@@ -27,6 +27,8 @@ import type {
   CashSendVoucher,
   StockMovement } from '../types';
 
+import { parseCashSendVoucherReference } from '../lib/cashSendReference';
+
 import {
   ApiError,
   apiApplyLoan,
@@ -938,7 +940,7 @@ export function useAppState() {
     recipientFirstName: string;
     recipientLastName: string;
     recipientPhone: string;
-    recipientIdDocument: string;
+    recipientIdDocument?: string;
     amount: number;
     pin: string;
   }): Promise<CashSendVoucher | null> => {
@@ -946,10 +948,9 @@ export function useAppState() {
       toast.error('Sign in to create a Cash Send.');
       return null;
     }
-    if (
-      normalizePhone(input.senderPhone) !== normalizePhone(currentUser.phone)
-    ) {
-      toast.error('Sender cellphone must match your logged-in account.');
+    const cleanedSender = normalizePhone(input.senderPhone);
+    if (cleanedSender.length < 10) {
+      toast.error('Enter a valid sender cellphone (10 digits).');
       return null;
     }
     const atmPin = normalizeAtmPin(input.pin);
@@ -962,18 +963,19 @@ export function useAppState() {
       toast.error('Enter a valid beneficiary cellphone (10 digits).');
       return null;
     }
-    if (cleanedRecipient === normalizePhone(currentUser.phone)) {
-      toast.error('Beneficiary cellphone must differ from yours.');
+    if (cleanedRecipient === cleanedSender) {
+      toast.error('Beneficiary cellphone must differ from the sender’s.');
       return null;
     }
     const senderId = input.senderIdDocument.replace(/\D/g, '');
-    const recipientId = input.recipientIdDocument.replace(/\D/g, '');
+    const recipientId = (input.recipientIdDocument ?? '').replace(/\D/g, '');
     const senderIdMsg = saIdValidationMessage(senderId);
     if (senderIdMsg) {
       toast.error(`Sender: ${senderIdMsg}`);
       return null;
     }
-    const recipientIdMsg = saIdValidationMessage(recipientId);
+    const recipientIdMsg =
+      recipientId.length > 0 ? saIdValidationMessage(recipientId) : null;
     if (recipientIdMsg) {
       toast.error(`Beneficiary: ${recipientIdMsg}`);
       return null;
@@ -997,12 +999,12 @@ export function useAppState() {
         senderFirstName: input.senderFirstName.trim(),
         senderLastName: input.senderLastName.trim(),
         senderIdDocument: senderId,
-        senderPhone: normalizePhone(input.senderPhone),
+        senderPhone: cleanedSender,
         senderAddress: input.senderAddress.trim(),
         recipientFirstName: input.recipientFirstName.trim(),
         recipientLastName: input.recipientLastName.trim(),
         recipientPhone: cleanedRecipient,
-        recipientIdDocument: recipientId,
+        recipientIdDocument: recipientId || '',
         amount: input.amount,
         atmPin,
       });
@@ -1037,9 +1039,13 @@ export function useAppState() {
     if (idMsg) {
       return { success: false, reason: idMsg };
     }
+    const voucherRef = parseCashSendVoucherReference(referenceNumber);
+    if (!voucherRef) {
+      return { success: false, reason: 'Enter a valid voucher number (CS…) and PIN.' };
+    }
     try {
       const { voucher } = await apiCollectCashSend({
-        referenceNumber: referenceNumber.trim(),
+        referenceNumber: voucherRef,
         pin: atm,
         scannedIdDocument: idDigits,
       });

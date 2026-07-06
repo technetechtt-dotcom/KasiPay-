@@ -12,13 +12,15 @@
 const SENDER_KYC_KEY = 'kasiPay.senderKyc.v1';
 
 export type SenderKycProfile = {
-  /** Owner phone, used to scope per logged-in user. */
+  /** Logged-in shop account phone — scopes this profile per device user. */
   phone: string;
   firstName: string;
   lastName: string;
   /** 13-digit South African ID — verified at last send. */
   idDocument: string;
   address: string;
+  /** Walk-in customer cellphone from the last successful send. */
+  senderCellphone?: string;
   savedAt: string;
 };
 

@@ -32,3 +32,30 @@ export function cashSendIdsMatch(expectedStored: string, scannedOrEntered: strin
   if (!a || !b) return false;
   return a === b;
 }
+
+/** Strip spaces and normalise case for CS… voucher numbers. */
+export function normalizeCashSendReference(raw: string): string {
+  return raw.replace(/\s+/g, '').trim().toUpperCase();
+}
+
+export function isSaCellphoneInput(raw: string): boolean {
+  const digits = raw.replace(/\D/g, '');
+  return /^0\d{9}$/.test(digits);
+}
+
+/** Public voucher number issued at send — the only key for collect. */
+export function isCashSendVoucherReference(raw: string): boolean {
+  const ref = normalizeCashSendReference(raw);
+  return ref.startsWith('CS') && ref.length >= 10 && /^CS\d+$/.test(ref);
+}
+
+/**
+ * Normalise and validate a collect lookup key. Rejects cellphones, internal IDs,
+ * and any value that is not a CS… voucher number.
+ */
+export function parseCashSendVoucherReference(raw: string): string | null {
+  const trimmed = raw.replace(/\s+/g, '').trim();
+  if (!trimmed || isSaCellphoneInput(trimmed)) return null;
+  const ref = normalizeCashSendReference(trimmed);
+  return isCashSendVoucherReference(ref) ? ref : null;
+}

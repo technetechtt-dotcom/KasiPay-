@@ -5,6 +5,7 @@ import {
   cashSendIdsMatch,
   isValidSaIdChecksum,
   normalizeCashSendId,
+  parseCashSendVoucherReference,
   validateSaIdDigits,
 } from './cashSendKyc.js';
 
@@ -39,5 +40,23 @@ describe('cashSendIdsMatch', () => {
 
   it('normalizes non-digit characters away', () => {
     assert.equal(normalizeCashSendId('80-010-15009087'), '8001015009087');
+  });
+});
+
+describe('parseCashSendVoucherReference', () => {
+  it('accepts CS voucher numbers only', () => {
+    assert.equal(
+      parseCashSendVoucherReference(' cs1783348762065946 '),
+      'CS1783348762065946',
+    );
+  });
+
+  it('rejects cellphones and internal ids', () => {
+    assert.equal(parseCashSendVoucherReference('0697040585'), null);
+    assert.equal(
+      parseCashSendVoucherReference('b42c6aaa-bd92-421a-971e-939b72de8394'),
+      null,
+    );
+    assert.equal(parseCashSendVoucherReference('ABC123'), null);
   });
 });
