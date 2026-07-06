@@ -1,0 +1,9 @@
+# Archives and local bundles
+*.zip
+
+# Workspace editor settings
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

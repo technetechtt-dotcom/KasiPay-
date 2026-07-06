@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ekasi Pay</string>
+    <string name="title_activity_main">Ekasi Pay</string>
+    <string name="package_name">za.co.ekasipay.app</string>
+    <string name="custom_url_scheme">za.co.ekasipay.app</string>
+</resources>

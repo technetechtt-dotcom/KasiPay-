@@ -1,0 +1,21 @@
+{
+  "name": "Ekasi Pay",
+  "short_name": "Ekasi Pay",
+  "description": "Wallet, POS, and money services for spaza shops in Mzansi.",
+  "id": "/",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "lang": "en-ZA",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

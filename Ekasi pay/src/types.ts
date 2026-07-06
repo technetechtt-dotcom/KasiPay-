@@ -1,0 +1,344 @@
+export type Role = 'customer' | 'merchant' | 'agent' | 'admin';
+export type AccountTier = 'Basic' | 'Standard' | 'Premium';
+export type KYCStatus = 'pending' | 'verified' | 'rejected';
+export type TransactionType =
+  | 'transfer'
+  | 'deposit'
+  | 'withdrawal'
+  | 'payment'
+  | 'cash_send_hold'
+  | 'cash_send_collect'
+  | 'cash_send_cancel_refund'
+  | 'cash_send_expire_refund';
+export type TransactionStatus = 'pending' | 'completed' | 'failed';
+export type EntryType = 'debit' | 'credit';
+
+export interface User {
+  id: string;
+  name: string;
+  phone: string;
+  /** Present only immediately after register before server round-trip; omit for API-backed sessions. */
+  pin?: string;
+  role: Role;
+  kycStatus: KYCStatus;
+  accountTier: AccountTier;
+  /** ISO 3166-1 alpha-2; aligns with ledger pool (default ZA). */
+  countryCode: string;
+  createdAt: string;
+  /** Set when an admin has suspended the account. */
+  suspendedAt?: string | null;
+}
+
+export interface Wallet {
+  id: string;
+  userId: string;
+  balance: number;
+  currency: string;
+  status: 'active' | 'frozen';
+  /** Regional ledger pool (same as country for now). */
+  poolId: string;
+  walletKind: 'user' | 'system_escrow';
+}
+
+export interface Transaction {
+  id: string;
+  fromWalletId: string | null;
+  toWalletId: string | null;
+  amount: number;
+  type: TransactionType;
+  status: TransactionStatus;
+  reference: string;
+  description: string;
+  createdAt: string;
+}
+
+export interface LedgerEntry {
+  id: string;
+  transactionId: string;
+  accountId: string;
+  entryType: EntryType;
+  amount: number;
+  balanceAfter: number;
+  createdAt: string;
+}
+
+export interface Merchant {
+  id: string;
+  userId: string;
+  businessName: string;
+  location: string;
+  category: string;
+}
+
+export interface Product {
+  id: string;
+  merchantId: string;
+  name: string;
+  costPrice: number;
+  price: number;
+  stock: number;
+  category: string;
+  barcode?: string;
+}
+
+export interface SaleItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+}
+
+export interface Sale {
+  id: string;
+  merchantId: string;
+  items: SaleItem[];
+  total: number;
+  paymentMethod: 'cash' | 'wallet';
+  createdAt: string;
+}
+
+export interface Loan {
+  id: string;
+  userId: string;
+  amount: number;
+  interestRate: number;
+  status: 'pending' | 'approved' | 'rejected' | 'disbursed' | 'repaid';
+  disbursedAt?: string;
+  dueDate?: string;
+  repaidAmount: number;
+}
+
+export interface ComplianceFlag {
+  id: string;
+  userId: string;
+  transactionId?: string;
+  reason: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  /**
+   * Lifecycle of a compliance flag. `pending` / `reviewed` are legacy values
+   * carried over from earlier UI states; the backend currently issues `open`
+   * and transitions to `resolved` or `dismissed` via PATCH.
+   */
+  status: 'pending' | 'reviewed' | 'open' | 'resolved' | 'dismissed';
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export type ExpenseCategory =
+'electricity' |
+'paraffin' |
+'supplier' |
+'rent' |
+'transport' |
+'other';
+
+export interface Expense {
+  id: string;
+  merchantId: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  createdAt: string;
+}
+
+export type Language = 'en' | 'zu' | 'xh';
+
+// Credit Book
+export interface CreditCustomer {
+  id: string;
+  merchantId: string;
+  name: string;
+  phone: string;
+  totalOwed: number;
+  creditLimit: number;
+  lastPaymentDate?: string;
+  createdAt: string;
+}
+
+export interface CreditTransaction {
+  id: string;
+  customerId: string;
+  type: 'purchase' | 'payment';
+  amount: number;
+  description: string;
+  createdAt: string;
+}
+
+// Supplier Orders
+export interface Supplier {
+  id: string;
+  name: string;
+  phone: string;
+  category: string;
+  deliveryDays: string[];
+}
+
+export interface SupplierOrder {
+  id: string;
+  merchantId: string;
+  supplierId: string;
+  items: {name: string;quantity: number;unitCost: number;}[];
+  total: number;
+  status: 'pending' | 'confirmed' | 'delivered';
+  orderDate: string;
+  expectedDelivery?: string;
+}
+
+// Stokvel / Savings Group
+export interface StokvelGroup {
+  id: string;
+  name: string;
+  members: {name: string;phone: string;contributed: number;}[];
+  targetAmount: number;
+  currentAmount: number;
+  frequency: 'weekly' | 'monthly';
+  nextPayoutDate: string;
+  createdAt: string;
+}
+
+// Layby
+export interface LaybyOrder {
+  id: string;
+  merchantId: string;
+  customerName: string;
+  customerPhone: string;
+  itemName: string;
+  totalPrice: number;
+  amountPaid: number;
+  installments: {amount: number;date: string;}[];
+  status: 'active' | 'completed' | 'cancelled';
+  createdAt: string;
+}
+
+// Load Shedding
+export interface LoadSheddingSlot {
+  /** Present when loaded from the API (used for keys). */
+  id?: string;
+  stage: number;
+  startTime: string;
+  endTime: string;
+  area: string;
+}
+
+// Price Comparison
+export interface PriceComparison {
+  id: string;
+  productName: string;
+  myPrice: number;
+  avgAreaPrice: number;
+  lowestAreaPrice: number;
+  highestAreaPrice: number;
+  competitors: number;
+  lastUpdated: string;
+}
+
+// Micro-Insurance
+export interface InsurancePolicy {
+  id: string;
+  merchantId: string;
+  provider: string;
+  type: 'stock' | 'fire' | 'theft';
+  coverageAmount: number;
+  monthlyPremium: number;
+  status: 'active' | 'pending' | 'cancelled';
+  nextPaymentDate: string;
+}
+
+// Voice Notes
+export interface VoiceNote {
+  id: string;
+  merchantId: string;
+  title: string;
+  transcript: string;
+  duration: number;
+  createdAt: string;
+  category: 'reminder' | 'debt' | 'order' | 'general';
+}
+
+// Food Safety & Compliance
+export interface SupplierVerification {
+  supplierId: string;
+  cipcRegistered: boolean;
+  healthDeptApproved: boolean;
+  lastInspectionDate: string;
+  certificateExpiry: string;
+  verificationStatus: 'verified' | 'pending' | 'unverified' | 'flagged';
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
+export interface ExpiryItem {
+  id: string;
+  productName: string;
+  category: string;
+  batchNumber: string;
+  expiryDate: string;
+  quantity: number;
+  supplierId: string;
+  status: 'safe' | 'expiring-soon' | 'expired';
+}
+
+export interface FoodSafetyAlert {
+  id: string;
+  type: 'recall' | 'expiry' | 'supplier' | 'inspection';
+  title: string;
+  description: string;
+  severity: 'critical' | 'warning' | 'info';
+  createdAt: string;
+  isRead: boolean;
+}
+
+// Cash Send
+export interface CashSendVoucher {
+  id: string;
+  senderPhone: string;
+  senderName?: string;
+  senderFirstName?: string;
+  senderLastName?: string;
+  recipientPhone: string;
+  recipientName?: string;
+  recipientFirstName?: string;
+  recipientLastName?: string;
+  /** Last 4 digits of beneficiary SA ID (sender view only; full number never returned). */
+  recipientIdLast4?: string;
+  /** Payout used a beneficiary ID that matched what was captured at send time. */
+  collectIdMatchedOnFile?: boolean;
+  amount: number;
+  fee: number;
+  atmPin: string;
+  referenceNumber: string;
+  status: 'active' | 'collected' | 'expired' | 'cancelled';
+  createdAt: string;
+  expiresAt: string;
+  collectedAt?: string;
+  cancelReason?: string;
+}
+
+// Stock Movement
+export interface StockMovement {
+  id: string;
+  productId: string;
+  productName: string;
+  type: 'in' | 'out' | 'adjustment';
+  quantity: number;
+  reason:
+  'sale' |
+  'restock' |
+  'damage' |
+  'expired' |
+  'theft' |
+  'manual' |
+  'initial';
+  costPriceAtTime?: number;
+  reference?: string;
+  createdAt: string;
+  notes?: string;
+}
