@@ -1,0 +1,71 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+
+import { loginHandler, requireOpsAuth } from './auth.js';
+import {
+  NODE_ENV,
+  OPS_DASHBOARD_ORIGIN,
+  OPS_PORT,
+  validateOpsConfig,
+} from './config.js';
+import { closeDataStore } from './db.js';
+import { monitoringRouter } from './routes/monitoring.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+validateOpsConfig();
+
+const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(
+  cors({
+    origin:
+      NODE_ENV === 'development'
+        ? true
+        : (origin, cb) => {
+            if (!origin || origin === OPS_DASHBOARD_ORIGIN) {
+              cb(null, true);
+              return;
+            }
+            cb(new Error(`Origin ${origin} not allowed`));
+          },
+  }),
+);
+app.use(express.json({ limit: '256kb' }));
+
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'ekasi-ops-dashboard' });
+});
+
+app.post('/ops-api/login', loginHandler);
+
+const api = express.Router();
+api.use(requireOpsAuth);
+api.use(monitoringRouter);
+app.use('/ops-api', api);
+
+const distDir = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
+const server = app.listen(OPS_PORT, () => {
+  console.info(`Ekasi Ops Dashboard API listening on http://localhost:${OPS_PORT}`);
+});
+
+function shutdown() {
+  server.close(() => {
+    void closeDataStore().finally(() => process.exit(0));
+  });
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

@@ -97,6 +97,19 @@ When signed in as a user with role `admin`:
 
 Documented in-app under **Help → Field pilot — quick steps**. Prefer USB retail scanners for dense barcodes; use extra light for phone cameras.
 
+## 11. Ops dashboard (separate deployment)
+
+Platform monitoring runs in **`ops-dashboard/`** — its own process (default port **8790**), not the main API. Read-only access to the same database.
+
+```bash
+cd ops-dashboard
+cp .env.example .env
+npm install
+npm run dev
+```
+
+See `ops-dashboard/README.md` for production deploy (separate host, `DATABASE_URL`, bcrypt operator password).
+
 ---
 
 See also `backend/.env.example` and root `.env.example` for tunable env vars.
