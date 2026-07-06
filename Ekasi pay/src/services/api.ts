@@ -1,5 +1,16 @@
 import { pushClientDiag } from './clientDiagnostics';
 
+function readConfiguredApiUrl(): string | undefined {
+  if (typeof window !== 'undefined') {
+    const runtime = (window as Window & { __KASIPAY_API_URL__?: string })
+      .__KASIPAY_API_URL__;
+    if (runtime?.trim()) return runtime;
+  }
+  return typeof import.meta !== 'undefined'
+    ? (import.meta.env.VITE_API_URL as string | undefined)
+    : undefined;
+}
+
 function normalizeApiBaseUrl(raw: string | undefined): string {
   let base = (raw ?? '').trim().replace(/\/$/, '');
   if (!base) return '';
@@ -24,11 +35,7 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
 
 /** API base URL. Empty string uses same-origin `/api` (Vite proxy in dev). */
 export function apiBaseUrl(): string {
-  const v =
-    typeof import.meta !== 'undefined'
-      ? (import.meta.env.VITE_API_URL as string | undefined)
-      : undefined;
-  const base = normalizeApiBaseUrl(v);
+  const base = normalizeApiBaseUrl(readConfiguredApiUrl());
 
   // Capacitor native builds do not use the Vite dev proxy, so an explicit API
   // origin is required to avoid silent same-origin `/api` failures.
