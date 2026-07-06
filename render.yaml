@@ -39,10 +39,10 @@ services:
     name: ekasi-pay-web
     runtime: static
     rootDir: Ekasi pay
-    buildCommand: npm install && npm run build
+    buildCommand: npm install && VITE_API_URL=https://${API_HOST} npm run build
     staticPublishPath: dist
     envVars:
-      - key: VITE_API_URL
+      - key: API_HOST
         fromService:
           name: ekasi-pay-api
           type: web

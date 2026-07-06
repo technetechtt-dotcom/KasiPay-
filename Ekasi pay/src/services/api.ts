@@ -1,15 +1,34 @@
 import { pushClientDiag } from './clientDiagnostics';
 
+function normalizeApiBaseUrl(raw: string | undefined): string {
+  let base = (raw ?? '').trim().replace(/\/$/, '');
+  if (!base) return '';
+
+  if (!/^https?:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
+
+  try {
+    const url = new URL(base);
+    // Render blueprint "host" can resolve to the service slug before DNS exists.
+    if (!url.hostname.includes('.')) {
+      url.hostname = `${url.hostname}.onrender.com`;
+      base = url.origin;
+    }
+  } catch {
+    /* keep best-effort base */
+  }
+
+  return base;
+}
+
 /** API base URL. Empty string uses same-origin `/api` (Vite proxy in dev). */
 export function apiBaseUrl(): string {
   const v =
     typeof import.meta !== 'undefined'
       ? (import.meta.env.VITE_API_URL as string | undefined)
       : undefined;
-  let base = (v ?? '').replace(/\/$/, '');
-  if (base && !/^https?:\/\//i.test(base)) {
-    base = `https://${base}`;
-  }
+  const base = normalizeApiBaseUrl(v);
 
   // Capacitor native builds do not use the Vite dev proxy, so an explicit API
   // origin is required to avoid silent same-origin `/api` failures.
