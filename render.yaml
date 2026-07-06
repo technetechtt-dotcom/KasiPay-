@@ -8,7 +8,7 @@ services:
     name: ekasi-pay-api
     runtime: node
     rootDir: Ekasi pay/backend
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /health
     plan: starter
@@ -39,7 +39,7 @@ services:
     name: ekasi-pay-web
     runtime: static
     rootDir: Ekasi pay
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
@@ -52,7 +52,7 @@ services:
     name: ekasi-ops-dashboard
     runtime: node
     rootDir: Ekasi pay/ops-dashboard
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /health
     plan: starter
