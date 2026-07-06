@@ -105,7 +105,7 @@ export const MoneyServices = ({
   showBackButton?: boolean;
 }) => {
   const [activeTab, setActiveTab] = useState<'send' | 'receive' | 'vouchers'>(
-    initialTab
+    () => inferCashSendTabFromDraft(initialTab),
   );
   return (
     <PageTransition className="flex flex-col h-full bg-slate-50">
@@ -247,6 +247,18 @@ const onlyDigits = (v: string) => v.replace(/\D/g, '');
 
 const SEND_CASH_SCAN_DRAFT_KEY = 'ekasi.sendCashDraft.v1';
 const COLLECT_CASH_SCAN_DRAFT_KEY = 'ekasi.collectCashDraft.v1';
+
+function inferCashSendTabFromDraft(
+  initialTab: 'send' | 'receive' | 'vouchers',
+): 'send' | 'receive' | 'vouchers' {
+  try {
+    if (sessionStorage.getItem(COLLECT_CASH_SCAN_DRAFT_KEY)) return 'receive';
+    if (sessionStorage.getItem(SEND_CASH_SCAN_DRAFT_KEY)) return 'send';
+  } catch {
+    /* ignore */
+  }
+  return initialTab;
+}
 
 const SendCashFlow = ({
   wallet,

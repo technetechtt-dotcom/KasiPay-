@@ -62,13 +62,43 @@ export function defaultStockMode(
   return 'restock';
 }
 
-/** Strip formatting; keep up to first 13 digits (SA ID barcode / keypad). */
-export function digitsFromBarcodeForSaId(raw: string): string {
+/** Collect every 13-digit run from decoded barcode text (PDF417 often embeds extra fields). */
+function saIdCandidatesFromRaw(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value: string) => {
+    if (value.length !== 13 || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  };
+
+  const compact = raw.replace(/\s/g, '');
+  const embedded = compact.match(/\d{13}/g);
+  if (embedded) embedded.forEach(push);
+
   const digitsOnly = raw.replace(/\D/g, '');
-  const asText = raw.replace(/\s/g, '');
-  const embedded = asText.match(/\d{13}/);
-  if (embedded?.[0]) return embedded[0];
-  return digitsOnly.slice(0, 13);
+  for (let i = 0; i <= digitsOnly.length - 13; i++) {
+    push(digitsOnly.slice(i, i + 13));
+  }
+  return out;
+}
+
+/** Strip formatting; prefer a 13-digit SA ID substring from PDF417 / Code128 payloads. */
+export function digitsFromBarcodeForSaId(raw: string): string {
+  const candidates = saIdCandidatesFromRaw(raw);
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    // Prefer a candidate whose first six digits look like YYMMDD.
+    const dobLike = candidates.find((c) => {
+      const yy = Number(c.slice(0, 2));
+      const mm = Number(c.slice(2, 4));
+      const dd = Number(c.slice(4, 6));
+      return yy <= 99 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
+    });
+    if (dobLike) return dobLike;
+    return candidates[0];
+  }
+  return raw.replace(/\D/g, '').slice(0, 13);
 }
 
 export function storeScannedSaId(

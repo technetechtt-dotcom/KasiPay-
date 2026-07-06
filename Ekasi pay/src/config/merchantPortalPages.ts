@@ -1,10 +1,13 @@
-/** Routes that require merchant workspace (only visible in merchant mode). */
+/**
+ * Routes that require merchant workspace (only visible in merchant mode).
+ * `scanner` is intentionally omitted — Cash Send ID scans in wallet mode also
+ * navigate there; the session payload selects product vs ID capture.
+ */
 export const MERCHANT_PORTAL_PAGE_IDS = new Set([
   'shop',
   'inventory',
   'stock-value',
   'add-stock',
-  'scanner',
   'expenses',
   'analytics',
   'reports',
