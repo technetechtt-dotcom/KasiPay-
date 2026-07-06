@@ -40,8 +40,24 @@ export const FRONTEND_ORIGIN =
 
 function normalizeOrigin(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  if (!trimmed) return trimmed;
+
+  let origin = trimmed;
+  if (!/^https?:\/\//i.test(origin)) {
+    origin = `https://${origin}`;
+  }
+
+  try {
+    const url = new URL(origin);
+    if (!url.hostname.includes('.')) {
+      url.hostname = `${url.hostname}.onrender.com`;
+      origin = url.origin;
+    }
+  } catch {
+    /* keep best-effort origin */
+  }
+
+  return origin;
 }
 
 /** Comma-separated origins (prod CORS). Falls back to FRONTEND_ORIGIN. */

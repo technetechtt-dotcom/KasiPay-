@@ -30,8 +30,24 @@ export const OPS_DASHBOARD_PASSWORD =
 
 function normalizeOrigin(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  if (!trimmed) return trimmed;
+
+  let origin = trimmed;
+  if (!/^https?:\/\//i.test(origin)) {
+    origin = `https://${origin}`;
+  }
+
+  try {
+    const url = new URL(origin);
+    if (!url.hostname.includes('.')) {
+      url.hostname = `${url.hostname}.onrender.com`;
+      origin = url.origin;
+    }
+  } catch {
+    /* keep best-effort origin */
+  }
+
+  return origin;
 }
 
 export const OPS_DASHBOARD_ORIGIN = normalizeOrigin(
