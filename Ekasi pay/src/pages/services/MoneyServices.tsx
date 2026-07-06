@@ -35,6 +35,7 @@ import {
   saveSenderKycProfile,
 } from '../../lib/senderKycProfile';
 import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
+import { saIdValidationMessage } from '../../lib/saIdValidation';
 import { CashSendConsentGate } from '../../components/consent/CashSendDataConsent';
 
 export type CashSendCreatePayload = {
@@ -368,15 +369,17 @@ const SendCashFlow = ({
   const handleNext = async () => {
     setError('');
     if (step === 1) {
+      const senderIdMsg = saIdValidationMessage(onlyDigits(senderId));
       if (
         !senderFirstName.trim() ||
         !senderLastName.trim() ||
-        onlyDigits(senderId).length !== 13 ||
+        senderIdMsg ||
         onlyDigits(senderPhone).length < 10 ||
         senderAddress.trim().length < 3
       ) {
         setError(
-          'Complete sender details: name, surname, 13-digit SA ID, cellphone, and physical address.'
+          senderIdMsg ??
+            'Complete sender details: name, surname, valid 13-digit SA ID, cellphone, and physical address.'
         );
         return;
       }
@@ -384,14 +387,16 @@ const SendCashFlow = ({
       return;
     }
     if (step === 2) {
+      const recipientIdMsg = saIdValidationMessage(onlyDigits(recipientId));
       if (
         !recipientFirstName.trim() ||
         !recipientLastName.trim() ||
         onlyDigits(recipientPhone).length < 10 ||
-        onlyDigits(recipientId).length !== 13
+        recipientIdMsg
       ) {
         setError(
-          'Complete beneficiary details: name, surname, phone, and 13-digit SA ID (as on their document).'
+          recipientIdMsg ??
+            'Complete beneficiary details: name, surname, phone, and valid 13-digit SA ID (as on their document).'
         );
         return;
       }
@@ -875,10 +880,9 @@ const CollectCashFlow = ({
   const handlePayout = async () => {
     setError('');
     const digits = onlyDigits(scannedIdDoc);
-    if (digits.length !== 13) {
-      setError(
-        'Scan or enter the beneficiary’s full 13-digit SA ID as read from their identity document.'
-      );
+    const idMsg = saIdValidationMessage(digits);
+    if (idMsg) {
+      setError(idMsg);
       return;
     }
     setBusy(true);

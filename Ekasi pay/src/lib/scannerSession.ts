@@ -24,6 +24,8 @@ const PENDING_PRODUCT_CATALOG_HIT = 'ekasi.product.scan.catalogHit';
 
 export { normalizeProductBarcode } from './productBarcode';
 
+import { isValidSaIdChecksum } from './saIdValidation';
+
 export function writeScannerSession(p: ScannerSessionPayload): void {
   sessionStorage.setItem(CONTEXT_KEY, JSON.stringify(p));
 }
@@ -83,12 +85,14 @@ function saIdCandidatesFromRaw(raw: string): string[] {
   return out;
 }
 
-/** Strip formatting; prefer a 13-digit SA ID substring from PDF417 / Code128 payloads. */
+/** Strip formatting; prefer a checksum-valid 13-digit SA ID from PDF417 / Code128 payloads. */
 export function digitsFromBarcodeForSaId(raw: string): string {
   const candidates = saIdCandidatesFromRaw(raw);
+  const checksumValid = candidates.filter((c) => isValidSaIdChecksum(c));
+  if (checksumValid.length === 1) return checksumValid[0];
+  if (checksumValid.length > 1) return checksumValid[0];
   if (candidates.length === 1) return candidates[0];
   if (candidates.length > 1) {
-    // Prefer a candidate whose first six digits look like YYMMDD.
     const dobLike = candidates.find((c) => {
       const yy = Number(c.slice(0, 2));
       const mm = Number(c.slice(2, 4));

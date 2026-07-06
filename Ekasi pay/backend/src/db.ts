@@ -451,6 +451,22 @@ function applyIncrementalMigrations(database: Database.Database) {
     `);
   }
 
+  const collectFailures = database
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cash_send_collect_failures'`,
+    )
+    .get() as { name: string } | undefined;
+  if (!collectFailures) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS cash_send_collect_failures (
+        reference_number TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT,
+        last_attempt_at TEXT NOT NULL
+      );
+    `);
+  }
+
   const pinResets = database
     .prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name='pin_reset_codes'`,

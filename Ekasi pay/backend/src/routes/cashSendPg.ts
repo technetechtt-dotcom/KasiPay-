@@ -22,6 +22,11 @@ import { createComplianceFlagPg } from '../services/compliancePg.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 import { cashSendVoucherPin } from '../validation.js';
+import {
+  clearCollectPinFailuresPg,
+  ensureCollectNotLockedPg,
+  recordCollectPinFailurePg,
+} from '../security/collectPinAttemptsPg.js';
 
 const COMMISSION_FEE_SHARE = 0.5;
 
@@ -83,7 +88,7 @@ const saIdBody = z
   .string()
   .min(1)
   .transform((v) => normalizeCashSendId(v))
-  .refine((v) => validateSaIdDigits(v), 'SA identity number must be 13 digits');
+  .refine((v) => validateSaIdDigits(v), 'SA identity number must be 13 digits with a valid checksum');
 
 const createBody = z.object({
   senderFirstName: nameField,
@@ -346,9 +351,21 @@ cashSendRouterPg.post(
         .json({ error: 'Sender wallet not found for this voucher' });
     }
 
+    try {
+      await ensureCollectNotLockedPg(pool, parsed.data.referenceNumber);
+    } catch (e: unknown) {
+      const err = e as { status?: number; message?: string };
+      return res.status(err.status ?? 423).json({
+        error: err.message ?? 'Too many wrong PINs for this voucher.',
+      });
+    }
+
     if (!verifyPin(parsed.data.pin, row.pin_hash)) {
+      await recordCollectPinFailurePg(pool, parsed.data.referenceNumber);
       return res.status(401).json({ error: 'Incorrect PIN' });
     }
+
+    await clearCollectPinFailuresPg(pool, parsed.data.referenceNumber);
 
     const storedRecipientId = normalizeCashSendId(
       row.recipient_id_document ?? '',

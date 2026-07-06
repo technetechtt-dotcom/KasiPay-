@@ -21,6 +21,11 @@ import {
 import { createComplianceFlag } from '../services/compliance.js';
 import { postBetweenWallets } from '../services/walletPosting.js';
 import { cashSendVoucherPin } from '../validation.js';
+import {
+  clearCollectPinFailures,
+  ensureCollectNotLocked,
+  recordCollectPinFailure,
+} from '../security/collectPinAttempts.js';
 
 /** Sender share of every cash-send fee. Tweak as commission policy changes. */
 const COMMISSION_FEE_SHARE = 0.5;
@@ -78,7 +83,7 @@ const saIdBody = z
   .string()
   .min(1)
   .transform((v) => normalizeCashSendId(v))
-  .refine((v) => validateSaIdDigits(v), 'SA identity number must be 13 digits');
+  .refine((v) => validateSaIdDigits(v), 'SA identity number must be 13 digits with a valid checksum');
 
 const createBody = z.object({
   senderFirstName: nameField,
@@ -336,9 +341,21 @@ cashSendRouter.post(
     return res.status(400).json({ error: 'Sender wallet not found for this voucher' });
   }
 
+  try {
+    ensureCollectNotLocked(database, parsed.data.referenceNumber);
+  } catch (e: unknown) {
+    const err = e as { status?: number; message?: string };
+    return res.status(err.status ?? 423).json({
+      error: err.message ?? 'Too many wrong PINs for this voucher.',
+    });
+  }
+
   if (!verifyPin(parsed.data.pin, row.pin_hash)) {
+    recordCollectPinFailure(database, parsed.data.referenceNumber);
     return res.status(401).json({ error: 'Incorrect PIN' });
   }
+
+  clearCollectPinFailures(database, parsed.data.referenceNumber);
 
   const rowFull = row as typeof row & { recipient_id_document?: string };
   const storedRecipientId = normalizeCashSendId(rowFull.recipient_id_document ?? '');

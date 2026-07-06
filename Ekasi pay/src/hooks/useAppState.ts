@@ -103,6 +103,7 @@ import {
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { toastMutationError } from '../lib/mutationToast';
 import { cashSendVoucherPinMessage, isCashSendVoucherPinValid } from '../lib/pinValidation';
+import { saIdValidationMessage } from '../lib/saIdValidation';
 import {
   enqueueExpense,
   enqueueSale,
@@ -967,8 +968,14 @@ export function useAppState() {
     }
     const senderId = input.senderIdDocument.replace(/\D/g, '');
     const recipientId = input.recipientIdDocument.replace(/\D/g, '');
-    if (senderId.length !== 13 || recipientId.length !== 13) {
-      toast.error('Sender and beneficiary SA ID numbers must be 13 digits.');
+    const senderIdMsg = saIdValidationMessage(senderId);
+    if (senderIdMsg) {
+      toast.error(`Sender: ${senderIdMsg}`);
+      return null;
+    }
+    const recipientIdMsg = saIdValidationMessage(recipientId);
+    if (recipientIdMsg) {
+      toast.error(`Beneficiary: ${recipientIdMsg}`);
       return null;
     }
     if (!isPositiveAmount(input.amount)) {
@@ -1026,12 +1033,9 @@ export function useAppState() {
       };
     }
     const idDigits = scannedIdDocument.replace(/\D/g, '');
-    if (idDigits.length !== 13) {
-      return {
-        success: false,
-        reason:
-          'Enter or scan the full 13-digit ID number from the beneficiary’s identity document.',
-      };
+    const idMsg = saIdValidationMessage(idDigits);
+    if (idMsg) {
+      return { success: false, reason: idMsg };
     }
     try {
       const { voucher } = await apiCollectCashSend({

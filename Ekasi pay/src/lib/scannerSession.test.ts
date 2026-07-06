@@ -14,9 +14,9 @@ describe('digitsFromBarcodeForSaId', () => {
     expect(digitsFromBarcodeForSaId(pdf417Like)).toBe('8001015009087');
   });
 
-  it('prefers a YYMMDD-looking candidate when multiple 13-digit runs exist', () => {
-    const noisy = '99999999999990101015009087';
-    expect(digitsFromBarcodeForSaId(noisy)).toBe('0101015009087');
+  it('prefers a checksum-valid candidate when multiple 13-digit runs exist', () => {
+    const noisy = '99999999999998001015009087';
+    expect(digitsFromBarcodeForSaId(noisy)).toBe('8001015009087');
   });
 
   it('strips spaces and punctuation', () => {
