@@ -31,6 +31,20 @@ import {
   recordCollectPinFailure,
 } from '../security/collectPinAttempts.js';
 
+type CashSendVoucherDbRow = {
+  id: string;
+  reference_number: string;
+  sender_user_id: string;
+  status: string;
+  expires_at: string;
+  amount: number;
+  fee: number;
+  pin_hash: string;
+  recipient_phone: string;
+  recipient_id_document?: string;
+  sender_id_document?: string;
+};
+
 /** Sender share of every cash-send fee. Tweak as commission policy changes. */
 const COMMISSION_FEE_SHARE = 0.5;
 
@@ -73,7 +87,7 @@ function findVoucherByReference(
   if (!ref) return undefined;
   return database
     .prepare('SELECT * FROM cash_send_vouchers WHERE reference_number = ?')
-    .get(ref) as Record<string, unknown> | undefined;
+    .get(ref) as CashSendVoucherDbRow | undefined;
 }
 
 const COLLECT_REFERENCE_MSG =
@@ -105,15 +119,15 @@ cashSendRouter.get('/cash-send/lookup', requireAuth, (req, res) => {
         'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
     });
   }
-  if (!verifyPin(pin, row.pin_hash as string)) {
+  if (!verifyPin(pin, row.pin_hash)) {
     return res.status(401).json({ error: 'Incorrect PIN for this voucher.' });
   }
   return res.json({
-    referenceNumber: row.reference_number as string,
-    status: row.status as string,
-    amount: row.amount as number,
-    recipientPhone: row.recipient_phone as string,
-    expiresAt: row.expires_at as string,
+    referenceNumber: row.reference_number,
+    status: row.status,
+    amount: row.amount,
+    recipientPhone: row.recipient_phone,
+    expiresAt: row.expires_at,
   });
 });
 
@@ -326,7 +340,7 @@ cashSendRouter.post(
         'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
     });
   }
-  const voucherRef = row.reference_number as string;
+  const voucherRef = row.reference_number;
 
   if (row.status !== 'active') {
     return res.status(400).json({ error: 'Voucher is not active' });
@@ -407,12 +421,8 @@ cashSendRouter.post(
 
   clearCollectPinFailures(database, voucherRef);
 
-  const rowFull = row as typeof row & {
-    recipient_id_document?: string;
-    sender_id_document?: string;
-  };
-  const storedRecipientId = normalizeCashSendId(rowFull.recipient_id_document ?? '');
-  const storedSenderId = normalizeCashSendId(rowFull.sender_id_document ?? '');
+  const storedRecipientId = normalizeCashSendId(row.recipient_id_document ?? '');
+  const storedSenderId = normalizeCashSendId(row.sender_id_document ?? '');
   const scannedNorm = normalizeCashSendId(parsed.data.scannedIdDocument);
   if (!validateSaIdDigits(scannedNorm)) {
     return res.status(400).json({

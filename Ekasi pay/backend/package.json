@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "prebuild": "node scripts/ensure-build-deps.mjs",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "presmoke": "npm run build",
     "smoke": "node scripts/smoke.mjs",
