@@ -15,6 +15,7 @@ import {
 } from './config.js';
 import { closeDataStore } from './db.js';
 import { monitoringRouter } from './routes/monitoring.js';
+import { cashSendOpsRouter } from './routes/cashSend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +48,7 @@ app.post('/ops-api/login', loginHandler);
 const api = express.Router();
 api.use(requireOpsAuth);
 api.use(monitoringRouter);
+api.use(cashSendOpsRouter);
 app.use('/ops-api', api);
 
 const distDir = path.join(__dirname, '..', 'dist');

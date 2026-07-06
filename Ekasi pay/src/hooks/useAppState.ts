@@ -995,7 +995,7 @@ export function useAppState() {
       return null;
     }
     try {
-      const { voucher } = await apiCreateCashSend({
+      const { voucher, smsSent } = await apiCreateCashSend({
         senderFirstName: input.senderFirstName.trim(),
         senderLastName: input.senderLastName.trim(),
         senderIdDocument: senderId,
@@ -1010,6 +1010,11 @@ export function useAppState() {
       });
       setCashSendVouchers((prev) => [voucher, ...prev]);
       await refreshAfterMutation();
+      if (smsSent === false) {
+        toast.warning(
+          'Cash Send created, but the SMS to the sender could not be sent. Share the voucher and PIN manually.',
+        );
+      }
       return voucher;
     } catch (e) {
       toastMutationError('Cash Send', e);

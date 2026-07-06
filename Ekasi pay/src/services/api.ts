@@ -1003,13 +1003,13 @@ export async function apiCreateCashSend(
     recipientFirstName: string;
     recipientLastName: string;
     recipientPhone: string;
-    recipientIdDocument?: string;
+  recipientIdDocument?: string;
     amount: number;
     atmPin: string;
   },
   idempotencyKey?: string,
 ) {
-  return apiRequest<{ voucher: import('../types').CashSendVoucher }>(
+  return apiRequest<{ voucher: import('../types').CashSendVoucher; smsSent?: boolean }>(
     '/api/cash-send',
     {
       method: 'POST',

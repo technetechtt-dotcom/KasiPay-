@@ -126,3 +126,8 @@ export const LOAD_SHEDDING_PROVIDER = (() => {
 
 export const LOAD_SHEDDING_FEED_URL =
   process.env.LOAD_SHEDDING_FEED_URL?.trim() ?? '';
+
+/** Shown in Cash Send voucher SMS when the creating shop has no merchant profile. */
+export const CASH_SEND_COLLECT_HINT =
+  process.env.CASH_SEND_COLLECT_HINT?.trim() ??
+  'Withdraw at any KasiPay partner shop (Services > Collect cash).';

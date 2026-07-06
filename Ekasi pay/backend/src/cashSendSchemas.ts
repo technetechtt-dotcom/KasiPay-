@@ -13,7 +13,7 @@ export const saIdBody = z
   );
 
 /**
- * Optional on create — beneficiary SA ID is captured when they collect cash,
+ * Optional on create — beneficiary SA ID is captured when they withdraw cash,
  * not when the sender creates the voucher.
  */
 export const optionalSaIdBody = z

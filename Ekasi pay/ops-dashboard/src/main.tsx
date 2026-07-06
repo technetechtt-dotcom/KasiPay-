@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 
 import {
   apiAuditEvents,
+  apiCashSendVouchers,
   apiComplianceFlags,
   apiLogin,
   apiOverview,
@@ -15,11 +16,12 @@ import {
   clearToken,
   getToken,
   setToken,
+  type OpsCashSendVoucher,
   type OpsUser,
   type Overview,
 } from './api';
 
-type Tab = 'overview' | 'users' | 'compliance' | 'audit' | 'transactions';
+type Tab = 'overview' | 'users' | 'compliance' | 'audit' | 'transactions' | 'cashsend';
 
 function fmtMoney(n: number) {
   return `R${n.toFixed(2)}`;
@@ -351,6 +353,118 @@ function AuditTab() {
   );
 }
 
+function CashSendTab() {
+  const [status, setStatus] = useState<'collected' | 'all' | 'active'>('collected');
+  const [search, setSearch] = useState('');
+  const [vouchers, setVouchers] = useState<OpsCashSendVoucher[]>([]);
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const r = await apiCashSendVouchers({
+        status,
+        search: search || undefined,
+        limit: 200,
+      });
+      setVouchers(r.vouchers);
+      setTotal(r.total);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load vouchers');
+    } finally {
+      setLoading(false);
+    }
+  }, [status, search]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Cash Send vouchers</h2>
+        <span className="badge">{total} records</span>
+      </div>
+      <p className="muted">
+        Who sent the money (at voucher creation) and who withdrew it (beneficiary ID scanned at
+        collection).
+      </p>
+      <div className="filters">
+        <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+          <option value="collected">Withdrawn only</option>
+          <option value="active">Active (unclaimed)</option>
+          <option value="all">All statuses</option>
+        </select>
+        <input
+          type="search"
+          placeholder="Search voucher, sender, or withdrawer…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button type="button" onClick={() => void load()} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <div className="table-wrap">
+        <table className="cash-send-table">
+          <thead>
+            <tr>
+              <th rowSpan={2}>Voucher number</th>
+              <th rowSpan={2}>Amount</th>
+              <th rowSpan={2}>Status</th>
+              <th rowSpan={2}>Created</th>
+              <th rowSpan={2}>Withdrawn</th>
+              <th colSpan={4} className="th-group">
+                Sender (who sent)
+              </th>
+              <th colSpan={4} className="th-group">
+                Withdrawer (who collected)
+              </th>
+            </tr>
+            <tr>
+              <th>Name</th>
+              <th>Surname</th>
+              <th>Phone</th>
+              <th>SA ID</th>
+              <th>Name</th>
+              <th>Surname</th>
+              <th>Phone</th>
+              <th>SA ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            {vouchers.map((v) => (
+              <tr key={v.id}>
+                <td className="mono">{v.referenceNumber}</td>
+                <td>{fmtMoney(v.amount)}</td>
+                <td>{v.status}</td>
+                <td>{fmtDate(v.createdAt)}</td>
+                <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : '—'}</td>
+                <td>{v.sender.firstName || '—'}</td>
+                <td>{v.sender.lastName || '—'}</td>
+                <td>{v.sender.phone || '—'}</td>
+                <td className="mono">{v.sender.idDocument ?? '—'}</td>
+                <td>{v.withdrawer.firstName || '—'}</td>
+                <td>{v.withdrawer.lastName || '—'}</td>
+                <td>{v.withdrawer.phone || '—'}</td>
+                <td className="mono">{v.withdrawer.idDocument ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {vouchers.length === 0 && !loading ? (
+        <p className="muted">No vouchers match this filter.</p>
+      ) : null}
+    </div>
+  );
+}
+
 function TransactionsTab() {
   const [txns, setTxns] = useState<Awaited<ReturnType<typeof apiTransactions>>['transactions']>([]);
   const [recon, setRecon] = useState<Awaited<ReturnType<typeof apiReconciliation>> | null>(null);
@@ -426,6 +540,7 @@ function Dashboard() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'users', label: 'Users' },
+    { id: 'cashsend', label: 'Cash Send' },
     { id: 'compliance', label: 'Compliance' },
     { id: 'audit', label: 'Audit' },
     { id: 'transactions', label: 'Transactions' },
@@ -458,6 +573,7 @@ function Dashboard() {
         {error && tab === 'overview' ? <p className="error">{error}</p> : null}
         {tab === 'overview' && overview ? <OverviewTab data={overview} /> : null}
         {tab === 'users' ? <UsersTab /> : null}
+        {tab === 'cashsend' ? <CashSendTab /> : null}
         {tab === 'compliance' ? <ComplianceTab /> : null}
         {tab === 'audit' ? <AuditTab /> : null}
         {tab === 'transactions' ? <TransactionsTab /> : null}

@@ -26,7 +26,6 @@ import { toast } from 'sonner';
 import type { Wallet, CashSendVoucher } from '../../types';
 import {
   writeScannerSession,
-  consumePendingBeneficiarySaId,
   consumePendingCollectSaId,
   consumePendingSenderSaId } from
 '../../lib/scannerSession';
@@ -52,7 +51,7 @@ export type CashSendCreatePayload = {
   recipientFirstName: string;
   recipientLastName: string;
   recipientPhone: string;
-    recipientIdDocument?: string;
+  recipientIdDocument?: string;
   amount: number;
   pin: string;
 };
@@ -286,7 +285,6 @@ const SendCashFlow = ({
   const [recipientFirstName, setRecipientFirstName] = useState('');
   const [recipientLastName, setRecipientLastName] = useState('');
   const [recipientPhone, setRecipientPhone] = useState('');
-  const [recipientId, setRecipientId] = useState('');
   const [amount, setAmount] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -317,7 +315,6 @@ const SendCashFlow = ({
           setRecipientLastName(d.recipientLastName);
         if (typeof d.recipientPhone === 'string')
           setRecipientPhone(d.recipientPhone);
-        if (typeof d.recipientId === 'string') setRecipientId(d.recipientId);
         if (typeof d.amount === 'string') setAmount(d.amount);
         if (typeof d.pin === 'string') setPin(d.pin);
       }
@@ -341,9 +338,6 @@ const SendCashFlow = ({
     const sid = consumePendingSenderSaId();
     if (sid && onlyDigits(sid).length === 13)
       setSenderId(onlyDigits(sid).slice(0, 13));
-    const bid = consumePendingBeneficiarySaId();
-    if (bid && onlyDigits(bid).length === 13)
-      setRecipientId(onlyDigits(bid).slice(0, 13));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot mount
   }, []);
 
@@ -360,7 +354,6 @@ const SendCashFlow = ({
         recipientFirstName,
         recipientLastName,
         recipientPhone,
-        recipientId,
         amount,
         pin,
       }),
@@ -452,7 +445,9 @@ const SendCashFlow = ({
           });
           setVoucher(newVoucher);
           setStep(5);
-          toast.success('Cash Send created successfully!');
+          toast.success(
+            'Cash Send created! The sender will receive an SMS with the voucher number, PIN, and where to withdraw.',
+          );
         } else {
           setError(
             'Could not create Cash Send — check your details and wallet balance, then try again.'
@@ -472,7 +467,7 @@ const SendCashFlow = ({
       voucher.recipientPhone;
     const text = `KasiPay Cash Send for ${beneficiary}. Amount R${voucher.amount.toFixed(
       2
-    )}. Ref: ${voucher.referenceNumber} PIN: ${voucher.atmPin}. At collection the shop will scan the beneficiary’s SA ID.`;
+    )}. Ref: ${voucher.referenceNumber} PIN: ${voucher.atmPin}. At collection the beneficiary must present both and scan their own SA ID.`;
     navigator.clipboard.writeText(text);
     toast.success('Details copied to clipboard');
   };
@@ -568,7 +563,7 @@ const SendCashFlow = ({
               </div>
               <div>
                 <h3 className="font-bold text-slate-900">Sender details</h3>
-                <p className="text-xs text-slate-500">Step 1 of 4 — KYC</p>
+                <p className="text-xs text-slate-500">Step 1 of 4 — sender KYC</p>
               </div>
             </div>
             <KPInput
@@ -668,7 +663,7 @@ const SendCashFlow = ({
             value={recipientPhone}
             onChange={(e) => setRecipientPhone(e.target.value)} />
             <p className="text-xs text-slate-500 leading-relaxed">
-              Their SA ID is only scanned when they withdraw the cash at a shop — you do not need it now.
+              Their SA ID is scanned when they withdraw the cash at a shop — you only need name and cellphone now.
             </p>
           
           </motion.div>
@@ -1020,7 +1015,7 @@ const CollectCashFlow = ({
           <ScanLine className="w-10 h-10 text-amber-600 mx-auto mb-3" />
           <p className="font-semibold text-slate-900 mb-1">Beneficiary SA ID</p>
           <p className="text-xs text-slate-600 mb-4">
-            Type the 13-digit ID number below, or open the camera scanner. USB barcode scanners will fill the field automatically.
+            The person withdrawing must present their own ID. Type the 13-digit number below, or open the camera scanner. USB barcode scanners will fill the field automatically.
           </p>
           <KPButton
             type="button"

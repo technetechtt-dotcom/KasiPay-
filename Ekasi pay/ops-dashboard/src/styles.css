@@ -214,6 +214,11 @@ select {
   min-width: 180px;
 }
 
+.mono {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.85rem;
+}
+
 .table-wrap {
   overflow: auto;
   max-height: 60vh;
@@ -238,6 +243,17 @@ th {
   position: sticky;
   top: 0;
   background: #1e293b;
+}
+
+.cash-send-table .th-group {
+  text-align: center;
+  border-bottom: 1px solid #475569;
+  color: #cbd5e1;
+}
+
+.cash-send-table thead tr:nth-child(2) th {
+  top: 2.1rem;
+  font-size: 0.8rem;
 }
 
 tbody tr {

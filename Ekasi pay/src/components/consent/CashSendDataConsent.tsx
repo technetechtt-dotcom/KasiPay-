@@ -36,7 +36,8 @@ export function CashSendConsentGate({
           </div>
         </div>
         <ul className="text-xs text-slate-700 space-y-2 mb-4 list-disc pl-5">
-          <li>At collection the beneficiary must present the voucher reference and 4-digit PIN from the sender, then their SA ID is scanned.</li>
+          <li>When sending, capture the sender&apos;s SA ID number only.</li>
+          <li>At collection the beneficiary must present the voucher reference and 4-digit PIN from the sender, then scan their own SA ID.</li>
           <li>Do not share PINs or references in public channels.</li>
           <li>Support contact for this pilot should be documented in your field pack.</li>
         </ul>

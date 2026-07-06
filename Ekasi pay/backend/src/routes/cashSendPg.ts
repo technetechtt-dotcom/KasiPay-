@@ -22,6 +22,7 @@ import {
   reverseCommissionPostingsPg,
 } from '../services/commissionsPg.js';
 import { createComplianceFlagPg } from '../services/compliancePg.js';
+import { notifySenderCashSendVoucher } from '../services/cashSendSms.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 import { cashSendVoucherPin } from '../validation.js';
@@ -55,6 +56,7 @@ type VoucherRow = {
   collected_at: string | null;
   cancel_reason: string | null;
   recipient_id_document?: string;
+  sender_id_document?: string;
 };
 
 cashSendRouterPg.get('/cash-send/me', requireAuth, async (req, res) => {
@@ -294,8 +296,28 @@ cashSendRouterPg.post(
       [id],
     );
     const row = rowQ.rows[0];
+    const merchantQ = await pool.query<{
+      business_name: string;
+      location: string;
+    }>(`SELECT business_name, location FROM merchants WHERE user_id = $1`, [
+      userId,
+    ]);
+    const merchant = merchantQ.rows[0];
+    const beneficiaryName =
+      `${parsed.data.recipientFirstName} ${parsed.data.recipientLastName}`.trim();
+    const smsSent = await notifySenderCashSendVoucher({
+      senderPhone: phone,
+      amount: parsed.data.amount,
+      beneficiaryName,
+      referenceNumber: ref,
+      pin: parsed.data.atmPin,
+      expiresAt: expires,
+      shopName: merchant?.business_name,
+      shopLocation: merchant?.location,
+    });
     return res.status(201).json({
       voucher: toCashSendVoucher(row, parsed.data.atmPin),
+      smsSent,
     });
   },
 );
@@ -426,6 +448,7 @@ cashSendRouterPg.post(
     const storedRecipientId = normalizeCashSendId(
       row.recipient_id_document ?? '',
     );
+    const storedSenderId = normalizeCashSendId(row.sender_id_document ?? '');
     const scannedNorm = normalizeCashSendId(parsed.data.scannedIdDocument);
     if (!validateSaIdDigits(scannedNorm)) {
       return res.status(400).json({
@@ -434,12 +457,21 @@ cashSendRouterPg.post(
       });
     }
     if (
+      storedSenderId.length >= 13 &&
+      cashSendIdsMatch(storedSenderId, scannedNorm)
+    ) {
+      return res.status(400).json({
+        error:
+          'The sender cannot collect this cash. The beneficiary must present their own SA ID.',
+      });
+    }
+    if (
       storedRecipientId.length >= 13 &&
       !cashSendIdsMatch(storedRecipientId, scannedNorm)
     ) {
       return res.status(400).json({
         error:
-          'The ID you scanned does not match the beneficiary on file for this voucher. Confirm the beneficiary and try again.',
+          'The ID scanned does not match the beneficiary on file for this voucher. Confirm the beneficiary and try again.',
       });
     }
 

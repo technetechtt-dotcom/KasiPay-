@@ -181,3 +181,44 @@ export async function apiReconciliation() {
     }[];
   }>('/ops-api/reconciliation');
 }
+
+export type OpsCashSendParty = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  idDocument: string | null;
+};
+
+export type OpsCashSendVoucher = {
+  id: string;
+  referenceNumber: string;
+  status: string;
+  amount: number;
+  fee: number;
+  createdAt: string;
+  expiresAt: string;
+  collectedAt: string | null;
+  withdrawnAt: string | null;
+  sender: OpsCashSendParty;
+  withdrawer: OpsCashSendParty;
+  idVerifiedAtWithdrawal: boolean;
+};
+
+export async function apiCashSendVouchers(params: {
+  status?: 'all' | 'active' | 'collected' | 'expired' | 'cancelled';
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const q = new URLSearchParams();
+  if (params.status) q.set('status', params.status);
+  if (params.search) q.set('search', params.search);
+  if (params.limit) q.set('limit', String(params.limit));
+  if (params.offset) q.set('offset', String(params.offset));
+  return opsFetch<{
+    total: number;
+    limit: number;
+    offset: number;
+    vouchers: OpsCashSendVoucher[];
+  }>(`/ops-api/cash-send/vouchers?${q}`);
+}
