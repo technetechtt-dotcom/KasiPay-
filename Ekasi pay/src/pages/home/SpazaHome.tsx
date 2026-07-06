@@ -17,6 +17,7 @@ import {
 import {
   ArrowUpRight,
   ArrowDownLeft,
+  Download,
   ShoppingCart,
   Package,
   Eye,
@@ -477,6 +478,17 @@ export const SpazaHome = ({
                 </div>
                 <span className="font-semibold text-amber-800 text-sm">
                   Cash Send
+                </span>
+              </button>
+
+              <button
+                onClick={() => navigate('receive')}
+                className="col-span-2 bg-blue-50 border border-blue-100 p-4 rounded-2xl flex flex-row items-center justify-center gap-3 active:scale-95 transition-transform">
+                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <Download className="w-5 h-5" />
+                </div>
+                <span className="font-semibold text-blue-800 text-sm">
+                  Collect Cash (payout at shop)
                 </span>
               </button>
             </>

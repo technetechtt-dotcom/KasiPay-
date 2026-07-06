@@ -34,6 +34,7 @@ import {
   loadSenderKycProfile,
   saveSenderKycProfile,
 } from '../../lib/senderKycProfile';
+import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
 import { CashSendConsentGate } from '../../components/consent/CashSendDataConsent';
 
 export type CashSendCreatePayload = {
@@ -409,8 +410,9 @@ const SendCashFlow = ({
       return;
     }
     if (step === 4) {
-      if (pin.length !== 4) {
-        setError('Please enter a 4-digit PIN');
+      const pinMsg = cashSendVoucherPinMessage(pin);
+      if (pinMsg) {
+        setError(pinMsg);
         return;
       }
       setBusy(true);
@@ -444,7 +446,7 @@ const SendCashFlow = ({
           toast.success('Cash Send created successfully!');
         } else {
           setError(
-            'Could not create Cash Send — check details match a valid 13-digit SA ID and try again.'
+            'Could not create Cash Send — check your details and wallet balance, then try again.'
           );
         }
       } finally {
@@ -600,7 +602,7 @@ const SendCashFlow = ({
             type="tel"
             placeholder="0821234567"
             value={senderPhone}
-            onChange={(e) => setSenderPhone(e.target.value)} />
+            readOnly />
             <KPInput
             label="Sender physical address"
             placeholder="Street, suburb, city"
@@ -1103,6 +1105,7 @@ const VouchersList = ({
           v.recipientIdLast4 ?
             ` · ID ****${v.recipientIdLast4}`
           : '';
+        const pinStored = v.atmPin !== '****';
         return (
           <KPCard key={v.id} className={`p-4 ${!isActive ? 'opacity-75' : ''}`}>
             <div className="flex justify-between items-start mb-3">
@@ -1145,6 +1148,7 @@ const VouchersList = ({
               {isActive &&
               <div className="flex justify-between items-center">
                   <span className="text-xs text-slate-500">PIN</span>
+                  {pinStored ?
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-slate-700">
                       {showPin[v.id] ? v.atmPin : '••••'}
@@ -1165,6 +1169,11 @@ const VouchersList = ({
                     }
                     </button>
                   </div>
+                  :
+                  <span className="text-xs text-slate-500 text-right max-w-[60%]">
+                    Shown once at creation — copy when sending
+                  </span>
+                  }
                 </div>
               }
             </div>

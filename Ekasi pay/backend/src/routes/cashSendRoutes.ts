@@ -20,7 +20,7 @@ import {
 } from '../services/commissions.js';
 import { createComplianceFlag } from '../services/compliance.js';
 import { postBetweenWallets } from '../services/walletPosting.js';
-import { strongMoneyPin } from '../validation.js';
+import { cashSendVoucherPin } from '../validation.js';
 
 /** Sender share of every cash-send fee. Tweak as commission policy changes. */
 const COMMISSION_FEE_SHARE = 0.5;
@@ -91,7 +91,7 @@ const createBody = z.object({
   recipientPhone: phoneDigits,
   recipientIdDocument: saIdBody,
   amount: z.coerce.number().positive(),
-  atmPin: strongMoneyPin,
+  atmPin: cashSendVoucherPin,
 });
 
 function digitsOnlyPhoneSame(a: string, b: string): boolean {
@@ -111,6 +111,13 @@ cashSendRouter.post(
     return res
       .status(400)
       .json({ error: 'Sender cell number must match the logged-in shop account.' });
+  }
+  if (
+    digitsOnlyPhoneSame(parsed.data.recipientPhone, parsed.data.senderPhone)
+  ) {
+    return res
+      .status(400)
+      .json({ error: 'Beneficiary cellphone must differ from the sender’s.' });
   }
   const database = getDb();
   const userId = req.auth!.userId;
@@ -230,7 +237,7 @@ cashSendRouter.post(
 
 const collectBody = z.object({
   referenceNumber: z.string().min(1),
-  pin: z.string().min(4).max(8),
+  pin: cashSendVoucherPin,
   scannedIdDocument: z.string().min(1),
 });
 

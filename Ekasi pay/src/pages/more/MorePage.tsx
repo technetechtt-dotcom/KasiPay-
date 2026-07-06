@@ -27,6 +27,7 @@ import {
   Mic,
   ShieldCheck,
   Wallet,
+  Download,
   History } from
 'lucide-react';
 import type {
@@ -335,6 +336,34 @@ export const MorePage = ({
         {t('more.communityServices')}
       </h3>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8 divide-y divide-slate-100">
+        {!showMerchantWorkspace && (
+          <button
+            onClick={() => navigate('send')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Wallet className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">Cash Send</span>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        )}
+
+        {!showMerchantWorkspace && (
+          <button
+            onClick={() => navigate('receive')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Download className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">Collect Cash</span>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        )}
+
         {!showMerchantWorkspace && (
           <button
             onClick={() => navigate('stokvel')}

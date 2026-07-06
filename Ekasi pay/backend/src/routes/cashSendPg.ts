@@ -21,7 +21,7 @@ import {
 import { createComplianceFlagPg } from '../services/compliancePg.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
-import { strongMoneyPin } from '../validation.js';
+import { cashSendVoucherPin } from '../validation.js';
 
 const COMMISSION_FEE_SHARE = 0.5;
 
@@ -96,7 +96,7 @@ const createBody = z.object({
   recipientPhone: phoneDigits,
   recipientIdDocument: saIdBody,
   amount: z.coerce.number().positive(),
-  atmPin: strongMoneyPin,
+  atmPin: cashSendVoucherPin,
 });
 
 function digitsOnlyPhoneSame(a: string, b: string): boolean {
@@ -115,6 +115,13 @@ cashSendRouterPg.post(
     if (!digitsOnlyPhoneSame(parsed.data.senderPhone, req.auth!.phone)) {
       return res.status(400).json({
         error: 'Sender cell number must match the logged-in shop account.',
+      });
+    }
+    if (
+      digitsOnlyPhoneSame(parsed.data.recipientPhone, parsed.data.senderPhone)
+    ) {
+      return res.status(400).json({
+        error: 'Beneficiary cellphone must differ from the sender’s.',
       });
     }
     const pool = getPgPool();
@@ -243,7 +250,7 @@ cashSendRouterPg.post(
 
 const collectBody = z.object({
   referenceNumber: z.string().min(1),
-  pin: z.string().min(4).max(8),
+  pin: cashSendVoucherPin,
   scannedIdDocument: z.string().min(1),
 });
 

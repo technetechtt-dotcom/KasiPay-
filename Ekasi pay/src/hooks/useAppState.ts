@@ -102,6 +102,7 @@ import {
 } from '../config/merchantPortalPages';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { toastMutationError } from '../lib/mutationToast';
+import { cashSendVoucherPinMessage, isCashSendVoucherPinValid } from '../lib/pinValidation';
 import {
   enqueueExpense,
   enqueueSale,
@@ -940,22 +941,48 @@ export function useAppState() {
     amount: number;
     pin: string;
   }): Promise<CashSendVoucher | null> => {
+    if (!currentUser) {
+      toast.error('Sign in to create a Cash Send.');
+      return null;
+    }
     if (
-      !currentUser ||
       normalizePhone(input.senderPhone) !== normalizePhone(currentUser.phone)
     ) {
+      toast.error('Sender cellphone must match your logged-in account.');
       return null;
     }
     const atmPin = normalizeAtmPin(input.pin);
-    if (atmPin.length < 4) return null;
+    if (!isCashSendVoucherPinValid(atmPin)) {
+      toast.error(cashSendVoucherPinMessage(atmPin) ?? 'Enter a valid 4-digit PIN.');
+      return null;
+    }
     const cleanedRecipient = normalizePhone(input.recipientPhone);
-    if (cleanedRecipient.length < 9) return null;
+    if (cleanedRecipient.length < 10) {
+      toast.error('Enter a valid beneficiary cellphone (10 digits).');
+      return null;
+    }
     if (cleanedRecipient === normalizePhone(currentUser.phone)) {
+      toast.error('Beneficiary cellphone must differ from yours.');
       return null;
     }
     const senderId = input.senderIdDocument.replace(/\D/g, '');
     const recipientId = input.recipientIdDocument.replace(/\D/g, '');
     if (senderId.length !== 13 || recipientId.length !== 13) {
+      toast.error('Sender and beneficiary SA ID numbers must be 13 digits.');
+      return null;
+    }
+    if (!isPositiveAmount(input.amount)) {
+      toast.error('Enter a valid amount greater than R0.');
+      return null;
+    }
+    const fromWallet = getMyWallet();
+    if (!isWalletUsable(fromWallet)) {
+      toast.error('Wallet unavailable — try again after refreshing.');
+      return null;
+    }
+    const total = input.amount + 10;
+    if (fromWallet.balance < total) {
+      toast.error('Insufficient wallet balance (including R10 fee).');
       return null;
     }
     try {
@@ -992,8 +1019,11 @@ export function useAppState() {
     voucher?: CashSendVoucher;
   }> => {
     const atm = normalizeAtmPin(pin);
-    if (atm.length < 4) {
-      return { success: false, reason: 'PIN must be at least 4 digits' };
+    if (!isCashSendVoucherPinValid(atm)) {
+      return {
+        success: false,
+        reason: cashSendVoucherPinMessage(atm) ?? 'PIN must be exactly 4 digits',
+      };
     }
     const idDigits = scannedIdDocument.replace(/\D/g, '');
     if (idDigits.length !== 13) {

@@ -39,6 +39,15 @@ export const strongMoneyPin = z
       'PIN is too easy to guess (avoid 0000, 1234, repeated or sequential digits).',
   });
 
+/** 4-digit voucher PIN the beneficiary uses at collection (Cash Send create/collect). */
+export const cashSendVoucherPin = z
+  .string()
+  .regex(/^\d{4}$/, 'Voucher PIN must be exactly 4 digits')
+  .refine((v) => !isWeakPin(v), {
+    message:
+      'PIN is too easy to guess (avoid 1234, 0000, repeated or sequential digits).',
+  });
+
 export const expenseCategorySchema = z.enum([
   'electricity',
   'paraffin',

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   expenseCreateSchema,
+  cashSendVoucherPin,
   isWeakPin,
   saleCreateSchema,
   strongMoneyPin,
@@ -29,6 +30,22 @@ describe('isWeakPin', () => {
   it('accepts strong PINs', () => {
     assert.equal(isWeakPin('19273'), false);
     assert.equal(isWeakPin('8024691'), false);
+  });
+});
+
+describe('cashSendVoucherPin schema', () => {
+  it('accepts a non-trivial 4-digit voucher PIN', () => {
+    assert.equal(cashSendVoucherPin.safeParse('1927').success, true);
+  });
+
+  it('rejects PINs shorter or longer than 4 digits', () => {
+    assert.equal(cashSendVoucherPin.safeParse('123').success, false);
+    assert.equal(cashSendVoucherPin.safeParse('12345').success, false);
+  });
+
+  it('rejects weak 4-digit patterns', () => {
+    assert.equal(cashSendVoucherPin.safeParse('1234').success, false);
+    assert.equal(cashSendVoucherPin.safeParse('0000').success, false);
   });
 });
 

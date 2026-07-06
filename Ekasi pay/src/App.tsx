@@ -153,13 +153,11 @@ export function App() {
         toast.error(
           'Could not read 13 digits from that scan. Try again or type the SA ID.',
         );
-        state.navigate(returnPage);
         clearScannerSession();
         return false;
       }
       storeScannedSaId(capture, digits);
       toast.message('ID scanned — verify the digits look correct.');
-      state.navigate(returnPage);
       clearScannerSession();
       return false;
     },
