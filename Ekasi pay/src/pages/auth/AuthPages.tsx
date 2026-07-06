@@ -41,7 +41,7 @@ export const LoginPage = ({
     if (!found) setError('No account found for this phone number');
   };
   return (
-    <PageTransition className="flex flex-col justify-center px-6 min-h-full bg-gradient-to-b from-emerald-50 to-slate-50">
+    <PageTransition className="flex flex-col justify-center px-6 min-h-[100dvh] overflow-y-auto py-12 bg-gradient-to-b from-emerald-50 to-slate-50">
       <KasiPayLogo />
 
       <form
@@ -119,8 +119,9 @@ export const PinPage = ({
     setError(false);
   };
   return (
-    <PageTransition className="flex flex-col items-center justify-between px-6 py-12 min-h-full bg-slate-50">
-      <div className="w-full text-center mt-8">
+    <PageTransition className="flex flex-col items-center px-6 py-8 min-h-[100dvh] overflow-y-auto bg-slate-50">
+      <div className="w-full max-w-[280px] flex flex-col flex-1 justify-center py-4">
+      <div className="w-full text-center">
         <h2 className="text-2xl font-bold text-slate-900 mb-2">
           Welcome back, {userName.split(' ')[0]}
         </h2>
@@ -154,33 +155,33 @@ export const PinPage = ({
       </div>
 
       {/* Number Pad */}
-      <div className="w-full max-w-[280px] grid grid-cols-3 gap-4 mb-8">
+      <div className="w-full grid grid-cols-3 gap-3 my-8">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) =>
         <button
           key={num}
           onClick={() => handlePadClick(num.toString())}
           disabled={lockedForSeconds > 0}
-          className="h-16 rounded-2xl bg-white text-2xl font-semibold text-slate-800 shadow-sm active:bg-slate-100 active:scale-95 transition-all">
+          className="h-14 rounded-2xl bg-white text-2xl font-semibold text-slate-800 shadow-sm active:bg-slate-100 active:scale-95 transition-all">
           
             {num}
           </button>
         )}
         <button
           onClick={onBack}
-          className="h-16 flex items-center justify-center text-sm font-medium text-slate-500 active:text-slate-800">
+          className="h-14 flex items-center justify-center text-sm font-medium text-slate-500 active:text-slate-800">
           
           Cancel
         </button>
         <button
           onClick={() => handlePadClick('0')}
           disabled={lockedForSeconds > 0}
-          className="h-16 rounded-2xl bg-white text-2xl font-semibold text-slate-800 shadow-sm active:bg-slate-100 active:scale-95 transition-all">
+          className="h-14 rounded-2xl bg-white text-2xl font-semibold text-slate-800 shadow-sm active:bg-slate-100 active:scale-95 transition-all">
           
           0
         </button>
         <button
           onClick={handleBackspace}
-          className="h-16 flex items-center justify-center text-slate-600 active:bg-slate-100 rounded-2xl transition-all">
+          className="h-14 flex items-center justify-center text-slate-600 active:bg-slate-100 rounded-2xl transition-all">
           
           <Delete className="w-6 h-6" />
         </button>
@@ -201,6 +202,7 @@ export const PinPage = ({
           onClose={() => setResetOpen(false)}
         />
       : null}
+      </div>
     </PageTransition>);
 
 };
@@ -343,7 +345,7 @@ export const RegisterPage = ({
     }
   };
   return (
-    <PageTransition className="flex flex-col px-6 py-12 min-h-full bg-slate-50 overflow-y-auto pb-32">
+    <PageTransition className="flex flex-col px-6 py-12 min-h-full bg-slate-50 overflow-y-auto pb-12">
       <button
         onClick={onBack}
         className="text-slate-500 mb-6 flex items-center font-medium">

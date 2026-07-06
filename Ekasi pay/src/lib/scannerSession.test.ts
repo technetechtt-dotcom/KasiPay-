@@ -19,6 +19,11 @@ describe('digitsFromBarcodeForSaId', () => {
     expect(digitsFromBarcodeForSaId(noisy)).toBe('8001015009087');
   });
 
+  it('picks the better-scored ID when several checksum-valid runs exist', () => {
+    const bothValid = '80010150090879001015009086';
+    expect(digitsFromBarcodeForSaId(bothValid)).toBe('8001015009087');
+  });
+
   it('strips spaces and punctuation', () => {
     expect(digitsFromBarcodeForSaId('8001 0150 0908 7')).toBe('8001015009087');
   });

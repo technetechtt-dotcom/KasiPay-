@@ -289,7 +289,7 @@ export const SpazaHome = ({
   ).
   slice(0, 5);
   return (
-    <PageTransition className="relative h-full overflow-hidden">
+    <PageTransition className="relative flex flex-col min-h-0 h-full overflow-hidden">
       {!hasSeenOnboarding && completeOnboarding &&
       <OnboardingOverlay onComplete={completeOnboarding} />
       }
@@ -322,7 +322,7 @@ export const SpazaHome = ({
         style={{
           y
         }}
-        className="px-6 pt-12 h-full overflow-y-auto pb-24 relative z-10 bg-slate-50">
+        className="px-6 pt-12 flex-1 min-h-0 overflow-y-auto pb-20 relative z-10 bg-slate-50">
         
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
@@ -587,7 +587,7 @@ export const SpazaHome = ({
               </button>
             }
           </div>
-          <div className="space-y-3 pb-24">
+          <div className="space-y-3 pb-8">
             {recentActivity.length === 0 ?
             <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                 <p className="text-slate-500 text-sm">No recent activity</p>

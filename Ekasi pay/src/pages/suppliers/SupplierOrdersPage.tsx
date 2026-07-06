@@ -159,7 +159,7 @@ export const SupplierOrdersPage = ({
   };
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50 relative">
+    <PageTransition className="min-h-0 h-full bg-slate-50 relative">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
@@ -211,7 +211,7 @@ export const SupplierOrdersPage = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-28">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-28">
         {activeTab === 'orders' ?
           <div className="space-y-6">
             {pendingOrders.length > 0 && (
@@ -449,7 +449,7 @@ export const SupplierOrdersPage = ({
 
       {showAddSupplier && (
         <div className="fixed inset-0 z-[100] bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full p-6 shadow-xl sm:max-w-md">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl sm:max-w-md">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">Add supplier</h3>
               <button type="button" onClick={() => setShowAddSupplier(false)} aria-label="Close">

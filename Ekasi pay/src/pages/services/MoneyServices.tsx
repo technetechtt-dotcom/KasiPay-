@@ -114,7 +114,7 @@ export const MoneyServices = ({
     () => inferCashSendTabFromDraft(initialTab),
   );
   return (
-    <PageTransition className="flex flex-col h-full min-h-0 bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <CashSendConsentGate>
       <div className="flex flex-col flex-1 min-h-0">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
@@ -173,7 +173,7 @@ export const MoneyServices = ({
 
         }
         {activeTab === 'vouchers' &&
-        <div className="flex-1 min-h-0 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+        <div className="flex-1 min-h-0 overflow-y-auto pb-8">
           <VouchersList
             vouchers={cashSendVouchers}
             cancelCashSend={cancelCashSend} />
@@ -474,7 +474,8 @@ const SendCashFlow = ({
 
   if (step === 5 && voucher) {
     return (
-      <div className="p-6 flex flex-col items-center text-center pt-8">
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col items-center text-center pt-8 pb-8">
         <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
           <CheckCircle2 className="w-10 h-10 text-emerald-600" />
         </div>
@@ -532,6 +533,7 @@ const SendCashFlow = ({
             
             Back to Home
           </KPButton>
+        </div>
         </div>
       </div>);
 
@@ -764,7 +766,7 @@ const SendCashFlow = ({
       </AnimatePresence>
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-safe">
         {error &&
         <p className="text-red-500 text-sm mb-3 text-center">{error}</p>
         }
@@ -916,7 +918,8 @@ const CollectCashFlow = ({
 
   if (step === 3 && voucher) {
     return (
-      <div className="p-6 flex flex-col items-center text-center pt-8">
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col items-center text-center pt-8 pb-8">
         <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mb-6">
           <CheckCircle2 className="w-10 h-10 text-amber-600" />
         </div>
@@ -952,6 +955,7 @@ const CollectCashFlow = ({
           
           Done
         </KPButton>
+        </div>
       </div>);
 
   }
@@ -1044,7 +1048,7 @@ const CollectCashFlow = ({
       </div>
 
       {step === 2 &&
-      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-safe">
         {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
         <div className="flex gap-3">
           <KPButton variant="outline" onClick={() => setStep(1)} className="w-1/3">
@@ -1062,7 +1066,7 @@ const CollectCashFlow = ({
       }
 
       {step === 1 &&
-      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
+      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-safe">
         {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
         <KPButton
           onClick={() => void goToIdStep()}

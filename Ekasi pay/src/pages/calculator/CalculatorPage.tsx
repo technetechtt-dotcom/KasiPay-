@@ -215,7 +215,7 @@ export function CalculatorPage({
 
       {/* Standard Calculator */}
       {mode === 'standard' ?
-      <div className="px-3 pt-2 pb-24">
+      <div className="px-3 pt-2 pb-8">
           {/* Display */}
           <div className="min-h-[80px] flex flex-col justify-end items-end mb-3 px-1">
             <div className="text-slate-500 text-xs font-mono tracking-wider truncate w-full text-right leading-tight">
@@ -319,7 +319,7 @@ export function CalculatorPage({
           </div>
         </div> /* Change Calculator */ :
 
-      <div className="px-3 pt-2 pb-24">
+      <div className="px-3 pt-2 pb-8">
           {/* Input fields */}
           <div className="space-y-2 mb-3">
             <div

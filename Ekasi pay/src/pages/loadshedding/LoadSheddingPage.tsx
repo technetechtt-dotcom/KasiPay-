@@ -78,7 +78,7 @@ export const LoadSheddingPage = ({
   };
   const tipHours = stageImpactHours[maxStageToday] ?? 'a few hours';
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-900 text-white">
+    <PageTransition className="min-h-0 h-full bg-slate-900 text-white">
       {/* Header */}
       <div className="px-6 pt-12 pb-4 shrink-0">
         <div className="flex items-center justify-between mb-6">
@@ -110,7 +110,7 @@ export const LoadSheddingPage = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
         {/* Status Card */}
         <div
           className={`rounded-3xl p-6 mb-8 text-center relative overflow-hidden ${activeSlot ? 'bg-red-600' : 'bg-emerald-600'}`}>

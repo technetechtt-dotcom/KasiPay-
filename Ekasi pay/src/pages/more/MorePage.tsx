@@ -67,7 +67,7 @@ export const MorePage = ({
     (a) => !a.isRead && a.severity === 'critical'
   ).length;
   return (
-    <PageTransition className="px-6 pt-12 pb-24 bg-slate-50 min-h-full">
+    <PageTransition className="px-6 pt-12 pb-8 bg-slate-50 min-h-full">
       <h2 className="text-xl font-bold text-slate-900 mb-6">More</h2>
 
       {/* Profile Summary */}

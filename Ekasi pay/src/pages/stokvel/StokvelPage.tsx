@@ -104,7 +104,7 @@ export const StokvelPage = ({
   };
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50 relative">
+    <PageTransition className="min-h-0 h-full bg-slate-50 relative">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
@@ -133,7 +133,7 @@ export const StokvelPage = ({
         </KPButton>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
         <div className="space-y-6">
           {groups.length === 0 && (
             <p className="text-center text-slate-500 py-8">No stokvels yet.</p>

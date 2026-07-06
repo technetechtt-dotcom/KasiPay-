@@ -199,7 +199,7 @@ export const AddStockPage = ({
   };
   if (success) {
     return (
-      <PageTransition className="flex flex-col h-full bg-slate-50">
+      <PageTransition className="flex flex-col min-h-0 h-full bg-slate-50">
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
           <motion.div
             initial={{
@@ -276,7 +276,7 @@ export const AddStockPage = ({
 
   }
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="flex flex-col min-h-0 h-full bg-slate-50">
       {/* Header */}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center">
@@ -293,7 +293,7 @@ export const AddStockPage = ({
       </div>
 
       {/* Form */}
-      <div className="flex-1 overflow-y-auto p-6 pb-32">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-12">
         {/* Existing-stock banner — surfaces when we recognise the SKU so the
             merchant knows we'll add to the current quantity, not duplicate. */}
         <AnimatePresence>
@@ -585,7 +585,7 @@ export const AddStockPage = ({
       </div>
 
       {/* Sticky Submit Button */}
-      <div className="shrink-0 bg-white border-t border-slate-200 p-6 mb-20">
+      <div className="shrink-0 bg-white border-t border-slate-200 p-6 pb-safe">
         <KPButton
           onClick={handleSubmit}
           disabled={!isValid}

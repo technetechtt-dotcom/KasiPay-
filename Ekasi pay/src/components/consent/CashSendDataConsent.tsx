@@ -18,7 +18,7 @@ export function CashSendConsentGate({
   if (accepted) return <>{children}</>;
 
   return (
-    <div className="p-6 flex flex-col gap-4 max-w-lg mx-auto">
+    <div className="page-scroll p-6 flex flex-col gap-4 max-w-lg mx-auto w-full">
       <KPCard className="p-5 border-amber-200 bg-amber-50/40">
         <div className="flex items-start gap-3 mb-4">
           <Shield className="w-10 h-10 text-amber-700 shrink-0" />

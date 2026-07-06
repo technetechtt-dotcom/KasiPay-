@@ -42,7 +42,7 @@ export const HistoryPage = ({
     return true;
   });
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 sticky top-0">
         <h2 className="text-xl font-bold text-slate-900 mb-4">History</h2>
 
@@ -59,7 +59,7 @@ export const HistoryPage = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-3 pb-24">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-3 pb-8">
         {filteredActivity.length === 0 ?
         <div className="flex flex-col items-center justify-center h-40 text-slate-500">
             <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">

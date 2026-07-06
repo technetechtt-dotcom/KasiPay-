@@ -70,7 +70,7 @@ export const InventoryPage = ({
     0
   );
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       {/* Header */}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center justify-between mb-6 gap-2">
@@ -154,7 +154,7 @@ export const InventoryPage = ({
       </div>
 
       {/* Product List */}
-      <div className="flex-1 overflow-y-auto p-6 pb-24 relative">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 relative">
         {Object.entries(groupedProducts).length === 0 ?
         <div className="text-center py-12 text-slate-500">
             <Package className="w-12 h-12 mx-auto mb-3 text-slate-300" />

@@ -167,7 +167,7 @@ export const ShopPage = ({
   };
   if (success) {
     return (
-      <PageTransition className="px-6 pt-12 flex flex-col items-center text-center h-full overflow-y-auto pb-24">
+      <PageTransition className="px-6 pt-12 flex flex-col items-center text-center h-full overflow-y-auto pb-8">
         <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mb-4 shrink-0">
           <CheckCircle2 className="w-10 h-10 text-blue-600" />
         </div>
@@ -242,7 +242,7 @@ export const ShopPage = ({
     return matchesSearch && matchesCategory;
   });
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col min-h-0 h-full bg-slate-50">
       {/* Fixed Header */}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <h2 className="text-xl font-bold text-slate-900 mb-4">Shop POS</h2>
@@ -272,7 +272,7 @@ export const ShopPage = ({
       </div>
 
       {/* Scrollable Product Area */}
-      <div className="flex-1 overflow-y-auto p-6 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-4">
         {!searchQuery && selectedCategory === 'All' &&
         <>
             <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
@@ -307,7 +307,7 @@ export const ShopPage = ({
             <p>No products found</p>
           </div> :
 
-        <div className="grid grid-cols-2 gap-4 pb-24">
+        <div className="grid grid-cols-2 gap-4 pb-8">
             {filteredProducts.map((product) => {
             const inCart =
             cart.find((i) => i.product.id === product.id)?.quantity || 0;
@@ -353,7 +353,7 @@ export const ShopPage = ({
         animate={{
           y: 0
         }}
-        className="shrink-0 bg-white border-t border-slate-200 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50 mb-20">
+        className="shrink-0 bg-white border-t border-slate-200 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50">
         
           {showCheckout ?
         <div className="p-6 max-h-[60vh] overflow-y-auto">

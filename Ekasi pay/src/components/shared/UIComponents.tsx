@@ -202,7 +202,7 @@ export const PageTransition = ({
   transition={{
     duration: 0.2
   }}
-  className={`w-full h-full ${className}`}>
+  className={`w-full min-h-0 h-full flex flex-col ${className}`}>
   
     {children}
   </motion.div>;

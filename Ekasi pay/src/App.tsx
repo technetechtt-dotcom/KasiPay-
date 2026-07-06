@@ -39,6 +39,7 @@ import { NotificationsPage } from './pages/notifications/NotificationsPage';
 import { BuyUtilityPage } from './pages/services/BuyUtilityPage';
 import { TransferMoneyPage } from './pages/services/TransferMoneyPage';
 import { toast } from 'sonner';
+import { saIdValidationMessage } from './lib/saIdValidation';
 import {
   clearScannerSession,
   readScannerSession,
@@ -157,7 +158,14 @@ export function App() {
         return false;
       }
       storeScannedSaId(capture, digits);
-      toast.message('ID scanned — verify the digits look correct.');
+      const idMsg = saIdValidationMessage(digits);
+      if (idMsg) {
+        toast.warning(
+          `Scan read ${digits}, but the checksum failed. Edit the digits manually — check the last digit on the ID.`,
+        );
+      } else {
+        toast.message('ID scanned — verify the digits look correct.');
+      }
       clearScannerSession();
       return false;
     },

@@ -323,7 +323,7 @@ export const ScannerPage = ({
   ]);
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-900 relative overflow-hidden">
+    <PageTransition className="min-h-0 h-full bg-slate-900 relative overflow-hidden">
       <div className="absolute top-0 left-0 w-full p-6 pt-12 z-20 flex justify-between items-start bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
         <div className="pointer-events-auto pr-14 max-w-[70%]">
           <h2 className="text-white font-bold text-lg">{titleLabel}</h2>
@@ -470,7 +470,7 @@ export const ScannerPage = ({
         ) : null}
       </div>
 
-      <div className="shrink-0 p-6 pb-10 bg-black/90 backdrop-blur-md z-20 flex flex-col gap-3 rounded-t-3xl border-t border-white/10">
+      <div className="shrink-0 p-6 pb-safe bg-black/90 backdrop-blur-md z-20 flex flex-col gap-3 rounded-t-3xl border-t border-white/10">
         {continuous && scanCount > 0 && (
           <p className="text-center text-emerald-300 text-sm font-medium">
             {scanCount} scan{scanCount === 1 ? '' : 's'} this session

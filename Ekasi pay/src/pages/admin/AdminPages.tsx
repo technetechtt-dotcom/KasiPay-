@@ -490,7 +490,7 @@ export const AdminDashboard = ({
         Audit Trail
       </h3>
 
-      <KPCard className="p-0 overflow-hidden mb-24">
+      <KPCard className="p-0 overflow-hidden mb-8">
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-bold text-slate-700">Recent Audit Events</p>
@@ -710,7 +710,7 @@ export const LedgerView = ({
 
 }: {ledger: LedgerEntry[];navigate: (p: string) => void;}) => {
   return (
-    <PageTransition className="px-4 pt-12 bg-slate-50 min-h-full pb-24">
+    <PageTransition className="px-4 pt-12 bg-slate-50 min-h-full pb-8">
       <div className="mb-6 px-2 flex items-center">
         <button
           onClick={() => navigate('admin')}
@@ -988,7 +988,7 @@ export const UserManagement = ({
     return matchesSearch && matchesRole;
   });
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center mb-6">
           <button
@@ -1024,7 +1024,7 @@ export const UserManagement = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-3">
         {filteredUsers.map((user, i) =>
         <motion.div
           key={user.id}
@@ -1196,7 +1196,7 @@ export const CompliancePage = ({
     }
   };
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center mb-6">
           <button
@@ -1229,7 +1229,7 @@ export const CompliancePage = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-4">
         {loading && (
           <p className="text-center text-sm text-slate-500 py-8">Loading compliance flags…</p>
         )}
@@ -1388,7 +1388,7 @@ export const ClaimsReviewPage = ({
   const pendingCount = claims.filter((c) => c.status === 'submitted').length;
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center mb-6">
           <button
@@ -1419,7 +1419,7 @@ export const ClaimsReviewPage = ({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-4">
         {loading && (
           <p className="text-center text-sm text-slate-500 py-8">Loading claims…</p>
         )}

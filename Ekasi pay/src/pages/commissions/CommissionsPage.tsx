@@ -55,7 +55,7 @@ export const CommissionsPage = ({
   }, []);
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center mb-6">
           <button
@@ -100,7 +100,7 @@ export const CommissionsPage = ({
         </motion.div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
         <h3 className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-wider flex items-center gap-2">
           <Calendar className="w-4 h-4" /> Commission History
         </h3>

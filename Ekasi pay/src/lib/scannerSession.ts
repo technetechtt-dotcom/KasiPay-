@@ -24,7 +24,7 @@ const PENDING_PRODUCT_CATALOG_HIT = 'ekasi.product.scan.catalogHit';
 
 export { normalizeProductBarcode } from './productBarcode';
 
-import { isValidSaIdChecksum } from './saIdValidation';
+import { isValidSaIdChecksum, scoreSaIdCandidate } from './saIdValidation';
 
 export function writeScannerSession(p: ScannerSessionPayload): void {
   sessionStorage.setItem(CONTEXT_KEY, JSON.stringify(p));
@@ -85,12 +85,23 @@ function saIdCandidatesFromRaw(raw: string): string[] {
   return out;
 }
 
+/** Pick the best checksum-valid SA ID candidate from decoded barcode text. */
+function pickBestSaIdCandidate(candidates: string[]): string | null {
+  const valid = candidates.filter((c) => isValidSaIdChecksum(c));
+  if (valid.length === 0) return null;
+  if (valid.length === 1) return valid[0];
+  return valid.reduce((best, cur) => {
+    const bestScore = scoreSaIdCandidate(best);
+    const curScore = scoreSaIdCandidate(cur);
+    return curScore > bestScore ? cur : best;
+  });
+}
+
 /** Strip formatting; prefer a checksum-valid 13-digit SA ID from PDF417 / Code128 payloads. */
 export function digitsFromBarcodeForSaId(raw: string): string {
   const candidates = saIdCandidatesFromRaw(raw);
-  const checksumValid = candidates.filter((c) => isValidSaIdChecksum(c));
-  if (checksumValid.length === 1) return checksumValid[0];
-  if (checksumValid.length > 1) return checksumValid[0];
+  const bestValid = pickBestSaIdCandidate(candidates);
+  if (bestValid) return bestValid;
   if (candidates.length === 1) return candidates[0];
   if (candidates.length > 1) {
     const dobLike = candidates.find((c) => {

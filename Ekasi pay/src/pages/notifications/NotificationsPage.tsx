@@ -207,7 +207,7 @@ export const NotificationsPage = ({
   const hasUnreadAlerts = alerts.some((a) => !a.isRead);
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
@@ -230,7 +230,7 @@ export const NotificationsPage = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-3">
         {items.length === 0 ?
           <div className="text-center py-16">
             <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">

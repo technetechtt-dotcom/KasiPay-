@@ -205,7 +205,7 @@ export const BuyUtilityPage = ({
   };
 
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center">
           <button
@@ -217,7 +217,7 @@ export const BuyUtilityPage = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24 space-y-5">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-5">
         <div className="grid grid-cols-4 gap-2">
           {CATEGORIES.map((c) => {
             const Icon = c.icon;

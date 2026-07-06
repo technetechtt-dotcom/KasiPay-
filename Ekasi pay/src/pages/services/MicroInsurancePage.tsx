@@ -107,7 +107,7 @@ export const MicroInsurancePage = ({
     }
   };
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       {/* Header */}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center justify-between mb-6">
@@ -132,7 +132,7 @@ export const MicroInsurancePage = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
         {activePolicy ?
         <div className="space-y-6">
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">

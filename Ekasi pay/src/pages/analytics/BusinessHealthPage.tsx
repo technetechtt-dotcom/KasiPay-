@@ -34,7 +34,7 @@ export const BusinessHealthPage = ({
     return 'text-red-500';
   };
   return (
-    <PageTransition className="flex flex-col h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
       {/* Header */}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center justify-between mb-6">
@@ -56,7 +56,7 @@ export const BusinessHealthPage = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
         {/* Score Circle */}
         <div className="flex flex-col items-center justify-center py-8 mb-4">
           <div className="relative w-48 h-48 flex items-center justify-center">

@@ -108,10 +108,13 @@ export const AppShell: FC<AppShellProps> = ({
     'help',
   ];
 
+  /** Pages where the bottom tab bar is hidden (full-height tools). */
+  const hideBottomNav = new Set(['scanner']);
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-8">
       {/* Phone Frame */}
-      <div className="relative w-full max-w-[400px] h-[850px] max-h-[95vh] bg-slate-50 rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-slate-800 flex flex-col">
+      <div className="relative w-full max-w-[400px] h-[850px] max-h-[95dvh] bg-slate-50 rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-slate-800 flex flex-col">
         {/* Fake Status Bar */}
         <div className="h-12 w-full bg-slate-50 flex items-center justify-between px-6 text-slate-900 text-xs font-medium z-50 shrink-0">
           <span>{time}</span>
@@ -147,13 +150,16 @@ export const AppShell: FC<AppShellProps> = ({
           </div>
         : null}
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide">
-          {children}
+        {/* Main content — flex child scrolls; tab bar is a sibling, not an overlay. */}
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col relative">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-hide">
+            {children}
+          </div>
         </div>
 
         {/* Bottom Navigation */}
-        <div className="absolute bottom-0 left-0 w-full bg-white border-t border-slate-100 pb-safe pt-2 px-6 pb-6 z-50 rounded-b-[2.5rem]">
+        {!hideBottomNav.has(currentPage) ? (
+        <div className="shrink-0 w-full bg-white border-t border-slate-100 pt-2 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] z-50 rounded-b-[2.5rem]">
           <div className="flex justify-between items-center">
             {navItems.map((item) => {
               const isActive =
@@ -196,6 +202,7 @@ export const AppShell: FC<AppShellProps> = ({
             })}
           </div>
         </div>
+        ) : null}
       </div>
     </div>);
 
