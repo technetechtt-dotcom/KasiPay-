@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
 
-import { DATABASE_PATH, DATABASE_URL, IS_POSTGRES } from './config.js';
+import { DATABASE_PATH, DATABASE_URL, IS_POSTGRES, NODE_ENV } from './config.js';
 
 let sqliteDb: Database.Database | null = null;
 let pgPool: Pool | null = null;
@@ -33,6 +33,9 @@ export function getPgPool(): Pool {
     ssl: { rejectUnauthorized: false },
     max: 5,
     idleTimeoutMillis: 30_000,
+    ...(NODE_ENV === 'production'
+      ? { options: '-c default_transaction_read_only=on' }
+      : {}),
   });
   return pgPool;
 }

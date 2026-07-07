@@ -92,6 +92,21 @@ export const REFRESH_ABSOLUTE_TTL_SEC = Number(
 export const REFRESH_TOKEN_PEPPER =
   process.env.REFRESH_TOKEN_PEPPER ?? JWT_SECRET;
 
+/** Pepper for hashing PIN-reset SMS codes. Defaults to JWT_SECRET when unset. */
+export const PIN_RESET_PEPPER = (() => {
+  const raw = process.env.PIN_RESET_PEPPER?.trim();
+  if (NODE_ENV === 'production') {
+    const value = raw || JWT_SECRET;
+    if (value.length < 32) {
+      throw new Error(
+        'PIN_RESET_PEPPER (or JWT_SECRET) must be at least 32 characters in production.',
+      );
+    }
+    return value;
+  }
+  return raw || 'dev-only-pin-reset-pepper';
+})();
+
 /** @deprecated use ACCESS_TOKEN_TTL_SEC */
 export const SESSION_TTL_SEC = ACCESS_TOKEN_TTL_SEC;
 

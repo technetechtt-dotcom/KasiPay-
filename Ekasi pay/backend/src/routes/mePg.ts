@@ -3,7 +3,7 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { NODE_ENV } from '../config.js';
+import { NODE_ENV, PIN_RESET_PEPPER } from '../config.js';
 import { getPgPool } from '../dbPg.js';
 import { toPublicUser } from '../mappers.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -59,7 +59,6 @@ meRouterPg.patch('/me/pin', requireAuth, async (req, res) => {
 });
 
 const PIN_RESET_TTL_MS = 10 * 60_000;
-const PIN_RESET_PEPPER = 'ekasi.pinreset.v1';
 
 function hashResetCode(userId: string, code: string): string {
   return createHash('sha256')

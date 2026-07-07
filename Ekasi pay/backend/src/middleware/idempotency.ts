@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { NextFunction, Request, Response } from 'express';
 
 import { getDb } from '../db.js';
@@ -15,6 +17,7 @@ import { getDb } from '../db.js';
 const KEY_HEADER = 'idempotency-key';
 const RETENTION_HOURS = 24;
 const MAX_KEY_LEN = 64;
+const IN_FLIGHT_STALE_MS = 2 * 60_000;
 
 /** ISO timestamp `RETENTION_HOURS` ago. */
 function retentionFloorIso(): string {
@@ -30,6 +33,74 @@ function gcOldKeys(database = getDb()): void {
   } catch {
     /* table missing in test scenarios — caller already runs the migration */
   }
+}
+
+type IdemRow = {
+  status: number;
+  response_body: string;
+  created_at: string;
+};
+
+function fetchIdemRow(
+  database: ReturnType<typeof getDb>,
+  userId: string,
+  routeName: string,
+  key: string,
+): IdemRow | undefined {
+  return database
+    .prepare(
+      `SELECT status, response_body, created_at
+         FROM idempotency_keys
+        WHERE user_id = ? AND route = ? AND client_key = ?
+          AND created_at >= ?`,
+    )
+    .get(userId, routeName, key, retentionFloorIso()) as IdemRow | undefined;
+}
+
+function replayCached(res: Response, hit: IdemRow): Response {
+  res.setHeader('Idempotent-Replay', 'true');
+  try {
+    return res.status(hit.status).json(JSON.parse(hit.response_body));
+  } catch {
+    return res.status(hit.status).send(hit.response_body);
+  }
+}
+
+function claimIdempotencyKey(
+  database: ReturnType<typeof getDb>,
+  userId: string,
+  routeName: string,
+  key: string,
+): 'claimed' | 'replay' | 'in_flight' {
+  const nowIso = new Date().toISOString();
+  const info = database
+    .prepare(
+      `INSERT OR IGNORE INTO idempotency_keys
+         (id, user_id, route, client_key, status, response_body, created_at)
+       VALUES (?, ?, ?, ?, 0, '', ?)`,
+    )
+    .run(randomUUID(), userId, routeName, key, nowIso);
+
+  if (info.changes > 0) return 'claimed';
+
+  const hit = fetchIdemRow(database, userId, routeName, key);
+  if (!hit) return 'claimed';
+
+  if (hit.status === 0) {
+    const ageMs = Date.now() - new Date(hit.created_at).getTime();
+    if (ageMs > IN_FLIGHT_STALE_MS) {
+      database
+        .prepare(
+          `DELETE FROM idempotency_keys
+            WHERE user_id = ? AND route = ? AND client_key = ? AND status = 0`,
+        )
+        .run(userId, routeName, key);
+      return claimIdempotencyKey(database, userId, routeName, key);
+    }
+    return 'in_flight';
+  }
+
+  return 'replay';
 }
 
 /**
@@ -49,7 +120,6 @@ export function idempotent(routeName: string) {
     const raw = req.headers[KEY_HEADER];
     const key = (Array.isArray(raw) ? raw[0] : raw ?? '').trim();
     if (!key) {
-      // No header → no replay protection, but still proceed (backwards compat).
       return next();
     }
     if (key.length > MAX_KEY_LEN) {
@@ -60,28 +130,27 @@ export function idempotent(routeName: string) {
 
     const database = getDb();
     gcOldKeys(database);
-    const existing = database
-      .prepare(
-        `SELECT status, response_body
-           FROM idempotency_keys
-          WHERE user_id = ? AND route = ? AND client_key = ?
-            AND created_at >= ?`,
-      )
-      .get(req.auth.userId, routeName, key, retentionFloorIso()) as
-      | { status: number; response_body: string }
-      | undefined;
 
-    if (existing) {
-      res.setHeader('Idempotent-Replay', 'true');
-      try {
-        return res.status(existing.status).json(JSON.parse(existing.response_body));
-      } catch {
-        return res.status(existing.status).send(existing.response_body);
-      }
+    const claim = claimIdempotencyKey(
+      database,
+      req.auth.userId,
+      routeName,
+      key,
+    );
+    if (claim === 'in_flight') {
+      res.setHeader('Retry-After', '2');
+      return res.status(409).json({
+        error: 'An identical request is still processing. Retry in a moment.',
+      });
+    }
+    if (claim === 'replay') {
+      const hit = fetchIdemRow(database, req.auth.userId, routeName, key);
+      if (hit) return replayCached(res, hit);
+      return res.status(409).json({
+        error: 'Idempotency replay conflict. Retry with a new key.',
+      });
     }
 
-    // Capture the next `res.json` call so we can cache the response. We only
-    // wrap `.json` because every route in this app responds with JSON.
     const originalJson = res.json.bind(res);
     let cached = false;
     res.json = function cachingJson(body: unknown) {
@@ -92,24 +161,30 @@ export function idempotent(routeName: string) {
           try {
             database
               .prepare(
-                `INSERT INTO idempotency_keys
-                   (id, user_id, route, client_key, status, response_body, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                `UPDATE idempotency_keys
+                    SET status = ?, response_body = ?
+                  WHERE user_id = ? AND route = ? AND client_key = ?`,
               )
               .run(
-                `idem_${Date.now().toString(36)}_${Math.random()
-                  .toString(36)
-                  .slice(2, 10)}`,
+                status,
+                JSON.stringify(body),
                 req.auth.userId,
                 routeName,
                 key,
-                status,
-                JSON.stringify(body),
-                new Date().toISOString(),
               );
           } catch {
-            // Race-condition with a concurrent retry — safe to ignore; the
-            // unique index protects against duplicates.
+            /* ignore */
+          }
+        } else if (status >= 500) {
+          try {
+            database
+              .prepare(
+                `DELETE FROM idempotency_keys
+                  WHERE user_id = ? AND route = ? AND client_key = ? AND status = 0`,
+              )
+              .run(req.auth.userId, routeName, key);
+          } catch {
+            /* ignore */
           }
         }
       }

@@ -79,6 +79,13 @@ function splitLegacyName(name: string | null | undefined): {
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
+/** Mask SA ID for ops list views — last 4 digits only. */
+function maskSaId(id: string | null | undefined): string | null {
+  const digits = (id ?? '').replace(/\D/g, '');
+  if (digits.length < 4) return null;
+  return `***${digits.slice(-4)}`;
+}
+
 /** Ops view of a Cash Send voucher with sender and withdrawer KYC. */
 export function toOpsCashSendVoucher(row: RowCashSendVoucher) {
   const recipientLegacy = splitLegacyName(row.recipient_name);
@@ -114,13 +121,13 @@ export function toOpsCashSendVoucher(row: RowCashSendVoucher) {
       firstName: senderFirstName,
       lastName: senderLastName,
       phone: row.sender_phone,
-      idDocument: senderId?.length === 13 ? senderId : senderId || null,
+      idDocument: maskSaId(senderId),
     },
     withdrawer: {
       firstName: withdrawerFirstName,
       lastName: withdrawerLastName,
       phone: row.recipient_phone,
-      idDocument: withdrawerId,
+      idDocument: maskSaId(withdrawerId),
     },
     idVerifiedAtWithdrawal: row.collected_with_id_verified === 1,
   };

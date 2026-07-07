@@ -12,6 +12,7 @@ import {
   PORT,
 } from './config.js';
 import { getDb } from './db.js';
+import { getPgPool } from './dbPg.js';
 import { closeDataStore, initDataStore, isPostgresMode } from './dbRuntime.js';
 import { validateProductionConfig } from './validateProductionConfig.js';
 import { activityRouter } from './routes/activity.js';
@@ -53,6 +54,7 @@ import { utilitiesRouterPg } from './routes/utilitiesPg.js';
 import { walletsRouter } from './routes/wallets.js';
 import { walletsRouterPg } from './routes/walletsPg.js';
 import { recordAuditEvent } from './services/audit.js';
+import { recordAuditEventPg } from './services/auditPg.js';
 
 validateProductionConfig();
 await initDataStore();
@@ -87,12 +89,24 @@ app.use((req, res, next) => {
     if (!req.originalUrl.startsWith('/api') || req.originalUrl === '/api/refresh') {
       return;
     }
-    if (isPostgresMode()) return;
+    const auditMessage = `${req.method} ${redactUrlForLog(req.originalUrl)} -> ${res.statusCode} (${durationMs}ms)`;
+    const auditType = `http.${req.method.toLowerCase()}`;
+    const actorUserId = req.auth?.userId ?? null;
+    if (isPostgresMode()) {
+      void recordAuditEventPg(getPgPool(), {
+        type: auditType,
+        message: auditMessage,
+        actorUserId,
+      }).catch(() => {
+        /* audit log failures must not break requests */
+      });
+      return;
+    }
     try {
       recordAuditEvent(getDb(), {
-        type: `http.${req.method.toLowerCase()}`,
-        message: `${req.method} ${redactUrlForLog(req.originalUrl)} -> ${res.statusCode} (${durationMs}ms)`,
-        actorUserId: req.auth?.userId ?? null,
+        type: auditType,
+        message: auditMessage,
+        actorUserId,
       });
     } catch {
       /* audit log failures must not break requests */
