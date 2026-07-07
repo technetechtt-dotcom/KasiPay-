@@ -8,6 +8,8 @@ module.exports = {
   ],
   ignorePatterns: [
     'dist',
+    'ops-dashboard/dist',
+    'ops-dashboard/dist-server',
     'backend',
     'android',
     'ios',

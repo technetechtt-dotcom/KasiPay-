@@ -1,4 +1,6 @@
 /** SA ID-style number: digits only (13-digit smart card barcode often encodes similarly). */
+import { randomUUID } from 'node:crypto';
+
 export function normalizeCashSendId(raw: string): string {
   return raw.replace(/\D/g, '');
 }
@@ -58,4 +60,9 @@ export function parseCashSendVoucherReference(raw: string): string | null {
   if (!trimmed || isSaCellphoneInput(trimmed)) return null;
   const ref = normalizeCashSendReference(trimmed);
   return isCashSendVoucherReference(ref) ? ref : null;
+}
+
+/** Unique public voucher number (CS + 14 hex chars). */
+export function generateCashSendReference(): string {
+  return `CS${randomUUID().replace(/-/g, '').slice(0, 14).toUpperCase()}`;
 }

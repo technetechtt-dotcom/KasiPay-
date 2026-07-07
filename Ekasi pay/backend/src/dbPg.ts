@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 
 import { DATABASE_URL } from './config.js';
+import { pgPoolSsl } from './pgSsl.js';
 import { seedEscrowPoolZaPg } from './services/escrowPg.js';
 
 let pool: Pool | null = null;
@@ -14,7 +15,7 @@ function ensurePool(): Pool {
   }
   pool = new Pool({
     connectionString: DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: pgPoolSsl(DATABASE_URL),
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,

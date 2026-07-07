@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   cashSendIdsMatch,
+  generateCashSendReference,
   isValidSaIdChecksum,
   normalizeCashSendId,
   parseCashSendVoucherReference,
@@ -58,5 +59,13 @@ describe('parseCashSendVoucherReference', () => {
       null,
     );
     assert.equal(parseCashSendVoucherReference('ABC123'), null);
+  });
+});
+
+describe('generateCashSendReference', () => {
+  it('returns CS prefix with 14 hex chars', () => {
+    const ref = generateCashSendReference();
+    assert.match(ref, /^CS[0-9A-F]{14}$/);
+    assert.notEqual(ref, generateCashSendReference());
   });
 });

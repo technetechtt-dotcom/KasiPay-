@@ -9,6 +9,7 @@ import {
   normalizeCashSendId,
   parseCashSendVoucherReference,
   validateSaIdDigits,
+  generateCashSendReference,
 } from '../cashSendKyc.js';
 import { optionalSaIdBody, saIdBody } from '../cashSendSchemas.js';
 import { getPgPool } from '../dbPg.js';
@@ -225,7 +226,7 @@ cashSendRouterPg.post(
     }
     const id = randomUUID();
     const pinHash = hashPin(parsed.data.atmPin);
-    const ref = `CS${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
+    const ref = generateCashSendReference();
     const now = new Date();
     const expires = new Date(
       now.getTime() + DAYS_VALID * 86400000,

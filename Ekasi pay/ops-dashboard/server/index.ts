@@ -24,6 +24,11 @@ validateOpsConfig();
 
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
+
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'ekasi-ops-dashboard' });
+});
+
 app.use(
   cors({
     origin:
@@ -34,15 +39,15 @@ app.use(
               cb(null, true);
               return;
             }
-            cb(new Error(`Origin ${origin} not allowed`));
+            cb(
+              Object.assign(new Error(`Origin ${origin} not allowed`), {
+                status: 403,
+              }),
+            );
           },
   }),
 );
 app.use(express.json({ limit: '256kb' }));
-
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'ekasi-ops-dashboard' });
-});
 
 const loginLimiter = rateLimit({
   windowMs: 60_000,

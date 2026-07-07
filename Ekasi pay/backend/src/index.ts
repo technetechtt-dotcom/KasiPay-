@@ -117,6 +117,10 @@ app.use((req, res, next) => {
 
 app.use(helmet());
 
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'ekasi-pay-api' });
+});
+
 /**
  * CORS policy. In development we allow any origin so vite dev / Capacitor /
  * adb-reverse all work. In every other environment we require an explicit
@@ -129,24 +133,24 @@ app.use(
       ? true
       : (origin, cb) => {
           if (!origin) {
-            cb(null, true);
+            cb(Object.assign(new Error('Origin header required'), { status: 403 }));
             return;
           }
           const allowed = listFrontendOrigins();
           if (allowed.includes(origin)) {
             cb(null, true);
           } else {
-            cb(new Error(`Origin ${origin} not allowed by CORS`));
+            cb(
+              Object.assign(new Error(`Origin ${origin} not allowed by CORS`), {
+                status: 403,
+              }),
+            );
           }
         },
     credentials: false,
   })
 );
 app.use(express.json({ limit: '512kb' }));
-
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'ekasi-pay-api' });
-});
 
 /** Per-IP limiter for high-risk auth POSTs (register / login). */
 const authBurstLimiter = rateLimit({
@@ -261,9 +265,15 @@ app.use(
       return;
     }
     const e = err as { status?: number; message?: string };
-    const status = typeof e.status === 'number' ? e.status : 500;
-    const message =
-      status >= 500 ? 'Unexpected server error' : (e.message ?? 'Request failed');
+    let status = typeof e.status === 'number' ? e.status : 500;
+    const rawMessage = e.message ?? 'Request failed';
+    if (
+      status === 500 &&
+      (rawMessage.includes('CORS') || rawMessage.includes('Origin header required'))
+    ) {
+      status = 403;
+    }
+    const message = status >= 500 ? 'Unexpected server error' : rawMessage;
     res.status(status).json({ error: message });
   }
 );
