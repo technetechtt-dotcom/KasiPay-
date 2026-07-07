@@ -87,16 +87,18 @@ async function findVoucherByReferencePg(
 const COLLECT_REFERENCE_MSG =
   'Cash can only be collected with the voucher number (starts with CS…) and 4-digit PIN from the sender.';
 
-cashSendRouterPg.get('/cash-send/lookup', requireAuth, async (req, res) => {
-  const rawRef = String(req.query.reference ?? '').trim();
-  const pin = String(req.query.pin ?? '').trim();
+const lookupBody = z.object({
+  reference: z.string().min(1),
+  pin: cashSendVoucherPin,
+});
 
-  if (!rawRef) {
-    return res.status(400).json({ error: 'Enter the voucher number.' });
+cashSendRouterPg.post('/cash-send/lookup', requireAuth, async (req, res) => {
+  const parsed = lookupBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
   }
-  if (!/^\d{4}$/.test(pin)) {
-    return res.status(400).json({ error: 'Enter the 4-digit voucher PIN.' });
-  }
+
+  const rawRef = parsed.data.reference.trim();
   const ref = parseCashSendVoucherReference(rawRef);
   if (!ref) {
     return res.status(400).json({
@@ -114,9 +116,22 @@ cashSendRouterPg.get('/cash-send/lookup', requireAuth, async (req, res) => {
         'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
     });
   }
-  if (!verifyPin(pin, row.pin_hash)) {
+
+  try {
+    await ensureCollectNotLockedPg(pool, row.reference_number);
+  } catch (e: unknown) {
+    const err = e as { status?: number; message?: string };
+    return res.status(err.status ?? 423).json({
+      error: err.message ?? 'Too many wrong PINs for this voucher.',
+    });
+  }
+
+  if (!verifyPin(parsed.data.pin, row.pin_hash)) {
+    await recordCollectPinFailurePg(pool, row.reference_number);
     return res.status(401).json({ error: 'Incorrect PIN for this voucher.' });
   }
+
+  await clearCollectPinFailuresPg(pool, row.reference_number);
   return res.json({
     referenceNumber: row.reference_number,
     status: row.status,
@@ -178,9 +193,14 @@ cashSendRouterPg.post(
         error: 'Beneficiary cellphone must differ from the sender’s.',
       });
     }
+    if (!digitsOnlyPhoneSame(parsed.data.senderPhone, req.auth!.phone)) {
+      return res.status(400).json({
+        error: 'Sender phone must match your registered account phone.',
+      });
+    }
     const pool = getPgPool();
     const userId = req.auth!.userId;
-    const phone = parsed.data.senderPhone;
+    const phone = req.auth!.phone;
     const walletQ = await pool.query<{
       id: string;
       balance: number;
@@ -202,9 +222,6 @@ cashSendRouterPg.post(
       return res
         .status(503)
         .json({ error: 'Regional escrow float is not available' });
-    }
-    if (wallet.balance < total) {
-      return res.status(400).json({ error: 'Insufficient balance' });
     }
     const id = randomUUID();
     const pinHash = hashPin(parsed.data.atmPin);

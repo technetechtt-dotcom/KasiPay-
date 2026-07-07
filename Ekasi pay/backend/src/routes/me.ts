@@ -12,7 +12,7 @@ import { hashPin, verifyPin } from '../password.js';
 import { clearPinFailures } from '../security/pinAttempts.js';
 import { revokeAllUserSessions } from '../sessionAuth.js';
 import type { RowUser } from '../types.js';
-import { updatePinBodySchema } from '../validation.js';
+import { accountPin, updatePinBodySchema } from '../validation.js';
 
 export const meRouter = Router();
 
@@ -76,7 +76,7 @@ const pinResetConfirm = z.object({
     .string()
     .regex(/^\d{6}$/u, 'Code must be 6 digits')
     .transform((v) => v.trim()),
-  newPin: z.string().min(4).max(12),
+  newPin: accountPin,
 });
 
 /**

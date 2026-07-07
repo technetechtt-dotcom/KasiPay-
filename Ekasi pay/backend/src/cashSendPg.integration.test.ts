@@ -58,7 +58,6 @@ async function httpJson(
 }
 
 describe('cashSendPg integration', { skip: !RUN_PG }, () => {
-  const runTag = `pgtest-${Date.now().toString(36)}`;
   const num = Date.now() % 10_000_000;
   const senderId = randomUUID();
   const collectorId = randomUUID();
@@ -77,7 +76,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
   const recipientSaId = '5001015009080';
 
   before(async () => {
-    const { initPg, getPgPool, closePg } = await import('./dbPg.js');
+    const { initPg, getPgPool } = await import('./dbPg.js');
     const { hashPin } = await import('./password.js');
     const { createAuthSessionPg } = await import('./sessionAuthPg.js');
     const { signToken } = await import('./jwt.js');

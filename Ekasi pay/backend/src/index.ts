@@ -60,6 +60,10 @@ await initDataStore();
 const app = express();
 app.disable('x-powered-by');
 
+function redactUrlForLog(url: string): string {
+  return url.replace(/([?&]pin=)[^&]*/gi, '$1[REDACTED]');
+}
+
 app.use((req, res, next) => {
   const incoming =
     typeof req.headers['x-request-id'] === 'string' ?
@@ -78,7 +82,7 @@ app.use((req, res, next) => {
     const rid = String(res.getHeader('X-Request-Id') ?? '');
     const durationMs = Date.now() - t0;
     console.info(
-      `${rid} ${req.method} ${req.originalUrl} -> ${res.statusCode} (${durationMs}ms)`
+      `${rid} ${req.method} ${redactUrlForLog(req.originalUrl)} -> ${res.statusCode} (${durationMs}ms)`
     );
     if (!req.originalUrl.startsWith('/api') || req.originalUrl === '/api/refresh') {
       return;
@@ -87,7 +91,7 @@ app.use((req, res, next) => {
     try {
       recordAuditEvent(getDb(), {
         type: `http.${req.method.toLowerCase()}`,
-        message: `${req.method} ${req.originalUrl} -> ${res.statusCode} (${durationMs}ms)`,
+        message: `${req.method} ${redactUrlForLog(req.originalUrl)} -> ${res.statusCode} (${durationMs}ms)`,
         actorUserId: req.auth?.userId ?? null,
       });
     } catch {

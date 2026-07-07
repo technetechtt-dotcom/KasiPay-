@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import cors from 'cors';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 
 import { loginHandler, requireOpsAuth } from './auth.js';
@@ -43,7 +44,15 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'ekasi-ops-dashboard' });
 });
 
-app.post('/ops-api/login', loginHandler);
+const loginLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Try again in a minute.' },
+});
+
+app.post('/ops-api/login', loginLimiter, loginHandler);
 
 const api = express.Router();
 api.use(requireOpsAuth);

@@ -47,17 +47,25 @@ if (!token) {
 
 for (const v of vouchers) {
   const ref = v.reference_number;
-  const r = await fetch(
-    `${base}/api/cash-send/lookup?reference=${encodeURIComponent(ref)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const r = await fetch(`${base}/api/cash-send/lookup`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ reference: ref, pin: '0000' }),
+  });
   const j = await r.json().catch(() => ({}));
   console.log(`lookup ${ref} -> ${r.status}`, j);
 }
 
 const phone = '0697040585';
-const phoneLookup = await fetch(
-  `${base}/api/cash-send/lookup?recipientPhone=${phone}&pin=WRONG`,
-  { headers: { Authorization: `Bearer ${token}` } },
-);
+const phoneLookup = await fetch(`${base}/api/cash-send/lookup`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ reference: phone, pin: 'WRONG' }),
+});
 console.log('lookup phone wrong pin ->', phoneLookup.status, await phoneLookup.json().catch(() => ({})));

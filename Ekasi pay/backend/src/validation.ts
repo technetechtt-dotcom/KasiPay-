@@ -57,10 +57,21 @@ export const expenseCategorySchema = z.enum([
   'other',
 ]);
 
+/** Account PIN for login/register/change — rejects trivial patterns. */
+export const accountPin = z
+  .string()
+  .regex(/^\d+$/, 'PIN must be digits only')
+  .min(4, 'PIN must be at least 4 digits')
+  .max(12, 'PIN must be at most 12 digits')
+  .refine((v) => !isWeakPin(v), {
+    message:
+      'PIN is too easy to guess (avoid 0000, 1234, repeated or sequential digits).',
+  });
+
 export const registerBodySchema = z.object({
   name: z.string().min(1),
   phone: saPhoneDigits,
-  pin: z.string().min(4).max(12),
+  pin: accountPin,
   role: roleSchema.default('merchant'),
   /** ISO 3166-1 alpha-2; pool id mirrors country for ledger isolation. Defaults to ZA. */
   countryCode: z
@@ -76,7 +87,7 @@ export const registerBodySchema = z.object({
 
 export const updatePinBodySchema = z.object({
   currentPin: z.string().min(4).max(12),
-  newPin: z.string().min(4).max(12),
+  newPin: accountPin,
 });
 
 export const loginBodySchema = z.object({

@@ -93,16 +93,17 @@ function findVoucherByReference(
 const COLLECT_REFERENCE_MSG =
   'Cash can only be collected with the voucher number (starts with CS…) and 4-digit PIN from the sender.';
 
-cashSendRouter.get('/cash-send/lookup', requireAuth, (req, res) => {
-  const rawRef = String(req.query.reference ?? '').trim();
-  const pin = String(req.query.pin ?? '').trim();
+const lookupBody = z.object({
+  reference: z.string().min(1),
+  pin: cashSendVoucherPin,
+});
 
-  if (!rawRef) {
-    return res.status(400).json({ error: 'Enter the voucher number.' });
-  }
-  if (!/^\d{4}$/.test(pin)) {
-    return res.status(400).json({ error: 'Enter the 4-digit voucher PIN.' });
-  }
+function lookupCashSendVoucher(
+  database: ReturnType<typeof getDb>,
+  rawRef: string,
+  pin: string,
+  res: import('express').Response,
+) {
   const ref = parseCashSendVoucherReference(rawRef);
   if (!ref) {
     return res.status(400).json({
@@ -112,16 +113,29 @@ cashSendRouter.get('/cash-send/lookup', requireAuth, (req, res) => {
     });
   }
 
-  const row = findVoucherByReference(getDb(), ref);
+  const row = findVoucherByReference(database, ref);
   if (!row) {
     return res.status(404).json({
       error:
         'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
     });
   }
+
+  try {
+    ensureCollectNotLocked(database, row.reference_number);
+  } catch (e: unknown) {
+    const err = e as { status?: number; message?: string };
+    return res.status(err.status ?? 423).json({
+      error: err.message ?? 'Too many wrong PINs for this voucher.',
+    });
+  }
+
   if (!verifyPin(pin, row.pin_hash)) {
+    recordCollectPinFailure(database, row.reference_number);
     return res.status(401).json({ error: 'Incorrect PIN for this voucher.' });
   }
+
+  clearCollectPinFailures(database, row.reference_number);
   return res.json({
     referenceNumber: row.reference_number,
     status: row.status,
@@ -129,6 +143,19 @@ cashSendRouter.get('/cash-send/lookup', requireAuth, (req, res) => {
     recipientPhone: row.recipient_phone,
     expiresAt: row.expires_at,
   });
+}
+
+cashSendRouter.post('/cash-send/lookup', requireAuth, (req, res) => {
+  const parsed = lookupBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  return lookupCashSendVoucher(
+    getDb(),
+    parsed.data.reference.trim(),
+    parsed.data.pin,
+    res,
+  );
 });
 
 const phoneDigits = z
@@ -181,9 +208,14 @@ cashSendRouter.post(
       .status(400)
       .json({ error: 'Beneficiary cellphone must differ from the sender’s.' });
   }
+  if (!digitsOnlyPhoneSame(parsed.data.senderPhone, req.auth!.phone)) {
+    return res.status(400).json({
+      error: 'Sender phone must match your registered account phone.',
+    });
+  }
   const database = getDb();
   const userId = req.auth!.userId;
-  const phone = parsed.data.senderPhone;
+  const phone = req.auth!.phone;
   const wallet = database
     .prepare(
       `SELECT * FROM wallets WHERE user_id = ? AND COALESCE(wallet_kind, 'user') = 'user'`

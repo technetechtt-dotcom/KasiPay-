@@ -12,7 +12,7 @@ import { clearPinFailuresPg } from '../security/pinAttemptsPg.js';
 import { sendSms } from '../services/sms.js';
 import { revokeAllUserSessionsPg } from '../sessionAuthPg.js';
 import type { RowUser } from '../types.js';
-import { updatePinBodySchema } from '../validation.js';
+import { accountPin, updatePinBodySchema } from '../validation.js';
 
 export const meRouterPg = Router();
 
@@ -80,7 +80,7 @@ const pinResetConfirm = z.object({
     .string()
     .regex(/^\d{6}$/u, 'Code must be 6 digits')
     .transform((v) => v.trim()),
-  newPin: z.string().min(4).max(12),
+  newPin: accountPin,
 });
 
 meRouterPg.post('/pin-reset/request', async (req, res) => {

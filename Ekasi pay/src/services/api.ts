@@ -1049,16 +1049,16 @@ export async function apiCreateCashSend(
 }
 
 export async function apiLookupCashSend(input: { reference: string; pin: string }) {
-  const params = new URLSearchParams();
-  params.set('reference', input.reference);
-  params.set('pin', input.pin);
   return apiRequest<{
     referenceNumber: string;
     status: string;
     amount: number;
     recipientPhone: string;
     expiresAt: string;
-  }>(`/api/cash-send/lookup?${params.toString()}`);
+  }>('/api/cash-send/lookup', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export async function apiCollectCashSend(
