@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   KPButton,
   KPCard,
+  KPInput,
   PageTransition } from
 '../../components/shared/UIComponents';
 import {
@@ -35,6 +36,15 @@ export const AddStockPage = ({
   navigate,
   scannedBarcode,
 }: {
+  onRestockProduct?: (
+    productId: string,
+    quantity: number,
+    options?: {
+      costPrice?: number;
+      supplierName?: string;
+      slipReference?: string;
+    },
+  ) => void | Promise<void>;
   onAddProduct: (product: {
     name: string;
     costPrice: number;
@@ -42,11 +52,9 @@ export const AddStockPage = ({
     stock: number;
     category: string;
     barcode?: string;
+    supplierName?: string;
+    slipReference?: string;
   }) => void | Promise<void>;
-  onRestockProduct?: (
-    productId: string,
-    quantity: number,
-  ) => void | Promise<void>;
   existingProducts: Product[];
   navigate: (p: string) => void;
   scannedBarcode?: string;
@@ -61,6 +69,8 @@ export const AddStockPage = ({
   const [addedName, setAddedName] = useState('');
   const [catalogHint, setCatalogHint] = useState<string | null>(null);
   const [scannerPrefillCode, setScannerPrefillCode] = useState<string | null>(null);
+  const [supplierName, setSupplierName] = useState('');
+  const [slipReference, setSlipReference] = useState('');
 
   useEffect(() => {
     if (scannedBarcode) {
@@ -163,7 +173,11 @@ export const AddStockPage = ({
   const handleSubmit = async () => {
     if (!isValid) return;
     if (isRestock && existingMatch && onRestockProduct) {
-      await onRestockProduct(existingMatch.id, stockQty);
+      await onRestockProduct(existingMatch.id, stockQty, {
+        costPrice: costVal > 0 ? costVal : existingMatch.costPrice,
+        supplierName: supplierName.trim() || undefined,
+        slipReference: slipReference.trim() || undefined,
+      });
       setAddedName(
         `${existingMatch.name} (+${stockQty}, now ${newTotal} in stock)`,
       );
@@ -180,6 +194,8 @@ export const AddStockPage = ({
       stock: stockQty,
       category,
       barcode: barcode.trim() || undefined,
+      supplierName: supplierName.trim() || undefined,
+      slipReference: slipReference.trim() || undefined,
     });
     setAddedName(name.trim());
     setSuccess(true);
@@ -195,6 +211,8 @@ export const AddStockPage = ({
     setCategory('Food');
     setCatalogHint(null);
     setScannerPrefillCode(null);
+    setSupplierName('');
+    setSlipReference('');
     setSuccess(false);
   };
   if (success) {
@@ -527,6 +545,30 @@ export const AddStockPage = ({
               )}
             </div>
           </div>
+        </KPCard>
+
+        <KPCard className="p-5 mb-6 space-y-4">
+          <div>
+            <h3 className="font-bold text-slate-900">Supplier slip (optional)</h3>
+            <p className="text-xs text-slate-500">
+              Record slip details to post a supplier expense and balance your books.
+            </p>
+          </div>
+          <KPInput
+            placeholder="Supplier name"
+            value={supplierName}
+            onChange={(e) => setSupplierName(e.target.value)}
+          />
+          <KPInput
+            placeholder="Slip / invoice number"
+            value={slipReference}
+            onChange={(e) => setSlipReference(e.target.value)}
+          />
+          {stockQty > 0 && costVal > 0 ? (
+            <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+              Purchase total for books: R{(stockQty * costVal).toFixed(2)}
+            </p>
+          ) : null}
         </KPCard>
 
         {/* Preview */}

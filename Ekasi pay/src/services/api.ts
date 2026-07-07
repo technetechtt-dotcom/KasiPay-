@@ -870,6 +870,89 @@ export async function apiGetIncomeStatement(
   );
 }
 
+export type ExpenseStatement = {
+  period: IncomeStatement['period'];
+  rangeStart: string | null;
+  totalExpenses: number;
+  expensesByCategory: { category: string; amount: number }[];
+  expenses: {
+    id: string;
+    category: string;
+    description: string;
+    amount: number;
+    createdAt: string;
+  }[];
+  expenseCount: number;
+};
+
+export async function apiGetExpenseStatement(
+  period: ExpenseStatement['period'] = 'monthly',
+) {
+  return apiRequest<ExpenseStatement>(
+    `/api/reports/expense-statement?period=${encodeURIComponent(period)}`,
+  );
+}
+
+export type InventoryReport = {
+  generatedAt: string;
+  totalSkus: number;
+  totalUnits: number;
+  totalCostValue: number;
+  totalRetailValue: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  items: {
+    id: string;
+    name: string;
+    category: string;
+    barcode?: string;
+    stock: number;
+    costPrice: number;
+    sellingPrice: number;
+    costValue: number;
+    retailValue: number;
+    marginPerUnit: number;
+  }[];
+};
+
+export async function apiGetInventoryReport() {
+  return apiRequest<InventoryReport>('/api/reports/inventory');
+}
+
+export type StockIntakeLine = {
+  productId?: string;
+  name?: string;
+  quantity: number;
+  costPrice: number;
+  sellingPrice?: number;
+  category?: string;
+  barcode?: string;
+};
+
+export async function apiStockIntake(body: {
+  supplierName?: string;
+  slipReference?: string;
+  slipTotal?: number;
+  notes?: string;
+  recordExpense?: boolean;
+  lines: StockIntakeLine[];
+}) {
+  return apiRequest<{
+    slip: import('../types').PurchaseSlip;
+    products: import('../types').Product[];
+    movementIds: string[];
+  }>('/api/stock-intake', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiGetPurchaseSlips() {
+  return apiRequest<{ slips: import('../types').PurchaseSlip[] }>(
+    '/api/purchase-slips',
+  );
+}
+
 export type CommissionPosting = {
   id: string;
   agentUserId: string;

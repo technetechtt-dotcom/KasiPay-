@@ -47,6 +47,8 @@ import { productsRouter } from './routes/products.js';
 import { productsRouterPg } from './routes/productsPg.js';
 import { salesRouter } from './routes/sales.js';
 import { salesRouterPg } from './routes/salesPg.js';
+import { stockIntakeRouter } from './routes/stockIntake.js';
+import { stockIntakeRouterPg } from './routes/stockIntakePg.js';
 import { transfersRouter } from './routes/transfers.js';
 import { transfersRouterPg } from './routes/transfersPg.js';
 import { utilitiesRouter } from './routes/utilities.js';
@@ -216,6 +218,7 @@ if (isPostgresMode()) {
   api.use(expensesRouterPg);
   api.use(creditRouterPg);
   api.use(analyticsRouterPg);
+  api.use(stockIntakeRouterPg);
   api.use(extensionSuppliersRouterPg);
   api.use(extensionProgramsRouterPg);
   api.use(extensionAccountRouterPg);
@@ -246,6 +249,7 @@ if (isPostgresMode()) {
   api.use(cashSendRouter);
   api.use(commissionsRouter);
   api.use(analyticsRouter);
+  api.use(stockIntakeRouter);
   api.use(adminUsersRouter);
   api.use(adminRouter);
   api.use(utilitiesRouter);

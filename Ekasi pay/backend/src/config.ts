@@ -49,7 +49,12 @@ function normalizeOrigin(value: string): string {
 
   try {
     const url = new URL(origin);
-    if (!url.hostname.includes('.')) {
+    const host = url.hostname.toLowerCase();
+    const isLocalHost =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.endsWith('.localhost');
+    if (!host.includes('.') && !isLocalHost) {
       url.hostname = `${url.hostname}.onrender.com`;
       origin = url.origin;
     }

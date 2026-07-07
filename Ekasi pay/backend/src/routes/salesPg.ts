@@ -15,6 +15,7 @@ type SaleItem = {
   quantity: number;
   price: number;
   subtotal: number;
+  costPrice?: number;
 };
 
 export const salesRouterPg = Router();
@@ -107,7 +108,8 @@ salesRouterPg.post('/sales', requireAuth, idempotentPg('POST /sales'), async (re
         merchant_id: string;
         name: string;
         stock: number;
-      }>(`SELECT id, merchant_id, name, stock FROM products WHERE id = $1`, [
+        cost_price: number;
+      }>(`SELECT id, merchant_id, name, stock, cost_price FROM products WHERE id = $1`, [
         line.productId,
       ]);
       const product = productQ.rows[0];
@@ -125,6 +127,7 @@ salesRouterPg.post('/sales', requireAuth, idempotentPg('POST /sales'), async (re
         });
       }
 
+      const costAtSale = product.cost_price;
       const subtotal = line.quantity * line.price;
       computedTotal += subtotal;
       saleItems.push({
@@ -133,12 +136,30 @@ salesRouterPg.post('/sales', requireAuth, idempotentPg('POST /sales'), async (re
         quantity: line.quantity,
         price: line.price,
         subtotal,
+        costPrice: costAtSale,
       });
 
       await client.query(`UPDATE products SET stock = stock - $1 WHERE id = $2`, [
         line.quantity,
         product.id,
       ]);
+
+      const movementId = randomUUID();
+      await client.query(
+        `INSERT INTO stock_movements
+          (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time, reference, notes, created_at)
+         VALUES ($1, $2, $3, $4, 'out', $5, 'sale', $6, $7, NULL, $8)`,
+        [
+          movementId,
+          merchantId,
+          product.id,
+          product.name,
+          line.quantity,
+          costAtSale,
+          saleId,
+          createdAt,
+        ],
+      );
     }
 
     if (paymentMethod === 'wallet') {

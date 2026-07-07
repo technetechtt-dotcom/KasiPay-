@@ -13,6 +13,7 @@ type SaleItem = {
   quantity: number;
   price: number;
   subtotal: number;
+  costPrice?: number;
 };
 
 type SaleRow = {
@@ -209,7 +210,11 @@ analyticsRouterPg.get('/reports/income-statement', requireAuth, async (req, res)
     for (const it of items) {
       const product = productById.get(it.productId);
       const costPrice =
-        typeof product?.cost_price === 'number' ? product.cost_price : it.price * 0.7;
+        typeof it.costPrice === 'number'
+          ? it.costPrice
+          : typeof product?.cost_price === 'number'
+            ? product.cost_price
+            : it.price * 0.7;
       totalCOGS += costPrice * it.quantity;
     }
   }
@@ -240,5 +245,109 @@ analyticsRouterPg.get('/reports/income-statement', requireAuth, async (req, res)
     netMarginPct: Number(netMarginPct.toFixed(2)),
     saleCount: sales.length,
     expenseCount: expenses.length,
+  });
+});
+
+analyticsRouterPg.get('/reports/expense-statement', requireAuth, async (req, res) => {
+  const period = periodSchema.parse(req.query.period);
+  const pool = getPgPool();
+  const merchantId = await requireMerchantIdPg(pool, req.auth!.userId);
+  const since = periodStart(period);
+
+  const expenses = (
+    since
+      ? await pool.query<ExpenseRow>(
+          `SELECT id, category, description, amount, created_at
+             FROM expenses
+            WHERE merchant_id = $1 AND created_at >= $2
+            ORDER BY created_at DESC`,
+          [merchantId, since],
+        )
+      : await pool.query<ExpenseRow>(
+          `SELECT id, category, description, amount, created_at
+             FROM expenses
+            WHERE merchant_id = $1
+            ORDER BY created_at DESC`,
+          [merchantId],
+        )
+  ).rows;
+
+  const expensesByCategory = new Map<string, number>();
+  for (const e of expenses) {
+    expensesByCategory.set(e.category, (expensesByCategory.get(e.category) ?? 0) + e.amount);
+  }
+  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+
+  return res.json({
+    period,
+    rangeStart: since,
+    totalExpenses: Number(totalExpenses.toFixed(2)),
+    expensesByCategory: [...expensesByCategory.entries()].map(([category, amount]) => ({
+      category,
+      amount: Number(amount.toFixed(2)),
+    })),
+    expenses: expenses.map((e) => ({
+      id: e.id,
+      category: e.category,
+      description: e.description,
+      amount: Number(e.amount.toFixed(2)),
+      createdAt: e.created_at,
+    })),
+    expenseCount: expenses.length,
+  });
+});
+
+analyticsRouterPg.get('/reports/inventory', requireAuth, async (req, res) => {
+  const pool = getPgPool();
+  const merchantId = await requireMerchantIdPg(pool, req.auth!.userId);
+
+  const rows = await pool.query<{
+    id: string;
+    name: string;
+    cost_price: number;
+    price: number;
+    stock: number;
+    category: string;
+    barcode: string | null;
+  }>(
+    `SELECT id, name, cost_price, price, stock, category, barcode
+       FROM products
+      WHERE merchant_id = $1
+      ORDER BY lower(category), lower(name)`,
+    [merchantId],
+  );
+
+  const items = rows.rows.map((p) => {
+    const costValue = (p.cost_price ?? 0) * p.stock;
+    const retailValue = p.price * p.stock;
+    return {
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      barcode: p.barcode ?? undefined,
+      stock: p.stock,
+      costPrice: Number((p.cost_price ?? 0).toFixed(2)),
+      sellingPrice: Number(p.price.toFixed(2)),
+      costValue: Number(costValue.toFixed(2)),
+      retailValue: Number(retailValue.toFixed(2)),
+      marginPerUnit: Number((p.price - (p.cost_price ?? 0)).toFixed(2)),
+    };
+  });
+
+  const totalUnits = items.reduce((s, i) => s + i.stock, 0);
+  const totalCostValue = items.reduce((s, i) => s + i.costValue, 0);
+  const totalRetailValue = items.reduce((s, i) => s + i.retailValue, 0);
+  const lowStockCount = items.filter((i) => i.stock > 0 && i.stock < 10).length;
+  const outOfStockCount = items.filter((i) => i.stock === 0).length;
+
+  return res.json({
+    generatedAt: new Date().toISOString(),
+    totalSkus: items.length,
+    totalUnits,
+    totalCostValue: Number(totalCostValue.toFixed(2)),
+    totalRetailValue: Number(totalRetailValue.toFixed(2)),
+    lowStockCount,
+    outOfStockCount,
+    items,
   });
 });

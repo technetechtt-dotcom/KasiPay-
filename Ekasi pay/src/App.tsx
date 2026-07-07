@@ -16,6 +16,7 @@ import {
 } from './pages/admin/AdminPages';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddStockPage } from './pages/inventory/AddStockPage';
+import { RecordPurchaseSlipPage } from './pages/inventory/RecordPurchaseSlipPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { HelpPage } from './pages/settings/HelpPage';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
@@ -429,6 +430,14 @@ export function App() {
             navigate={state.navigate}
             scannedBarcode={scannedBarcode} />);
 
+      case 'record-purchase-slip':
+        return (
+          <RecordPurchaseSlipPage
+            products={state.products}
+            onRecordPurchase={state.recordStockPurchase}
+            navigate={state.navigate}
+          />
+        );
 
       case 'scanner':
         return (

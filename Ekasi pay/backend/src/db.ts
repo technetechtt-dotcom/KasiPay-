@@ -326,6 +326,19 @@ function migrate(database: Database.Database) {
       FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS purchase_slips (
+      id TEXT PRIMARY KEY,
+      merchant_id TEXT NOT NULL,
+      supplier_name TEXT,
+      slip_reference TEXT,
+      total REAL NOT NULL,
+      line_items_json TEXT NOT NULL,
+      notes TEXT,
+      expense_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,

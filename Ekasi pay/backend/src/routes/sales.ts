@@ -15,6 +15,7 @@ type SaleItem = {
   quantity: number;
   price: number;
   subtotal: number;
+  costPrice?: number;
 };
 
 function moveWalletFunds(
@@ -173,6 +174,7 @@ salesRouter.post('/sales', requireAuth, idempotent('POST /sales'), (req, res) =>
               merchant_id: string;
               name: string;
               stock: number;
+              cost_price: number;
             }
           | undefined;
         if (!product) {
@@ -188,6 +190,7 @@ salesRouter.post('/sales', requireAuth, idempotent('POST /sales'), (req, res) =>
             status: 400,
           });
         }
+        const costAtSale = product.cost_price;
         const subtotal = line.quantity * line.price;
         computedTotal += subtotal;
         saleItems.push({
@@ -196,11 +199,30 @@ salesRouter.post('/sales', requireAuth, idempotent('POST /sales'), (req, res) =>
           quantity: line.quantity,
           price: line.price,
           subtotal,
+          costPrice: costAtSale,
         });
 
         database
           .prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
           .run(line.quantity, product.id);
+
+        const movementId = randomUUID();
+        database
+          .prepare(
+            `INSERT INTO stock_movements
+              (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time, reference, notes, created_at)
+             VALUES (?, ?, ?, ?, 'out', ?, 'sale', ?, ?, NULL, ?)`,
+          )
+          .run(
+            movementId,
+            merchantId,
+            product.id,
+            product.name,
+            line.quantity,
+            costAtSale,
+            saleId,
+            createdAt,
+          );
       }
 
       if (paymentMethod === 'wallet') {

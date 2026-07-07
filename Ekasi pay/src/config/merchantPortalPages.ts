@@ -8,6 +8,7 @@ export const MERCHANT_PORTAL_PAGE_IDS = new Set([
   'inventory',
   'stock-value',
   'add-stock',
+  'record-purchase-slip',
   'expenses',
   'analytics',
   'reports',

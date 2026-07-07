@@ -143,6 +143,59 @@ export const expenseCreateSchema = z.object({
   amount: z.coerce.number().positive(),
 });
 
+export const stockIntakeLineSchema = z.object({
+  productId: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  quantity: z.coerce.number().int().positive(),
+  costPrice: z.coerce.number().nonnegative(),
+  sellingPrice: z.coerce.number().positive().optional(),
+  category: z.string().min(1).optional(),
+  barcode: z.string().optional(),
+});
+
+export const stockIntakeBodySchema = z
+  .object({
+    supplierName: z.string().max(120).optional(),
+    slipReference: z.string().max(80).optional(),
+    slipTotal: z.coerce.number().positive().optional(),
+    notes: z.string().max(500).optional(),
+    recordExpense: z.boolean().optional().default(true),
+    lines: z.array(stockIntakeLineSchema).min(1).max(50),
+  })
+  .superRefine((data, ctx) => {
+    for (let i = 0; i < data.lines.length; i++) {
+      const line = data.lines[i];
+      if (!line.productId && !line.name) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Each line needs productId or name',
+          path: ['lines', i],
+        });
+      }
+      if (!line.productId && (!line.sellingPrice || !line.category)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'New products need sellingPrice and category',
+          path: ['lines', i],
+        });
+      }
+    }
+    const computed = data.lines.reduce(
+      (s, l) => s + l.quantity * l.costPrice,
+      0,
+    );
+    if (
+      data.slipTotal !== undefined &&
+      Math.abs(data.slipTotal - computed) > 0.05
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Slip total R${data.slipTotal.toFixed(2)} does not match line items R${computed.toFixed(2)}`,
+        path: ['slipTotal'],
+      });
+    }
+  });
+
 export const creditCustomerCreateSchema = z.object({
   name: z.string().min(1),
   phone: z

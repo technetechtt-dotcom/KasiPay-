@@ -87,6 +87,7 @@ export interface SaleItem {
   quantity: number;
   price: number;
   subtotal: number;
+  costPrice?: number;
 }
 
 export interface Sale {
@@ -341,4 +342,24 @@ export interface StockMovement {
   reference?: string;
   createdAt: string;
   notes?: string;
+}
+
+export interface PurchaseSlipLine {
+  productId: string;
+  name: string;
+  quantity: number;
+  costPrice: number;
+  lineTotal: number;
+}
+
+export interface PurchaseSlip {
+  id: string;
+  merchantId: string;
+  supplierName?: string;
+  slipReference?: string;
+  total: number;
+  lineItems: PurchaseSlipLine[];
+  notes?: string;
+  expenseId?: string;
+  createdAt: string;
 }

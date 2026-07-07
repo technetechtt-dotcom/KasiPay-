@@ -11,12 +11,15 @@ import {
   Plus,
   Minus,
   Package,
-  PackagePlus } from
+  PackagePlus,
+  Download,
+  Receipt } from
 'lucide-react';
 import { toast } from 'sonner';
 import { openProductScanner } from '../../lib/scannerSession';
 import type { Product } from '../../types';
 import { FloatingScanButton } from '../../components/shared/FloatingScanButton';
+import { apiGetInventoryReport } from '../../services/api';
 export const InventoryPage = ({
   products,
   onRestock,
@@ -61,6 +64,68 @@ export const InventoryPage = ({
     onRestock(productId, quantity);
     toast.success('Stock updated');
   };
+
+  const handleDownloadInventory = async () => {
+    try {
+      const report = await apiGetInventoryReport();
+      const rows = [
+        ['INVENTORY REPORT'],
+        ['Generated', new Date(report.generatedAt).toLocaleString()],
+        ['Total SKUs', String(report.totalSkus)],
+        ['Total units', String(report.totalUnits)],
+        ['Stock value (cost)', report.totalCostValue.toFixed(2)],
+        ['Potential revenue', report.totalRetailValue.toFixed(2)],
+        [],
+        ['Name', 'Category', 'Barcode', 'Stock', 'Cost', 'Sell', 'Cost value', 'Retail value'],
+        ...report.items.map((i) => [
+          i.name,
+          i.category,
+          i.barcode ?? '',
+          String(i.stock),
+          i.costPrice.toFixed(2),
+          i.sellingPrice.toFixed(2),
+          i.costValue.toFixed(2),
+          i.retailValue.toFixed(2),
+        ]),
+      ];
+      const csv = rows.map((r) => r.join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `inventory_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('Inventory list downloaded');
+    } catch {
+      const rows = [
+        ['INVENTORY REPORT (local)'],
+        ['Generated', new Date().toLocaleString()],
+        [],
+        ['Name', 'Category', 'Barcode', 'Stock', 'Cost', 'Sell', 'Cost value'],
+        ...products.map((p) => [
+          p.name,
+          p.category,
+          p.barcode ?? '',
+          String(p.stock),
+          (p.costPrice || 0).toFixed(2),
+          p.price.toFixed(2),
+          ((p.costPrice || 0) * p.stock).toFixed(2),
+        ]),
+      ];
+      const csv = rows.map((r) => r.join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `inventory_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('Inventory list downloaded (local data)');
+    }
+  };
   const totalCostValue = products.reduce(
     (sum, p) => sum + (p.costPrice || 0) * p.stock,
     0
@@ -84,6 +149,22 @@ export const InventoryPage = ({
             <h2 className="text-xl font-bold ml-2 text-slate-900 truncate">
               Inventory
             </h2>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate('record-purchase-slip')}
+              className="p-2 bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100"
+              title="Record purchase slip">
+              <Receipt className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadInventory}
+              className="p-2 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100"
+              title="Download inventory CSV">
+              <Download className="w-5 h-5" />
+            </button>
           </div>
         </div>
 

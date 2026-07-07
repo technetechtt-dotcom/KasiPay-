@@ -384,6 +384,18 @@ async function bootstrapSchema(p: Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS purchase_slips (
+      id TEXT PRIMARY KEY,
+      merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+      supplier_name TEXT,
+      slip_reference TEXT,
+      total DOUBLE PRECISION NOT NULL,
+      line_items_json TEXT NOT NULL,
+      notes TEXT,
+      expense_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,

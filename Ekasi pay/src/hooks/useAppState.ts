@@ -51,9 +51,9 @@ import {
   apiCreateCreditCustomer,
   apiEnsureMerchantProfile,
   apiCreateFoodSafetyAlert,
-  apiCreateProduct,
   apiCreateSale,
   apiCreateStockMovement,
+  apiStockIntake,
   apiCreateVoiceNote,
   apiDeleteVoiceNote,
   apiGetAdminUsers,
@@ -806,51 +806,135 @@ export function useAppState() {
     stock: number;
     category: string;
     barcode?: string;
+    supplierName?: string;
+    slipReference?: string;
   }): Promise<void> => {
     if (!currentUser || merchantProfile === null) return;
     try {
-      const { product } = await apiCreateProduct(productData);
-      setProducts((prev) => [...prev, product]);
-
-      if (productData.stock > 0) {
-        await addStockMovement({
-          productId: product.id,
-          productName: product.name,
-          type: 'in',
-          quantity: productData.stock,
-          reason: 'initial',
-          costPriceAtTime: productData.costPrice,
-        });
-      }
+      const { products: updated } = await apiStockIntake({
+        supplierName: productData.supplierName,
+        slipReference: productData.slipReference,
+        lines: [
+          {
+            name: productData.name,
+            quantity: productData.stock,
+            costPrice: productData.costPrice,
+            sellingPrice: productData.price,
+            category: productData.category,
+            barcode: productData.barcode,
+          },
+        ],
+        recordExpense: productData.stock > 0 && productData.costPrice > 0,
+      });
+      setProducts((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        for (const p of updated) byId.set(p.id, p);
+        return [...byId.values()];
+      });
+      await refreshAfterMutation();
     } catch (e) {
       toastMutationError('Add product', e);
       await refreshAfterMutation();
     }
   };
 
-  const restockProduct = async (productId: string, quantity: number) => {
+  const restockProduct = async (
+    productId: string,
+    quantity: number,
+    options?: {
+      costPrice?: number;
+      supplierName?: string;
+      slipReference?: string;
+      slipTotal?: number;
+      notes?: string;
+      recordExpense?: boolean;
+    },
+  ) => {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
-    const nextStock = Math.max(0, product.stock + quantity);
-    try {
-      const { product: updated } = await apiUpdateProduct(productId, {
-        stock: nextStock,
-      });
-      setProducts((prev) => prev.map((p) => (p.id === productId ? updated : p)));
 
-      if (quantity !== 0) {
+    if (quantity < 0) {
+      const nextStock = Math.max(0, product.stock + quantity);
+      try {
+        const { product: updated } = await apiUpdateProduct(productId, {
+          stock: nextStock,
+        });
+        setProducts((prev) => prev.map((p) => (p.id === productId ? updated : p)));
         await addStockMovement({
           productId: product.id,
           productName: product.name,
-          type: quantity > 0 ? 'in' : 'out',
+          type: 'out',
           quantity: Math.abs(quantity),
-          reason: quantity > 0 ? 'restock' : 'manual',
+          reason: 'manual',
           costPriceAtTime: product.costPrice,
         });
+      } catch (e) {
+        toastMutationError('Update stock', e);
+        await refreshAfterMutation();
       }
+      return;
+    }
+
+    if (quantity === 0) return;
+
+    try {
+      const costPrice = options?.costPrice ?? product.costPrice;
+      const { products: updated } = await apiStockIntake({
+        supplierName: options?.supplierName,
+        slipReference: options?.slipReference,
+        slipTotal: options?.slipTotal,
+        notes: options?.notes,
+        recordExpense: options?.recordExpense ?? true,
+        lines: [{ productId, quantity, costPrice }],
+      });
+      setProducts((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        for (const p of updated) byId.set(p.id, p);
+        return [...byId.values()];
+      });
+      await refreshAfterMutation();
     } catch (e) {
       toastMutationError('Update stock', e);
       await refreshAfterMutation();
+    }
+  };
+
+  const recordStockPurchase = async (input: {
+    supplierName?: string;
+    slipReference?: string;
+    slipTotal: number;
+    notes?: string;
+    lines: {
+      productId?: string;
+      name?: string;
+      quantity: number;
+      costPrice: number;
+      sellingPrice?: number;
+      category?: string;
+      barcode?: string;
+    }[];
+  }): Promise<boolean> => {
+    if (!merchantProfile) return false;
+    try {
+      const { products: updated } = await apiStockIntake({
+        supplierName: input.supplierName,
+        slipReference: input.slipReference,
+        slipTotal: input.slipTotal,
+        notes: input.notes,
+        recordExpense: true,
+        lines: input.lines,
+      });
+      setProducts((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        for (const p of updated) byId.set(p.id, p);
+        return [...byId.values()];
+      });
+      await refreshAfterMutation();
+      return true;
+    } catch (e) {
+      toastMutationError('Record purchase slip', e);
+      await refreshAfterMutation();
+      return false;
     }
   };
 
@@ -1617,6 +1701,7 @@ export function useAppState() {
     getMyProducts,
     addProduct,
     restockProduct,
+    recordStockPurchase,
     makeSale,
     addExpense,
     addCreditTransaction,

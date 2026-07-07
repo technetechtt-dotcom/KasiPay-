@@ -18,7 +18,7 @@ import {
 'lucide-react';
 import { toast } from 'sonner';
 import type { Sale, Expense, Product, Merchant, Loan } from '../../types';
-import { apiGetIncomeStatement, type IncomeStatement } from '../../services/api';
+import { apiGetIncomeStatement, apiGetExpenseStatement, type IncomeStatement, type ExpenseStatement } from '../../services/api';
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export const FinancialReportsPage = ({
   sales,
@@ -49,6 +49,8 @@ export const FinancialReportsPage = ({
     null,
   );
   const [statementError, setStatementError] = useState(false);
+  const [serverExpenseStatement, setServerExpenseStatement] =
+    useState<ExpenseStatement | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -59,6 +61,17 @@ export const FinancialReportsPage = ({
       } catch {
         setServerStatement(null);
         setStatementError(true);
+      }
+    })();
+  }, [period]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const statement = await apiGetExpenseStatement(period);
+        setServerExpenseStatement(statement);
+      } catch {
+        setServerExpenseStatement(null);
       }
     })();
   }, [period]);
@@ -321,6 +334,57 @@ export const FinancialReportsPage = ({
     link.click();
     document.body.removeChild(link);
     toast.success('Income statement downloaded');
+  };
+  const handleDownloadExpenseStatement = () => {
+    const periodLabels = {
+      daily: 'Daily',
+      weekly: 'Weekly',
+      monthly: 'Monthly',
+      yearly: 'Yearly',
+    };
+    const expenseLines =
+      serverExpenseStatement?.expenses?.length
+        ? serverExpenseStatement.expenses
+        : periodExpenses.map((e) => ({
+            category: e.category,
+            description: e.description,
+            amount: e.amount,
+            createdAt: e.createdAt,
+          }));
+    const rows = [
+      ['EXPENSE STATEMENT'],
+      [merchant.businessName],
+      [`${periodLabels[period]} Report`],
+      [`Generated: ${new Date().toLocaleDateString()}`],
+      [],
+      ['SUMMARY', ''],
+      ['Total Expenses', totalExpenses.toFixed(2)],
+      [],
+      ['BY CATEGORY', ''],
+      ...expenseData.map((e) => [e.category, e.amount.toFixed(2)]),
+      [],
+      ['DETAIL', ''],
+      ['Date', 'Category', 'Description', 'Amount'],
+      ...expenseLines.map((e) => [
+        new Date(e.createdAt).toLocaleString(),
+        e.category,
+        'description' in e ? e.description : '',
+        e.amount.toFixed(2),
+      ]),
+    ];
+    const csvContent = rows.map((e) => e.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute(
+      'download',
+      `${merchant.businessName.replace(/\s+/g, '_')}_Expense_Statement_${period}.csv`,
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Expense statement downloaded');
   };
   const periodOptions: {
     id: Period;
@@ -786,6 +850,14 @@ export const FinancialReportsPage = ({
             
             <Download className="w-5 h-5 mr-2" />
             Download Income Statement
+          </KPButton>
+          <KPButton
+            onClick={handleDownloadExpenseStatement}
+            variant="outline"
+            className="w-full">
+            
+            <Receipt className="w-5 h-5 mr-2" />
+            Download Expense Statement
           </KPButton>
           <p className="text-center text-xs text-slate-500 mt-3">
             SARS-ready format with P&L structure
