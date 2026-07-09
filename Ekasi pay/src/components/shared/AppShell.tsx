@@ -25,6 +25,8 @@ interface AppShellProps {
   /** Sale / expense records queued for replay (offline outbox). */
   pendingOutbox?: number;
   language?: Language;
+  /** Fixed controls rendered above the bottom nav (outside the scroll area). */
+  floatingOverlay?: ReactNode;
   children: ReactNode;
 }
 export const AppShell: FC<AppShellProps> = ({
@@ -34,6 +36,7 @@ export const AppShell: FC<AppShellProps> = ({
   workspaceMode = 'merchant',
   pendingOutbox = 0,
   language = 'en',
+  floatingOverlay,
   children,
 }) => {
   const { t } = useTranslations(language);
@@ -155,6 +158,11 @@ export const AppShell: FC<AppShellProps> = ({
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-hide overscroll-y-contain touch-pan-y">
             {children}
           </div>
+          {floatingOverlay ?
+          <div className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)] right-5 z-30 pointer-events-none">
+            <div className="pointer-events-auto">{floatingOverlay}</div>
+          </div>
+          : null}
         </div>
 
         {/* Bottom Navigation */}

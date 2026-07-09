@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useAppState } from './hooks/useAppState';
 import { AppShell } from './components/shared/AppShell';
 import { LoginPage, RegisterPage, PinPage } from './pages/auth/AuthPages';
-import { SpazaHome } from './pages/home/SpazaHome';
+import { SpazaHome, WorkspaceModeFab } from './pages/home/SpazaHome';
 import { MoneyServices } from './pages/services/MoneyServices';
 import { ShopPage } from './pages/shop/ShopPage';
 import { HistoryPage } from './pages/history/HistoryPage';
@@ -378,8 +378,6 @@ export function App() {
             wallet={myWallet}
             merchant={merchant}
             showMerchantWorkspace={showMerchantWorkspace}
-            workspaceMode={state.workspaceMode}
-            setWorkspaceMode={state.setWorkspaceMode}
             agentWithoutMerchantProfile={agentWithoutMerchantProfile}
             transactions={state.transactions}
             sales={state.sales}
@@ -730,7 +728,15 @@ export function App() {
       isOffline={state.isOffline}
       pendingOutbox={state.pendingOutbox}
       workspaceMode={state.workspaceMode}
-      language={state.language}>
+      language={state.language}
+      floatingOverlay={
+        state.currentPage === 'home' ?
+          <WorkspaceModeFab
+            workspaceMode={state.workspaceMode}
+            setWorkspaceMode={state.setWorkspaceMode}
+          />
+        : undefined
+      }>
       
       {renderPage()}
     </AppShell>);

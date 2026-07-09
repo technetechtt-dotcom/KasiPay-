@@ -132,13 +132,60 @@ const OnboardingOverlay = ({ onComplete }: {onComplete: () => void;}) => {
     </div>);
 
 };
+export function WorkspaceModeFab({
+  workspaceMode,
+  setWorkspaceMode,
+}: {
+  workspaceMode: WorkspaceMode;
+  setWorkspaceMode: (mode: WorkspaceMode) => void;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={() => {
+        const next: WorkspaceMode =
+          workspaceMode === 'merchant' ? 'wallet' : 'merchant';
+        setWorkspaceMode(next);
+        toast.success(
+          next === 'wallet' ?
+            'Switched to wallet mode'
+          : 'Switched to merchant mode',
+        );
+      }}
+      aria-label={
+        workspaceMode === 'merchant' ?
+          'Switch to wallet mode' :
+          'Switch to merchant mode'
+      }
+      title={
+        workspaceMode === 'merchant' ?
+          'Switch to wallet mode' :
+          'Switch to merchant mode'
+      }
+      initial={{ scale: 0, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      whileTap={{ scale: 0.94 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+      className={`flex items-center gap-2 px-4 h-12 rounded-full shadow-lg shadow-emerald-900/20 active:shadow-md font-medium text-sm ${
+        workspaceMode === 'merchant' ?
+          'bg-emerald-600 text-white' :
+          'bg-amber-500 text-slate-900'
+      }`}>
+      {workspaceMode === 'merchant' ?
+        <WalletIcon className="w-5 h-5" /> :
+        <Briefcase className="w-5 h-5" />
+      }
+      <span>
+        {workspaceMode === 'merchant' ? 'Wallet mode' : 'Merchant mode'}
+      </span>
+    </motion.button>
+  );
+}
 export const SpazaHome = ({
   user,
   wallet,
   merchant,
   showMerchantWorkspace,
-  workspaceMode,
-  setWorkspaceMode,
   agentWithoutMerchantProfile,
   transactions,
   sales,
@@ -159,8 +206,6 @@ export const SpazaHome = ({
   merchant: Merchant;
   /** User chose merchant workspace (vs simplified wallet view) */
   showMerchantWorkspace: boolean;
-  workspaceMode: WorkspaceMode;
-  setWorkspaceMode: (mode: WorkspaceMode) => void;
   /** Agents without a linked shop still get payout-style shortcuts */
   agentWithoutMerchantProfile: boolean;
   transactions: Transaction[];
@@ -626,47 +671,6 @@ export const SpazaHome = ({
           </div>
         </div>
       </div>
-
-      {/* Floating workspace-mode toggle. Sits above the bottom nav (~88px). */}
-      <motion.button
-        type="button"
-        onClick={() => {
-          const next: WorkspaceMode =
-            workspaceMode === 'merchant' ? 'wallet' : 'merchant';
-          setWorkspaceMode(next);
-          toast.success(
-            next === 'wallet' ?
-              'Switched to wallet mode'
-            : 'Switched to merchant mode',
-          );
-        }}
-        aria-label={
-        workspaceMode === 'merchant' ?
-          'Switch to wallet mode' :
-          'Switch to merchant mode'
-        }
-        title={
-        workspaceMode === 'merchant' ?
-          'Switch to wallet mode' :
-          'Switch to merchant mode'
-        }
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        whileTap={{ scale: 0.94 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-        className={`absolute right-5 bottom-24 z-30 flex items-center gap-2 px-4 h-12 rounded-full shadow-lg shadow-emerald-900/20 active:shadow-md font-medium text-sm ${
-        workspaceMode === 'merchant' ?
-          'bg-emerald-600 text-white' :
-          'bg-amber-500 text-slate-900'
-        }`}>
-        {workspaceMode === 'merchant' ?
-          <WalletIcon className="w-5 h-5" /> :
-          <Briefcase className="w-5 h-5" />
-        }
-        <span>
-          {workspaceMode === 'merchant' ? 'Wallet mode' : 'Merchant mode'}
-        </span>
-      </motion.button>
     </PageTransition>);
 
 };
