@@ -63,11 +63,22 @@ export const MorePage = ({
 }) => {
   const { t } = useTranslations(language);
   const showFullShopTools = showMerchantWorkspace;
+  const canUseMerchantTools =
+    user.role === 'merchant' || user.role === 'agent' || user.role === 'admin';
+  const showMerchantToolsPreview = canUseMerchantTools && !showMerchantWorkspace;
   const unreadCritical = alerts.filter(
     (a) => !a.isRead && a.severity === 'critical'
   ).length;
+
+  const openMerchantPage = (page: string) => {
+    if (!showMerchantWorkspace) {
+      setWorkspaceMode('merchant');
+    }
+    navigate(page);
+  };
+
   return (
-    <PageTransition className="px-6 pt-12 pb-8 bg-slate-50 min-h-full">
+    <PageTransition className="px-6 pt-12 pb-28 bg-slate-50 min-h-full">
       <h2 className="text-xl font-bold text-slate-900 mb-6">More</h2>
 
       {/* Profile Summary */}
@@ -155,14 +166,19 @@ export const MorePage = ({
       : null}
 
       {/* Shop Management */}
-      {showFullShopTools && (
+      {(showFullShopTools || showMerchantToolsPreview) && (
         <>
       <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
         {t('more.shopManagement')}
       </h3>
+      {showMerchantToolsPreview ? (
+        <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+          Tap any shop tool below — we&apos;ll switch you to merchant mode and open it.
+        </p>
+      ) : null}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
         <button
-          onClick={() => navigate('food-safety')}
+          onClick={() => openMerchantPage('food-safety')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50 relative">
           
           <div className="flex items-center gap-3">
@@ -184,7 +200,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('credit-book')}
+          onClick={() => openMerchantPage('credit-book')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -199,7 +215,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('voice-notes')}
+          onClick={() => openMerchantPage('voice-notes')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -212,7 +228,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('supplier-orders')}
+          onClick={() => openMerchantPage('supplier-orders')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -225,7 +241,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('inventory')}
+          onClick={() => openMerchantPage('inventory')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -240,7 +256,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('expenses')}
+          onClick={() => openMerchantPage('expenses')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -255,7 +271,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('business-health')}
+          onClick={() => openMerchantPage('business-health')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -268,7 +284,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('analytics')}
+          onClick={() => openMerchantPage('analytics')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -283,7 +299,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('price-comparison')}
+          onClick={() => openMerchantPage('price-comparison')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -296,7 +312,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => navigate('reports')}
+          onClick={() => openMerchantPage('reports')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -396,9 +412,9 @@ export const MorePage = ({
           </button>
         )}
 
-        {showFullShopTools && (
+        {(showFullShopTools || showMerchantToolsPreview) && (
           <button
-            onClick={() => navigate('layby')}
+            onClick={() => openMerchantPage('layby')}
             className="w-full flex items-center justify-between p-4 active:bg-slate-50">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
