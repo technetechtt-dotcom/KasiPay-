@@ -78,7 +78,8 @@ export const MorePage = ({
   };
 
   return (
-    <PageTransition className="px-6 pt-12 pb-28 bg-slate-50 min-h-full">
+    <PageTransition className="min-h-0 h-full bg-slate-50">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-12 pb-28">
       <h2 className="text-xl font-bold text-slate-900 mb-6">More</h2>
 
       {/* Profile Summary */}
@@ -516,6 +517,7 @@ export const MorePage = ({
         <LogOut className="w-5 h-5" />
         {t('more.signOut')}
       </button>
+      </div>
     </PageTransition>);
 
 };
