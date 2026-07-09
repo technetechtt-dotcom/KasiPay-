@@ -1,6 +1,7 @@
 import './styles.css';
 
-import { StrictMode, useCallback, useEffect, useState } from 'react';
+import { Component, StrictMode, useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import {
@@ -591,8 +592,42 @@ function App() {
   return <Dashboard />;
 }
 
+class RootErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Ops dashboard render error:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="login-wrap">
+          <div className="login-card">
+            <h1>Ekasi Pay Ops</h1>
+            <p className="error">The dashboard failed to load in this browser.</p>
+            <p className="muted">
+              Refresh the page. If it still fails, clear site data and try again.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <RootErrorBoundary>
+      <App />
+    </RootErrorBoundary>
   </StrictMode>,
 );

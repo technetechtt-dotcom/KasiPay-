@@ -1,15 +1,32 @@
 const TOKEN_KEY = 'ekasi_ops_token';
+let inMemoryToken: string | null = null;
+
+function readStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 export function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY);
+  const storage = readStorage();
+  if (!storage) return inMemoryToken;
+  return storage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token);
+  inMemoryToken = token;
+  const storage = readStorage();
+  if (!storage) return;
+  storage.setItem(TOKEN_KEY, token);
 }
 
 export function clearToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
+  inMemoryToken = null;
+  const storage = readStorage();
+  if (!storage) return;
+  storage.removeItem(TOKEN_KEY);
 }
 
 async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
