@@ -163,6 +163,7 @@ export interface CreditCustomer {
   creditLimit: number;
   lastPaymentDate?: string;
   createdAt: string;
+  idVerified?: boolean;
 }
 
 export interface CreditTransaction {

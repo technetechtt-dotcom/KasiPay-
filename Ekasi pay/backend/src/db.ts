@@ -604,6 +604,51 @@ function applyIncrementalMigrations(database: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at);
   `);
+
+  const creditCols = new Set(
+    (
+      database.prepare('PRAGMA table_info(credit_customers)').all() as {
+        name: string;
+      }[]
+    ).map((c) => c.name),
+  );
+  if (!creditCols.has('sa_id_hash')) {
+    database.exec(`ALTER TABLE credit_customers ADD COLUMN sa_id_hash TEXT`);
+  }
+  if (!creditCols.has('id_verified_at')) {
+    database.exec(`ALTER TABLE credit_customers ADD COLUMN id_verified_at TEXT`);
+  }
+
+  const creditOtp = database
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='credit_otp_codes'`,
+    )
+    .get() as { name: string } | undefined;
+  if (!creditOtp) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS credit_otp_codes (
+        id TEXT PRIMARY KEY,
+        merchant_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        customer_id TEXT,
+        code_hash TEXT NOT NULL,
+        sa_id_hash TEXT,
+        verification_token TEXT,
+        expires_at TEXT NOT NULL,
+        verification_expires_at TEXT,
+        used_at TEXT,
+        token_used_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE,
+        FOREIGN KEY (customer_id) REFERENCES credit_customers (id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_credit_otp_merchant_phone
+        ON credit_otp_codes(merchant_id, phone, purpose);
+      CREATE INDEX IF NOT EXISTS idx_credit_otp_token
+        ON credit_otp_codes(verification_token);
+    `);
+  }
 }
 
 function seedEscrowPoolZa(database: Database.Database) {

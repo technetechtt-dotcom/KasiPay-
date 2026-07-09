@@ -2,7 +2,8 @@ export type ScannerCaptureKind =
   | 'product'
   | 'sender-id'
   | 'beneficiary-id'
-  | 'collect-id';
+  | 'collect-id'
+  | 'credit-customer-id';
 
 /** Inventory: add stock. Shop / sale mode: subtract via cart or stock-out. */
 export type StockScanMode = 'restock' | 'sale';
@@ -19,6 +20,7 @@ const CONTEXT_KEY = 'ekasi.scannerSession';
 const PENDING_SENDER = 'ekasi.saId.scan.sender';
 const PENDING_BEN = 'ekasi.saId.scan.beneficiary';
 const PENDING_COLLECT = 'ekasi.saId.scan.collect';
+const PENDING_CREDIT_CUSTOMER = 'ekasi.saId.scan.creditCustomer';
 const SHOP_QUEUE_KEY = 'ekasi.shop.scan.queue';
 const PENDING_PRODUCT_CATALOG_HIT = 'ekasi.product.scan.catalogHit';
 
@@ -131,6 +133,9 @@ export function storeScannedSaId(
     case 'collect-id':
       sessionStorage.setItem(PENDING_COLLECT, v);
       return;
+    case 'credit-customer-id':
+      sessionStorage.setItem(PENDING_CREDIT_CUSTOMER, v);
+      return;
     default:
       return;
   }
@@ -151,6 +156,12 @@ export function consumePendingBeneficiarySaId(): string | null {
 export function consumePendingCollectSaId(): string | null {
   const v = sessionStorage.getItem(PENDING_COLLECT);
   if (v) sessionStorage.removeItem(PENDING_COLLECT);
+  return v;
+}
+
+export function consumePendingCreditCustomerSaId(): string | null {
+  const v = sessionStorage.getItem(PENDING_CREDIT_CUSTOMER);
+  if (v) sessionStorage.removeItem(PENDING_CREDIT_CUSTOMER);
   return v;
 }
 

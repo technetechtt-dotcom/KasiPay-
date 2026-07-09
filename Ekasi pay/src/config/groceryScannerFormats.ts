@@ -37,7 +37,13 @@ export const ID_DOCUMENT_SCAN_FORMATS: Html5QrcodeSupportedFormats[] = [
 ];
 
 export function formatsForScannerSession(
-  capture: 'product' | 'sender-id' | 'beneficiary-id' | 'collect-id' | undefined,
+  capture:
+    | 'product'
+    | 'sender-id'
+    | 'beneficiary-id'
+    | 'collect-id'
+    | 'credit-customer-id'
+    | undefined,
 ): Html5QrcodeSupportedFormats[] {
   return capture === 'product'
     ? GROCERY_PRODUCT_SCAN_FORMATS

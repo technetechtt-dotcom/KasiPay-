@@ -149,7 +149,8 @@ export const ScannerPage = ({
   const titleLabel =
     sessionPeek?.capture === 'sender-id' ||
     sessionPeek?.capture === 'beneficiary-id' ||
-    sessionPeek?.capture === 'collect-id'
+    sessionPeek?.capture === 'collect-id' ||
+    sessionPeek?.capture === 'credit-customer-id'
       ? 'Scan SA ID'
       : continuous
         ? isShop

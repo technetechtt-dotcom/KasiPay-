@@ -49,6 +49,8 @@ import {
   apiCreateSupplierOrder,
   apiCreateExpense,
   apiCreateCreditCustomer,
+  apiConfirmCreditOtp,
+  apiRequestCreditOtp,
   apiEnsureMerchantProfile,
   apiCreateFoodSafetyAlert,
   apiCreateSale,
@@ -500,7 +502,7 @@ export function useAppState() {
       setAuditEvents([]);
     }
 
-    if (forUser.role !== 'merchant' || !merchantRes.merchant) {
+    if (!merchantRes.merchant) {
       setProducts([]);
       setSales([]);
       setExpenses([]);
@@ -1222,7 +1224,8 @@ export function useAppState() {
     customerId: string,
     type: 'purchase' | 'payment',
     amount: number,
-    description: string
+    description: string,
+    verificationToken?: string,
   ): Promise<boolean> => {
     const mp = await ensureMerchantProfile();
     if (!mp) return false;
@@ -1236,6 +1239,7 @@ export function useAppState() {
         type,
         amount,
         description,
+        ...(verificationToken ? { verificationToken } : {}),
       });
       await refreshAfterMutation();
       return true;
@@ -1244,6 +1248,43 @@ export function useAppState() {
       await refreshAfterMutation();
       return false;
     }
+  };
+
+  const requestCreditOtp = async (
+    phone: string,
+    purpose: 'onboard' | 'purchase',
+    customerId?: string,
+  ) => {
+    const cleaned = normalizePhone(phone);
+    if (cleaned.length < 9) {
+      throw new Error('Enter a phone number with at least 9 digits.');
+    }
+    return apiRequestCreditOtp({
+      phone: cleaned,
+      purpose,
+      ...(customerId ? { customerId } : {}),
+    });
+  };
+
+  const confirmCreditOtp = async (input: {
+    phone: string;
+    purpose: 'onboard' | 'purchase';
+    code: string;
+    saIdDocument: string;
+    customerId?: string;
+  }) => {
+    const cleaned = normalizePhone(input.phone);
+    const idMsg = saIdValidationMessage(input.saIdDocument);
+    if (idMsg) {
+      throw new Error(idMsg);
+    }
+    return apiConfirmCreditOtp({
+      phone: cleaned,
+      purpose: input.purpose,
+      code: input.code,
+      saIdDocument: input.saIdDocument.replace(/\D/g, ''),
+      ...(input.customerId ? { customerId: input.customerId } : {}),
+    });
   };
 
   const addVoiceNote = (
@@ -1295,7 +1336,9 @@ export function useAppState() {
   const createCreditCustomerRecord = async (
     name: string,
     phone: string,
-    creditLimit: number
+    creditLimit: number,
+    saIdDocument: string,
+    verificationToken: string,
   ): Promise<boolean> => {
     const trimmedName = name.trim();
     const cleaned = normalizePhone(phone);
@@ -1311,6 +1354,11 @@ export function useAppState() {
       toast.error('Set a credit limit greater than R0.');
       return false;
     }
+    const idMsg = saIdValidationMessage(saIdDocument);
+    if (idMsg) {
+      toast.error(idMsg);
+      return false;
+    }
     const mp = await ensureMerchantProfile();
     if (!mp) return false;
     try {
@@ -1318,6 +1366,8 @@ export function useAppState() {
         name: trimmedName,
         phone: cleaned,
         creditLimit,
+        saIdDocument: saIdDocument.replace(/\D/g, ''),
+        verificationToken,
       });
       await refreshAfterMutation();
       return true;
@@ -1705,6 +1755,8 @@ export function useAppState() {
     makeSale,
     addExpense,
     addCreditTransaction,
+    requestCreditOtp,
+    confirmCreditOtp,
     addVoiceNote,
     deleteVoiceNote,
     markAlertRead,
@@ -1730,5 +1782,6 @@ export function useAppState() {
     repayLoan,
 
     reloadRemoteData: refreshAfterMutation,
+    ensureMerchantProfile,
   };
 }

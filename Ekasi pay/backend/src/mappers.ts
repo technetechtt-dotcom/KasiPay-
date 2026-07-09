@@ -107,6 +107,8 @@ export function toCreditCustomer(row: {
   credit_limit: number;
   last_payment_date: string | null;
   created_at: string;
+  sa_id_hash?: string | null;
+  id_verified_at?: string | null;
 }) {
   return {
     id: row.id,
@@ -115,6 +117,7 @@ export function toCreditCustomer(row: {
     phone: row.phone,
     totalOwed: row.total_owed,
     creditLimit: row.credit_limit,
+    idVerified: Boolean(row.sa_id_hash),
     ...(row.last_payment_date
       ? { lastPaymentDate: row.last_payment_date }
       : {}),

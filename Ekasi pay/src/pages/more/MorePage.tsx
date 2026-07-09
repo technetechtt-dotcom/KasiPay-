@@ -20,6 +20,7 @@ import {
   Truck,
   Users,
   ShoppingBag,
+  ShoppingCart,
   Zap,
   Activity,
   Tags,
@@ -179,6 +180,18 @@ export const MorePage = ({
       ) : null}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
         <button
+          onClick={() => openMerchantPage('shop')}
+          className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <ShoppingCart className="w-4 h-4" />
+            </div>
+            <span className="font-medium text-slate-700">Point of Sale (Shop)</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
+
+        <button
           onClick={() => openMerchantPage('food-safety')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50 relative">
           
@@ -257,6 +270,18 @@ export const MorePage = ({
         </button>
 
         <button
+          onClick={() => openMerchantPage('record-purchase-slip')}
+          className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center">
+              <FileText className="w-4 h-4" />
+            </div>
+            <span className="font-medium text-slate-700">Record purchase slip</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
+
+        <button
           onClick={() => openMerchantPage('expenses')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
@@ -323,6 +348,18 @@ export const MorePage = ({
             <span className="font-medium text-slate-700">
               Financial Reports
             </span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
+
+        <button
+          onClick={() => openMerchantPage('layby')}
+          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+              <ShoppingBag className="w-4 h-4" />
+            </div>
+            <span className="font-medium text-slate-700">Layby Orders</span>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-300" />
         </button>
@@ -408,20 +445,6 @@ export const MorePage = ({
               <span className="font-medium text-slate-700">
                 Micro-Insurance
               </span>
-            </div>
-            <ChevronRight className="w-5 h-5 text-slate-300" />
-          </button>
-        )}
-
-        {(showFullShopTools || showMerchantToolsPreview) && (
-          <button
-            onClick={() => openMerchantPage('layby')}
-            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-                <ShoppingBag className="w-4 h-4" />
-              </div>
-              <span className="font-medium text-slate-700">Layby Orders</span>
             </div>
             <ChevronRight className="w-5 h-5 text-slate-300" />
           </button>

@@ -569,10 +569,43 @@ export async function apiGetCreditCustomers() {
   );
 }
 
+export async function apiRequestCreditOtp(body: {
+  phone: string;
+  purpose: 'onboard' | 'purchase';
+  customerId?: string;
+}) {
+  return apiRequest<{ ok: boolean; message: string; devCode?: string }>(
+    '/api/credit/verify/request',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function apiConfirmCreditOtp(body: {
+  phone: string;
+  purpose: 'onboard' | 'purchase';
+  code: string;
+  saIdDocument: string;
+  customerId?: string;
+}) {
+  return apiRequest<{
+    ok: boolean;
+    verificationToken: string;
+    expiresInSec: number;
+  }>('/api/credit/verify/confirm', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiCreateCreditCustomer(body: {
   name: string;
   phone: string;
   creditLimit: number;
+  saIdDocument: string;
+  verificationToken: string;
 }) {
   return apiRequest<{ customer: import('../types').CreditCustomer }>(
     '/api/credit/customers',
@@ -594,6 +627,7 @@ export async function apiCreateCreditTransaction(body: {
   type: 'purchase' | 'payment';
   amount: number;
   description: string;
+  verificationToken?: string;
 }) {
   return apiRequest<{
     transaction: import('../types').CreditTransaction;

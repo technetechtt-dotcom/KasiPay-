@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   KPCard,
@@ -20,9 +20,16 @@ import {
   X,
   Trash2,
   ShoppingBag,
+  ScanLine,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CreditCustomer, CreditTransaction } from '../../types';
+import { saIdValidationMessage } from '../../lib/saIdValidation';
+import {
+  consumePendingCreditCustomerSaId,
+  writeScannerSession,
+} from '../../lib/scannerSession';
 
 /** Common spaza credit categories — emoji-led to make scanning fast. */
 type CreditCategoryId =
@@ -87,11 +94,180 @@ const formatDraftItemsAsDescription = (items: CreditDraftItem[]): string =>
         `${i.qty}× ${i.name} (${i.category}) @ R${i.unitPrice.toFixed(2)}`,
     )
     .join(' · ');
+
+const CREDIT_SCANNER_DRAFT_KEY = 'ekasi.credit.scannerDraft';
+
+type CreditScannerDraft = {
+  mode: 'onboard' | 'purchase';
+  showNewCustomer?: boolean;
+  ncName?: string;
+  ncPhone?: string;
+  ncLimit?: string;
+  pendingPurchase?: {
+    customerId: string;
+    total: number;
+    description: string;
+    phone: string;
+  };
+  verifyPurchaseOpen?: boolean;
+};
+
+function readCreditScannerDraft(): CreditScannerDraft | null {
+  try {
+    const raw = sessionStorage.getItem(CREDIT_SCANNER_DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as CreditScannerDraft;
+  } catch {
+    return null;
+  }
+}
+
+function clearCreditScannerDraft(): void {
+  sessionStorage.removeItem(CREDIT_SCANNER_DRAFT_KEY);
+}
+
+function CreditOtpPanel({
+  phone,
+  purpose,
+  customerId,
+  saId,
+  onSaIdChange,
+  onScanId,
+  requestOtp,
+  confirmOtp,
+  onVerified,
+  busy,
+  setBusy,
+}: {
+  phone: string;
+  purpose: 'onboard' | 'purchase';
+  customerId?: string;
+  saId: string;
+  onSaIdChange: (value: string) => void;
+  onScanId: () => void;
+  requestOtp: (
+    phone: string,
+    purpose: 'onboard' | 'purchase',
+    customerId?: string,
+  ) => Promise<{ message: string; devCode?: string }>;
+  confirmOtp: (input: {
+    phone: string;
+    purpose: 'onboard' | 'purchase';
+    code: string;
+    saIdDocument: string;
+    customerId?: string;
+  }) => Promise<{ verificationToken: string }>;
+  onVerified: (verificationToken: string) => void | Promise<void>;
+  busy: boolean;
+  setBusy: (v: boolean) => void;
+}) {
+  const [otpStep, setOtpStep] = useState<'id' | 'code'>('id');
+  const [otpCode, setOtpCode] = useState('');
+
+  const sendCode = async () => {
+    const idMsg = saIdValidationMessage(saId);
+    if (idMsg) {
+      toast.error(idMsg);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await requestOtp(phone, purpose, customerId);
+      toast.success(r.message);
+      if (r.devCode) {
+        toast.message(`Dev code: ${r.devCode}`);
+        setOtpCode(r.devCode);
+      }
+      setOtpStep('code');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send code');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmCode = async () => {
+    const idMsg = saIdValidationMessage(saId);
+    if (idMsg) {
+      toast.error(idMsg);
+      return;
+    }
+    if (otpCode.replace(/\D/g, '').length !== 6) {
+      toast.error('Enter the 6-digit SMS code');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await confirmOtp({
+        phone,
+        purpose,
+        code: otpCode,
+        saIdDocument: saId,
+        ...(customerId ? { customerId } : {}),
+      });
+      await onVerified(r.verificationToken);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Verification failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 border-t border-slate-100 pt-4 mt-2">
+      <div className="flex items-start gap-2 text-sm text-slate-600 bg-amber-50 border border-amber-100 rounded-xl p-3">
+        <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <p>
+          Customer must bring their <strong>ID book</strong> (green barcoded ID).
+          Scan or type the 13-digit number, then confirm with an SMS code to their phone.
+        </p>
+      </div>
+      <KPInput
+        label="SA ID number"
+        inputMode="numeric"
+        value={saId}
+        onChange={(e) => onSaIdChange(e.target.value.replace(/\D/g, '').slice(0, 13))}
+      />
+      <KPButton type="button" variant="outline" onClick={() => onScanId()}>
+        <ScanLine className="w-4 h-4 mr-2" />
+        Scan ID barcode
+      </KPButton>
+      {otpStep === 'code' ? (
+        <>
+          <KPInput
+            label="6-digit SMS code"
+            inputMode="numeric"
+            maxLength={6}
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          />
+          <KPButton type="button" disabled={busy} onClick={() => void confirmCode()}>
+            {busy ? 'Verifying…' : 'Confirm OTP'}
+          </KPButton>
+          <button
+            type="button"
+            className="text-sm text-slate-500 underline"
+            onClick={() => void sendCode()}
+            disabled={busy}>
+            Resend code
+          </button>
+        </>
+      ) : (
+        <KPButton type="button" disabled={busy} onClick={() => void sendCode()}>
+          {busy ? 'Sending…' : 'Send OTP to customer phone'}
+        </KPButton>
+      )}
+    </div>
+  );
+}
+
 export const CreditBookPage = ({
   customers,
   transactions,
   onAddTransaction,
   onCreateCustomer,
+  requestCreditOtp,
+  confirmCreditOtp,
   navigate,
 
 
@@ -106,13 +282,28 @@ export const CreditBookPage = ({
     customerId: string,
     type: 'purchase' | 'payment',
     amount: number,
-    description: string
+    description: string,
+    verificationToken?: string,
   ) => Promise<boolean | void> | void;
   onCreateCustomer: (
     name: string,
     phone: string,
-    creditLimit: number
+    creditLimit: number,
+    saIdDocument: string,
+    verificationToken: string,
   ) => Promise<boolean>;
+  requestCreditOtp: (
+    phone: string,
+    purpose: 'onboard' | 'purchase',
+    customerId?: string,
+  ) => Promise<{ message: string; devCode?: string }>;
+  confirmCreditOtp: (input: {
+    phone: string;
+    purpose: 'onboard' | 'purchase';
+    code: string;
+    saIdDocument: string;
+    customerId?: string;
+  }) => Promise<{ verificationToken: string }>;
   navigate: (p: string) => void;
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,7 +321,53 @@ export const CreditBookPage = ({
   const [ncName, setNcName] = useState('');
   const [ncPhone, setNcPhone] = useState('');
   const [ncLimit, setNcLimit] = useState('');
+  const [ncSaId, setNcSaId] = useState('');
   const [ncBusy, setNcBusy] = useState(false);
+  const [verifyPurchaseOpen, setVerifyPurchaseOpen] = useState(false);
+  const [purchaseSaId, setPurchaseSaId] = useState('');
+  const [purchaseBusy, setPurchaseBusy] = useState(false);
+  const [pendingPurchase, setPendingPurchase] = useState<{
+    customerId: string;
+    total: number;
+    description: string;
+    phone: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const draft = readCreditScannerDraft();
+    if (draft) {
+      if (draft.showNewCustomer) setShowNewCustomer(true);
+      if (draft.ncName) setNcName(draft.ncName);
+      if (draft.ncPhone) setNcPhone(draft.ncPhone);
+      if (draft.ncLimit) setNcLimit(draft.ncLimit);
+      if (draft.pendingPurchase) setPendingPurchase(draft.pendingPurchase);
+      if (draft.verifyPurchaseOpen) setVerifyPurchaseOpen(true);
+      clearCreditScannerDraft();
+    }
+    const scanned = consumePendingCreditCustomerSaId();
+    if (scanned) {
+      if (draft?.mode === 'purchase' || verifyPurchaseOpen) setPurchaseSaId(scanned);
+      else setNcSaId(scanned);
+    }
+  }, []);
+
+  const openIdScanner = (mode: 'onboard' | 'purchase') => {
+    const draft: CreditScannerDraft = {
+      mode,
+      showNewCustomer: mode === 'onboard' ? true : undefined,
+      ncName: mode === 'onboard' ? ncName : undefined,
+      ncPhone: mode === 'onboard' ? ncPhone : undefined,
+      ncLimit: mode === 'onboard' ? ncLimit : undefined,
+      pendingPurchase: mode === 'purchase' ? pendingPurchase ?? undefined : undefined,
+      verifyPurchaseOpen: mode === 'purchase' ? true : undefined,
+    };
+    sessionStorage.setItem(CREDIT_SCANNER_DRAFT_KEY, JSON.stringify(draft));
+    writeScannerSession({
+      capture: 'credit-customer-id',
+      returnPage: 'credit-book',
+    });
+    navigate('scanner');
+  };
 
   const draftQtyNumber = Number(draftQty);
   const draftPriceNumber = Number(draftPrice);
@@ -190,15 +427,19 @@ export const CreditBookPage = ({
       }
       const desc = formatDraftItemsAsDescription(items);
       const total = items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
-      void (async () => {
-        await Promise.resolve(
-          onAddTransaction(customerId, 'purchase', total, desc),
-        );
-        toast.success('Credit added');
-        setShowForm(null);
-        resetPurchaseDraft();
-        setSelectedCustomerId('');
-      })();
+      const customer = customers.find((c) => c.id === customerId);
+      if (!customer) {
+        toast.error('Customer not found');
+        return;
+      }
+      setPendingPurchase({
+        customerId,
+        total,
+        description: desc,
+        phone: customer.phone,
+      });
+      setPurchaseSaId('');
+      setVerifyPurchaseOpen(true);
       return;
     }
     const amt = parseFloat(amount);
@@ -729,37 +970,93 @@ export const CreditBookPage = ({
               value={ncLimit}
               onChange={(e) => setNcLimit(e.target.value)}
             />
-            <KPButton
-              type="button"
-              className="mt-4"
-              disabled={ncBusy}
-              onClick={async () => {
+            <CreditOtpPanel
+              phone={ncPhone}
+              purpose="onboard"
+              saId={ncSaId}
+              onSaIdChange={setNcSaId}
+              onScanId={() => openIdScanner('onboard')}
+              requestOtp={requestCreditOtp}
+              confirmOtp={confirmCreditOtp}
+              busy={ncBusy}
+              setBusy={setNcBusy}
+              onVerified={async (verificationToken) => {
                 const lim = Number(ncLimit);
                 if (!ncName.trim() || ncPhone.replace(/\D/g, '').length < 9 || !(lim > 0)) {
                   toast.error('Check name, phone, and limit');
                   return;
                 }
-                setNcBusy(true);
-                try {
-                  const ok = await onCreateCustomer(ncName.trim(), ncPhone.trim(), lim);
-                  if (ok) {
-                    toast.success('Customer added');
-                    setShowNewCustomer(false);
-                    setNcName('');
-                    setNcPhone('');
-                    setNcLimit('');
-                  }
-                  // Failure toasts are surfaced from useAppState (validation +
-                  // API error messages). Avoid a duplicate generic toast here.
-                } finally {
-                  setNcBusy(false);
+                const ok = await onCreateCustomer(
+                  ncName.trim(),
+                  ncPhone.trim(),
+                  lim,
+                  ncSaId,
+                  verificationToken,
+                );
+                if (ok) {
+                  toast.success('Customer added with verified ID');
+                  setShowNewCustomer(false);
+                  setNcName('');
+                  setNcPhone('');
+                  setNcLimit('');
+                  setNcSaId('');
                 }
-              }}>
-              {ncBusy ? 'Saving…' : 'Save customer'}
-            </KPButton>
+              }}
+            />
           </div>
         </div>
       )}
+
+      {verifyPurchaseOpen && pendingPurchase ? (
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 sm:max-w-md shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg">Verify credit purchase</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyPurchaseOpen(false);
+                  setPendingPurchase(null);
+                }}
+                aria-label="Close">
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-500 mb-2">
+              Total: <strong>R{pendingPurchase.total.toFixed(2)}</strong>
+            </p>
+            <CreditOtpPanel
+              phone={pendingPurchase.phone}
+              purpose="purchase"
+              customerId={pendingPurchase.customerId}
+              saId={purchaseSaId}
+              onSaIdChange={setPurchaseSaId}
+              onScanId={() => openIdScanner('purchase')}
+              requestOtp={requestCreditOtp}
+              confirmOtp={confirmCreditOtp}
+              busy={purchaseBusy}
+              setBusy={setPurchaseBusy}
+              onVerified={async (verificationToken) => {
+                const ok = await onAddTransaction(
+                  pendingPurchase.customerId,
+                  'purchase',
+                  pendingPurchase.total,
+                  pendingPurchase.description,
+                  verificationToken,
+                );
+                if (ok !== false) {
+                  toast.success('Credit added with ID + OTP verified');
+                  setVerifyPurchaseOpen(false);
+                  setPendingPurchase(null);
+                  setShowForm(null);
+                  resetPurchaseDraft();
+                  setSelectedCustomerId('');
+                }
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </PageTransition>);
 
 };

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { saIdBody } from './cashSendSchemas.js';
+
 export const roleSchema = z.enum(['customer', 'merchant', 'agent']);
 
 /** Normalise to digits only (spaces, +, dashes allowed in input). */
@@ -196,22 +198,49 @@ export const stockIntakeBodySchema = z
     }
   });
 
-export const creditCustomerCreateSchema = z.object({
-  name: z.string().min(1),
-  phone: z
-    .string()
-    .min(9)
-    .max(20)
-    .transform((v) => v.replace(/\s+/g, '')),
-  creditLimit: z.coerce.number().positive(),
+export const creditVerifyRequestSchema = z.object({
+  phone: saPhoneDigits,
+  purpose: z.enum(['onboard', 'purchase']),
+  customerId: z.string().min(1).optional(),
 });
 
-export const creditTxnSchema = z.object({
-  customerId: z.string().min(1),
-  type: z.enum(['purchase', 'payment']),
-  amount: z.coerce.number().positive(),
-  description: z.string().min(1),
+export const creditVerifyConfirmSchema = z.object({
+  phone: saPhoneDigits,
+  purpose: z.enum(['onboard', 'purchase']),
+  customerId: z.string().min(1).optional(),
+  code: z
+    .string()
+    .regex(/^\d{6}$/u, 'Code must be 6 digits')
+    .transform((v) => v.trim()),
+  saIdDocument: saIdBody,
 });
+
+export const creditCustomerCreateSchema = z.object({
+  name: z.string().min(1),
+  phone: saPhoneDigits,
+  creditLimit: z.coerce.number().positive(),
+  saIdDocument: saIdBody,
+  verificationToken: z.string().uuid(),
+});
+
+export const creditTxnSchema = z
+  .object({
+    customerId: z.string().min(1),
+    type: z.enum(['purchase', 'payment']),
+    amount: z.coerce.number().positive(),
+    description: z.string().min(1),
+    verificationToken: z.string().uuid().optional(),
+    saIdDocument: saIdBody.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.type === 'purchase' && !data.verificationToken) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'OTP verification is required before granting credit',
+        path: ['verificationToken'],
+      });
+    }
+  });
 
 export const adminRoleSchema = z.enum(['customer', 'merchant', 'agent', 'admin']);
 

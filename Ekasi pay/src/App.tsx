@@ -69,6 +69,7 @@ const getLockRemainingSeconds = (lockedUntil: number | null) => {
 export function App() {
   const state = useAppState();
   const [scannedBarcode, setScannedBarcode] = useState<string | undefined>();
+  const [shopSetupBusy, setShopSetupBusy] = useState(false);
   const isAdmin = state.currentUser?.role === 'admin';
 
   const handleDecodedBarcode = useCallback(
@@ -317,6 +318,58 @@ export function App() {
         </div>
       );
     }
+    if (
+      showMerchantWorkspace &&
+      agentWithoutMerchantProfile &&
+      merchantPortalPages.has(state.currentPage)
+    ) {
+      return (
+        <div className="p-8 text-center text-slate-600 mt-16 px-6">
+          <p className="text-base font-medium text-slate-800 mb-2">
+            Set up your shop first
+          </p>
+          <p className="text-sm mb-6 max-w-xs mx-auto leading-relaxed">
+            Agent accounts need a linked shop profile before POS, stock, and
+            reports can load. This creates your spaza profile on Ekasi Pay.
+          </p>
+          <button
+            type="button"
+            disabled={shopSetupBusy}
+            onClick={() => {
+              setShopSetupBusy(true);
+              void (async () => {
+                try {
+                  const created = await state.ensureMerchantProfile();
+                  if (!created) {
+                    toast.error('Could not create shop profile. Try Settings.');
+                    return;
+                  }
+                  await state.reloadRemoteData();
+                  toast.success('Shop profile ready — open your tools again.');
+                  state.navigate('home');
+                } finally {
+                  setShopSetupBusy(false);
+                }
+              })();
+            }}
+            className="block mx-auto mb-3 rounded-xl bg-emerald-600 text-white font-medium text-sm px-5 py-3 disabled:opacity-60">
+            {shopSetupBusy ? 'Setting up…' : 'Set up shop profile'}
+          </button>
+          <button
+            type="button"
+            onClick={() => state.navigate('settings')}
+            className="block mx-auto mb-3 text-emerald-600 font-medium text-sm">
+            Edit shop in Settings
+          </button>
+          <button
+            type="button"
+            onClick={() => state.navigate('home')}
+            className="block mx-auto text-slate-500 text-sm">
+            Go home
+          </button>
+        </div>
+      );
+    }
     switch (state.currentPage) {
       case 'home':
         return (
@@ -493,6 +546,8 @@ export function App() {
             transactions={state.creditTransactions}
             onAddTransaction={state.addCreditTransaction}
             onCreateCustomer={state.createCreditCustomerRecord}
+            requestCreditOtp={state.requestCreditOtp}
+            confirmCreditOtp={state.confirmCreditOtp}
             navigate={state.navigate}
           />
         );

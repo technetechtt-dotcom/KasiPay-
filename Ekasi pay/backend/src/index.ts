@@ -196,7 +196,9 @@ api.use((req, res, next) => {
   if (req.path === '/refresh') return refreshLimiter(req, res, next);
   if (
     req.path === '/pin-reset/request' ||
-    req.path === '/pin-reset/confirm'
+    req.path === '/pin-reset/confirm' ||
+    req.path === '/credit/verify/request' ||
+    req.path === '/credit/verify/confirm'
   ) {
     return pinResetLimiter(req, res, next);
   }

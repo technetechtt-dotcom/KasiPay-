@@ -137,6 +137,29 @@ async function bootstrapSchema(p: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_credit_txn_customer_created ON credit_transactions(customer_id, created_at DESC);
 
+    ALTER TABLE credit_customers ADD COLUMN IF NOT EXISTS sa_id_hash TEXT;
+    ALTER TABLE credit_customers ADD COLUMN IF NOT EXISTS id_verified_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS credit_otp_codes (
+      id TEXT PRIMARY KEY,
+      merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+      phone TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      customer_id TEXT REFERENCES credit_customers(id) ON DELETE CASCADE,
+      code_hash TEXT NOT NULL,
+      sa_id_hash TEXT,
+      verification_token TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      verification_expires_at TIMESTAMPTZ,
+      used_at TIMESTAMPTZ,
+      token_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_credit_otp_merchant_phone
+      ON credit_otp_codes(merchant_id, phone, purpose);
+    CREATE INDEX IF NOT EXISTS idx_credit_otp_token
+      ON credit_otp_codes(verification_token);
+
     CREATE TABLE IF NOT EXISTS compliance_flags (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

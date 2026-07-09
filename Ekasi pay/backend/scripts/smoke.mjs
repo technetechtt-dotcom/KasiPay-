@@ -273,9 +273,46 @@ async function smokeStockReports() {
 
 async function smokeCreditFlow() {
   const m = await registerMerchant('Credit');
+  const saId = '8001015009087';
+  const phone = '0820001234';
 
-  // Create a credit customer
-  let res = await apiFetch(`${base}/api/credit/customers`, {
+  let res = await apiFetch(`${base}/api/credit/verify/request`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ phone, purpose: 'onboard' }),
+  });
+  let body = await res.json();
+  if (!res.ok) {
+    throw new Error(`credit otp request failed ${res.status}: ${JSON.stringify(body)}`);
+  }
+  const onboardCode = body.devCode;
+  if (!onboardCode) {
+    throw new Error('credit otp request missing devCode in smoke environment');
+  }
+
+  res = await apiFetch(`${base}/api/credit/verify/confirm`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      phone,
+      purpose: 'onboard',
+      code: onboardCode,
+      saIdDocument: saId,
+    }),
+  });
+  body = await res.json();
+  if (!res.ok || !body?.verificationToken) {
+    throw new Error(`credit otp confirm failed ${res.status}: ${JSON.stringify(body)}`);
+  }
+  const onboardToken = body.verificationToken;
+
+  res = await apiFetch(`${base}/api/credit/customers`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${m.token}`,
@@ -283,17 +320,54 @@ async function smokeCreditFlow() {
     },
     body: JSON.stringify({
       name: 'Smoke Customer',
-      phone: '0820000000',
+      phone,
       creditLimit: 500,
+      saIdDocument: saId,
+      verificationToken: onboardToken,
     }),
   });
-  let body = await res.json();
+  body = await res.json();
   if (!res.ok || !body?.customer?.id) {
     throw new Error(`credit customer failed ${res.status}: ${JSON.stringify(body)}`);
   }
   const customer = body.customer;
 
-  // Post a credit transaction (item taken on tick)
+  res = await apiFetch(`${base}/api/credit/verify/request`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      phone,
+      purpose: 'purchase',
+      customerId: customer.id,
+    }),
+  });
+  body = await res.json();
+  if (!res.ok || !body?.devCode) {
+    throw new Error(`credit purchase otp request failed ${res.status}: ${JSON.stringify(body)}`);
+  }
+
+  res = await apiFetch(`${base}/api/credit/verify/confirm`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      phone,
+      purpose: 'purchase',
+      customerId: customer.id,
+      code: body.devCode,
+      saIdDocument: saId,
+    }),
+  });
+  body = await res.json();
+  if (!res.ok || !body?.verificationToken) {
+    throw new Error(`credit purchase otp confirm failed ${res.status}: ${JSON.stringify(body)}`);
+  }
+
   res = await apiFetch(`${base}/api/credit/transactions`, {
     method: 'POST',
     headers: {
@@ -305,6 +379,7 @@ async function smokeCreditFlow() {
       type: 'purchase',
       amount: 25,
       description: '1x Bread on credit',
+      verificationToken: body.verificationToken,
     }),
   });
   body = await res.json();
