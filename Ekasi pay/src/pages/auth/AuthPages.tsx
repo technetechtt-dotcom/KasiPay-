@@ -94,27 +94,34 @@ export const PinPage = ({
 }) => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const handlePadClick = (num: string) => {
-    if (lockedForSeconds > 0) return;
+    if (lockedForSeconds > 0 || submitting) return;
     if (pin.length < 4) {
       const newPin = pin + num;
       setPin(newPin);
       if (newPin.length === 4) {
         void (async () => {
-          const success = await Promise.resolve(onLogin(newPin));
-          if (!success) {
-            setError(true);
-            setTimeout(() => {
-              setPin('');
-              setError(false);
-            }, 500);
+          setSubmitting(true);
+          try {
+            const success = await Promise.resolve(onLogin(newPin));
+            if (!success) {
+              setError(true);
+              setTimeout(() => {
+                setPin('');
+                setError(false);
+              }, 500);
+            }
+          } finally {
+            setSubmitting(false);
           }
         })();
       }
     }
   };
   const handleBackspace = () => {
+    if (submitting) return;
     setPin(pin.slice(0, -1));
     setError(false);
   };
@@ -128,8 +135,16 @@ export const PinPage = ({
         <p className="text-slate-500">
           {lockedForSeconds > 0 ?
           `Too many attempts. Try again in ${lockedForSeconds}s` :
+          submitting ?
+          'Signing you in…' :
           'Enter your 4-digit PIN'}
         </p>
+
+        {submitting &&
+        <div className="flex justify-center my-6" aria-live="polite">
+          <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+        }
 
         {/* PIN Dots */}
         <motion.div
@@ -160,7 +175,7 @@ export const PinPage = ({
         <button
           key={num}
           onClick={() => handlePadClick(num.toString())}
-          disabled={lockedForSeconds > 0}
+          disabled={lockedForSeconds > 0 || submitting}
           className="h-14 rounded-2xl bg-white text-2xl font-semibold text-slate-800 shadow-sm active:bg-slate-100 active:scale-95 transition-all">
           
             {num}
@@ -174,7 +189,7 @@ export const PinPage = ({
         </button>
         <button
           onClick={() => handlePadClick('0')}
-          disabled={lockedForSeconds > 0}
+          disabled={lockedForSeconds > 0 || submitting}
           className="h-14 rounded-2xl bg-white text-2xl font-semibold text-slate-800 shadow-sm active:bg-slate-100 active:scale-95 transition-all">
           
           0

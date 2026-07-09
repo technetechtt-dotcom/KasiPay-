@@ -274,7 +274,9 @@ describe('useAppState with API', () => {
     });
 
     expect(result.current.isAuthenticated).toBe(true);
-    expect(result.current.merchantProfile?.businessName).toBe('Test Shop');
+    await waitFor(() => {
+      expect(result.current.merchantProfile?.businessName).toBe('Test Shop');
+    });
   });
 
   it('locks out after 5 bad PIN attempts and exposes pinLockedUntil', async () => {

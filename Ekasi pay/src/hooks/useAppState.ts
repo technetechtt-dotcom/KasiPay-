@@ -224,6 +224,7 @@ export function useAppState() {
     readInitialWorkspaceMode
   );
   const [isReady, setIsReady] = useState(false);
+  const [isSyncingData, setIsSyncingData] = useState(false);
 
   const [merchantProfile, setMerchantProfile] = useState<Merchant | null>(null);
 
@@ -348,7 +349,11 @@ export function useAppState() {
         const mapped = mapDtoToUser(user);
         setCurrentUser(mapped);
         setIsAuthenticated(true);
-        await loadRemoteSnapshot(mapped);
+        if (!cancelled) setIsReady(true);
+        setIsSyncingData(true);
+        void loadRemoteSnapshot(mapped).finally(() => {
+          if (!cancelled) setIsSyncingData(false);
+        });
       } catch {
         if (!cancelled) {
           const recovered = await refreshAccessToken();
@@ -358,7 +363,11 @@ export function useAppState() {
               const mapped = mapDtoToUser(user);
               setCurrentUser(mapped);
               setIsAuthenticated(true);
-              await loadRemoteSnapshot(mapped);
+              if (!cancelled) setIsReady(true);
+              setIsSyncingData(true);
+              void loadRemoteSnapshot(mapped).finally(() => {
+                if (!cancelled) setIsSyncingData(false);
+              });
             } catch {
               clearAuthStorage();
               setCurrentUser(null);
@@ -449,20 +458,11 @@ export function useAppState() {
       }
     }
 
-    const [walletRes, txRes, ledRes] = await Promise.all([
-      apiGetWallet(),
-      apiGetTransactions(),
-      apiGetLedger(),
-    ]);
-
-    setWallets(walletRes.wallet ? [walletRes.wallet] : []);
-    setTransactions(txRes.transactions);
-    setLedger(ledRes.ledger);
-
-    const merchantRes = await apiGetMerchantMe();
-    setMerchantProfile(merchantRes.merchant);
-
     const [
+      walletRes,
+      txRes,
+      ledRes,
+      merchantRes,
       sheds,
       supplierRes,
       verifyRes,
@@ -470,6 +470,10 @@ export function useAppState() {
       compRes,
       cashSendRes,
     ] = await Promise.all([
+      apiGetWallet(),
+      apiGetTransactions(),
+      apiGetLedger(),
+      apiGetMerchantMe(),
       apiGetLoadShedding(),
       apiGetSuppliers(),
       apiGetSupplierVerifications(),
@@ -478,6 +482,10 @@ export function useAppState() {
       apiGetCashSendMe(),
     ]);
 
+    setWallets(walletRes.wallet ? [walletRes.wallet] : []);
+    setTransactions(txRes.transactions);
+    setLedger(ledRes.ledger);
+    setMerchantProfile(merchantRes.merchant);
     setLoadSheddingSchedule(sheds.slots);
     setSuppliers(supplierRes.suppliers);
     setSupplierVerifications(verifyRes.verifications);
@@ -535,6 +543,7 @@ export function useAppState() {
       exp,
       food,
       mov,
+      ctr,
     ] = await Promise.all([
       apiGetProducts(mid),
       apiGetSales(),
@@ -549,21 +558,14 @@ export function useAppState() {
       fetchOr403(apiGetExpiryItems(), { items: [] }),
       fetchOr403(apiGetFoodSafetyAlerts(), { alerts: [] }),
       fetchOr403(apiGetStockMovements(), { movements: [] }),
+      fetchOr403(apiGetCreditTransactions(), { transactions: [] }),
     ]);
-
-    let ct: CreditTransaction[] = [];
-    try {
-      const ctr = await apiGetCreditTransactions();
-      ct = ctr.transactions;
-    } catch (err) {
-      if (!(err instanceof ApiError) || err.status !== 403) throw err;
-    }
 
     setProducts(p.products);
     setSales(s.sales);
     setExpenses(e.expenses);
     setCreditCustomers(cc.customers);
-    setCreditTransactions(ct);
+    setCreditTransactions(ctr.transactions);
     setSupplierOrders(ord.orders);
     setStokvelGroups(stok.groups);
     setLaybyOrders(lay.orders);
@@ -633,7 +635,6 @@ export function useAppState() {
       const { token, refreshToken, user } = await apiLogin(tempPhone, cleanedPin);
       persistAuth(token, refreshToken);
       const mapped = mapDtoToUser(user);
-      await loadRemoteSnapshot(mapped);
       setCurrentUser(mapped);
       setIsAuthenticated(true);
       setAuthStep('login');
@@ -642,6 +643,8 @@ export function useAppState() {
       setFailedPinAttempts(0);
       setPinLockedUntil(null);
       pushAudit('auth.login.success', 'Login successful', mapped.id);
+      setIsSyncingData(true);
+      void loadRemoteSnapshot(mapped).finally(() => setIsSyncingData(false));
       return true;
     } catch (e) {
       clearAuthStorage();
@@ -697,12 +700,13 @@ export function useAppState() {
       });
       persistAuth(token, refreshToken);
       const mapped = mapDtoToUser(user);
-      await loadRemoteSnapshot(mapped);
       setCurrentUser(mapped);
       setIsAuthenticated(true);
       setAuthStep('login');
       setCurrentPage('home');
       pushAudit('auth.register.success', 'Registration successful', mapped.id);
+      setIsSyncingData(true);
+      void loadRemoteSnapshot(mapped).finally(() => setIsSyncingData(false));
       return true;
     } catch (e) {
       clearAuthStorage();
@@ -1694,6 +1698,7 @@ export function useAppState() {
 
   return {
     isReady,
+    isSyncingData,
 
     /** Merchant profile when `role === 'merchant'` — used instead of embedded mock merchants. */
     merchantProfile,

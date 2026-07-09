@@ -395,6 +395,7 @@ export function App() {
             onPullRefresh={async () => {
               await state.reloadRemoteData();
             }}
+            isSyncingData={state.isSyncingData}
           />);
 
 

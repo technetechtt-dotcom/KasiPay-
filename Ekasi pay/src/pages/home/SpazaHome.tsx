@@ -1,12 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import {
-  motion,
-  useAnimation,
-  useMotionValue,
-  type PanInfo,
-  useTransform } from
-'framer-motion';
+import { motion } from 'framer-motion';
 import {
   KPCard,
   KPAmount,
@@ -26,7 +20,7 @@ import {
   Calculator,
   Zap,
   Loader2,
-  ArrowDown,
+  RefreshCw,
   X,
   TrendingUp,
   ChevronRight,
@@ -158,6 +152,7 @@ export const SpazaHome = ({
   hasSeenOnboarding,
   completeOnboarding,
   onPullRefresh,
+  isSyncingData = false,
 }: {
   user: User;
   wallet: Wallet;
@@ -179,8 +174,10 @@ export const SpazaHome = ({
   navigate: (p: string) => void;
   hasSeenOnboarding?: boolean;
   completeOnboarding?: () => void;
-  /** Reload wallet, sales & activity from the API (pull-to-refresh). */
+  /** Reload wallet, sales & activity from the API. */
   onPullRefresh?: () => Promise<void>;
+  /** Background sync after login or app hydrate. */
+  isSyncingData?: boolean;
 }) => {
   const unreadCount = countUnreadNotifications({
     alerts,
@@ -226,50 +223,21 @@ export const SpazaHome = ({
     if (hour < 18) return t('greeting.afternoon');
     return t('greeting.evening');
   };
-  // Pull to refresh state
-  const controls = useAnimation();
-  const y = useMotionValue(0);
-  const opacity = useTransform(y, [0, 80], [0, 1]);
-  const handleDragEnd = async (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.y > 80) {
-      setIsRefreshing(true);
-      await controls.start({
-        y: 60,
-        transition: {
-          type: 'spring',
-          stiffness: 300,
-          damping: 20
-        }
-      });
-      try {
-        if (onPullRefresh) {
-          await onPullRefresh();
-          toast.success('Dashboard synced');
-        } else {
-          toast.message('Connect your app to the API to sync live data.');
-        }
-      } catch {
-        toast.error('Could not refresh. Check your internet connection.');
-      } finally {
-        setIsRefreshing(false);
-        await controls.start({
-          y: 0,
-          transition: {
-            type: 'spring',
-            stiffness: 300,
-            damping: 20
-          }
-        });
+  // Manual refresh — pull-to-drag was removed because it fought native scroll on mobile.
+  const handleManualRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      if (onPullRefresh) {
+        await onPullRefresh();
+        toast.success('Dashboard synced');
+      } else {
+        toast.message('Connect your app to the API to sync live data.');
       }
-    } else {
-      controls.start({
-        y: 0,
-        transition: {
-          type: 'spring',
-          stiffness: 300,
-          damping: 20
-        }
-      });
+    } catch {
+      toast.error('Could not refresh. Check your internet connection.');
+    } finally {
+      setIsRefreshing(false);
     }
   };
   // Combine and sort recent activity
@@ -289,40 +257,19 @@ export const SpazaHome = ({
   ).
   slice(0, 5);
   return (
-    <PageTransition className="relative flex flex-col min-h-0 h-full overflow-hidden">
+    <PageTransition className="relative flex flex-col min-h-0">
       {!hasSeenOnboarding && completeOnboarding &&
       <OnboardingOverlay onComplete={completeOnboarding} />
       }
 
-      {/* Pull to refresh indicator */}
-      <motion.div
-        className="absolute top-0 left-0 w-full flex justify-center items-center h-16 z-0"
-        style={{
-          opacity
-        }}>
-        
-        {isRefreshing ?
-        <Loader2 className="w-6 h-6 text-emerald-600 animate-spin" /> :
+      {(isSyncingData || isRefreshing) &&
+      <div className="sticky top-0 z-20 bg-emerald-50 border-b border-emerald-100 px-4 py-2 flex items-center justify-center gap-2 text-emerald-700 text-xs font-medium">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        <span>{isRefreshing ? 'Refreshing dashboard…' : 'Syncing your data…'}</span>
+      </div>
+      }
 
-        <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
-            <ArrowDown className="w-4 h-4" /> Pull to refresh
-          </div>
-        }
-      </motion.div>
-
-      <motion.div
-        drag="y"
-        dragConstraints={{
-          top: 0,
-          bottom: 0
-        }}
-        dragElastic={0.2}
-        onDragEnd={handleDragEnd}
-        animate={controls}
-        style={{
-          y
-        }}
-        className="px-6 pt-12 flex-1 min-h-0 overflow-y-auto pb-20 relative z-10 bg-slate-50">
+      <div className="px-6 pt-6 pb-nav relative bg-slate-50">
         
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
@@ -337,8 +284,17 @@ export const SpazaHome = ({
               </h2>
             </div>
           </div>
-          <button
-            onClick={() => navigate('notifications')}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleManualRefresh()}
+              disabled={isRefreshing || isSyncingData}
+              aria-label="Refresh dashboard"
+              className="p-2 bg-white rounded-full shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors disabled:opacity-50">
+              <RefreshCw className={`w-5 h-5 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={() => navigate('notifications')}
             aria-label={
               unreadCount > 0
                 ? `Notifications (${unreadCount} unread)`
@@ -352,6 +308,7 @@ export const SpazaHome = ({
               </span>
             : null}
           </button>
+          </div>
         </div>
 
         {/* Daily Summary Notification */}
@@ -668,7 +625,7 @@ export const SpazaHome = ({
             }
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Floating workspace-mode toggle. Sits above the bottom nav (~88px). */}
       <motion.button

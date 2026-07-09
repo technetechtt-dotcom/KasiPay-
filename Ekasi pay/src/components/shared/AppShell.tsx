@@ -112,9 +112,9 @@ export const AppShell: FC<AppShellProps> = ({
   const hideBottomNav = new Set(['scanner']);
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-8">
-      {/* Phone Frame */}
-      <div className="relative w-full max-w-[400px] h-[850px] max-h-[95dvh] bg-slate-50 rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-slate-800 flex flex-col">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-8 max-sm:p-0 max-sm:bg-slate-50">
+      {/* Phone Frame — full-bleed on real mobile browsers */}
+      <div className="relative w-full max-w-[400px] h-[850px] max-h-[95dvh] max-sm:max-w-none max-sm:h-[100dvh] max-sm:max-h-[100dvh] bg-slate-50 rounded-[3rem] max-sm:rounded-none shadow-2xl max-sm:shadow-none overflow-hidden border-[8px] max-sm:border-0 border-slate-800 flex flex-col">
         {/* Fake Status Bar */}
         <div className="h-12 w-full bg-slate-50 flex items-center justify-between px-6 text-slate-900 text-xs font-medium z-50 shrink-0">
           <span>{time}</span>
@@ -152,14 +152,14 @@ export const AppShell: FC<AppShellProps> = ({
 
         {/* Main content — flex child scrolls; tab bar is a sibling, not an overlay. */}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col relative">
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-hide">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-hide overscroll-y-contain touch-pan-y">
             {children}
           </div>
         </div>
 
         {/* Bottom Navigation */}
         {!hideBottomNav.has(currentPage) ? (
-        <div className="shrink-0 w-full bg-white border-t border-slate-100 pt-2 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] z-50 rounded-b-[2.5rem]">
+        <div className="shrink-0 w-full bg-white border-t border-slate-100 pt-2 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] z-50 rounded-b-[2.5rem] max-sm:rounded-b-none">
           <div className="flex justify-between items-center">
             {navItems.map((item) => {
               const isActive =
