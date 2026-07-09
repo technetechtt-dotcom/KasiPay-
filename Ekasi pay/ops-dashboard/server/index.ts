@@ -7,20 +7,30 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 
-import { loginHandler, requireOpsAuth } from './auth.js';
+import {
+  createOpsUserHandler,
+  deleteOpsUserHandler,
+  listOpsUsersHandler,
+  loginHandler,
+  opsMeHandler,
+  requireOpsAuth,
+  requireOpsSuperAdmin,
+  updateOpsUserHandler,
+} from './auth.js';
 import {
   NODE_ENV,
   OPS_DASHBOARD_ORIGIN,
   OPS_PORT,
   validateOpsConfig,
 } from './config.js';
-import { closeDataStore } from './db.js';
+import { closeDataStore, initOpsAuthStore } from './db.js';
 import { monitoringRouter } from './routes/monitoring.js';
 import { cashSendOpsRouter } from './routes/cashSend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 validateOpsConfig();
+await initOpsAuthStore();
 
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -58,6 +68,21 @@ const loginLimiter = rateLimit({
 });
 
 app.post('/ops-api/login', loginLimiter, loginHandler);
+app.get('/ops-api/me', requireOpsAuth, opsMeHandler);
+app.get('/ops-api/admin-users', requireOpsAuth, requireOpsSuperAdmin, listOpsUsersHandler);
+app.post('/ops-api/admin-users', requireOpsAuth, requireOpsSuperAdmin, createOpsUserHandler);
+app.patch(
+  '/ops-api/admin-users/:id',
+  requireOpsAuth,
+  requireOpsSuperAdmin,
+  updateOpsUserHandler,
+);
+app.delete(
+  '/ops-api/admin-users/:id',
+  requireOpsAuth,
+  requireOpsSuperAdmin,
+  deleteOpsUserHandler,
+);
 
 const api = express.Router();
 api.use(requireOpsAuth);

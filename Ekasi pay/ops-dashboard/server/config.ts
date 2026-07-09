@@ -27,6 +27,10 @@ export const OPS_JWT_SECRET = (() => {
 
 export const OPS_DASHBOARD_PASSWORD =
   process.env.OPS_DASHBOARD_PASSWORD?.trim() ?? '';
+export const OPS_SUPER_ADMIN_USERNAME =
+  process.env.OPS_SUPER_ADMIN_USERNAME?.trim() ?? 'superadmin';
+export const OPS_SUPER_ADMIN_PASSWORD =
+  process.env.OPS_SUPER_ADMIN_PASSWORD?.trim() ?? OPS_DASHBOARD_PASSWORD;
 
 function normalizeOrigin(value: string): string {
   const trimmed = value.trim();
@@ -76,7 +80,7 @@ export const DATABASE_PATH = path.resolve(
 
 export function validateOpsConfig(): void {
   if (NODE_ENV !== 'production') return;
-  if (!OPS_DASHBOARD_PASSWORD) {
+  if (!OPS_SUPER_ADMIN_PASSWORD) {
     throw new Error('OPS_DASHBOARD_PASSWORD is required in production.');
   }
   if (!IS_POSTGRES && !DATABASE_PATH) {

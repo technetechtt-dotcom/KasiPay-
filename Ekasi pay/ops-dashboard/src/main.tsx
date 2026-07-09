@@ -6,23 +6,36 @@ import { createRoot } from 'react-dom/client';
 
 import {
   apiAuditEvents,
+  apiAdminUsers,
   apiCashSendVouchers,
   apiComplianceFlags,
+  apiCreateAdminUser,
+  apiDeleteAdminUser,
   apiLogin,
+  apiMe,
   apiOverview,
   apiReconciliation,
   apiTransactions,
+  apiUpdateAdminUser,
   apiUserDetail,
   apiUsers,
   clearToken,
   getToken,
   setToken,
+  type OpsAdminUser,
   type OpsCashSendVoucher,
   type OpsUser,
   type Overview,
 } from './api';
 
-type Tab = 'overview' | 'users' | 'compliance' | 'audit' | 'transactions' | 'cashsend';
+type Tab =
+  | 'overview'
+  | 'users'
+  | 'compliance'
+  | 'audit'
+  | 'transactions'
+  | 'cashsend'
+  | 'ops-admins';
 
 function fmtMoney(n: number) {
   return `R${n.toFixed(2)}`;
@@ -37,6 +50,7 @@ function fmtDate(iso: string) {
 }
 
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
+  const [username, setUsername] = useState('superadmin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,7 +60,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     setError('');
     try {
-      const { token } = await apiLogin(password);
+      const { token } = await apiLogin(username, password);
       setToken(token);
       onSuccess();
     } catch (err) {
@@ -62,7 +76,17 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
         <h1>Ekasi Pay Ops</h1>
         <p className="muted">Separate monitoring console — not the merchant app.</p>
         <label>
-          Operator password
+          Username
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            required
+          />
+        </label>
+        <label>
+          Password
           <input
             type="password"
             value={password}
@@ -76,6 +100,153 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+    </div>
+  );
+}
+
+function OpsAdminsTab({ me }: { me: OpsAdminUser }) {
+  const [users, setUsers] = useState<OpsAdminUser[]>([]);
+  const [error, setError] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'super_admin' | 'operator'>('operator');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const r = await apiAdminUsers();
+      setUsers(r.users);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load ops users');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const createUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await apiCreateAdminUser({ username, password, role });
+      setUsername('');
+      setPassword('');
+      setRole('operator');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create user');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="split-panel">
+      <div className="panel">
+        <h2>Ops users</h2>
+        <p className="muted">Super Admin can create, edit, disable, and delete operator accounts.</p>
+        {error ? <p className="error">{error}</p> : null}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Last login</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.username}</td>
+                  <td>{u.role}</td>
+                  <td>{u.isActive ? 'active' : 'disabled'}</td>
+                  <td>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : 'never'}</td>
+                  <td style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const next = !u.isActive;
+                        await apiUpdateAdminUser(u.id, { isActive: next });
+                        await load();
+                      }}
+                    >
+                      {u.isActive ? 'Disable' : 'Enable'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const nextRole = u.role === 'operator' ? 'super_admin' : 'operator';
+                        await apiUpdateAdminUser(u.id, { role: nextRole });
+                        await load();
+                      }}
+                    >
+                      Toggle role
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const newPwd = window.prompt(`Set new password for ${u.username} (min 8 chars):`);
+                        if (!newPwd) return;
+                        await apiUpdateAdminUser(u.id, { password: newPwd });
+                        await load();
+                      }}
+                    >
+                      Reset password
+                    </button>
+                    {u.id !== me.id ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete ops user "${u.username}"?`)) return;
+                          await apiDeleteAdminUser(u.id);
+                          await load();
+                        }}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="panel">
+        <h2>Create ops user</h2>
+        <form className="login-card" onSubmit={createUser} style={{ width: '100%', padding: 0, background: 'transparent', border: 'none' }}>
+          <label>
+            Username
+            <input value={username} onChange={(e) => setUsername(e.target.value)} required />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={8}
+              required
+            />
+          </label>
+          <label>
+            Role
+            <select value={role} onChange={(e) => setRole(e.target.value as 'super_admin' | 'operator')}>
+              <option value="operator">Operator</option>
+              <option value="super_admin">Super Admin</option>
+            </select>
+          </label>
+          <button type="submit" disabled={saving}>
+            {saving ? 'Creating…' : 'Create user'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -518,7 +689,7 @@ function TransactionsTab() {
   );
 }
 
-function Dashboard() {
+function Dashboard({ me }: { me: OpsAdminUser }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [error, setError] = useState('');
@@ -545,6 +716,7 @@ function Dashboard() {
     { id: 'compliance', label: 'Compliance' },
     { id: 'audit', label: 'Audit' },
     { id: 'transactions', label: 'Transactions' },
+    ...(me.role === 'super_admin' ? [{ id: 'ops-admins' as Tab, label: 'Ops Users' }] : []),
   ];
 
   return (
@@ -552,7 +724,7 @@ function Dashboard() {
       <header className="topbar">
         <div>
           <strong>Ekasi Pay Ops</strong>
-          <span className="muted"> read-only monitor</span>
+          <span className="muted"> signed in as {me.username}</span>
         </div>
         <button type="button" className="ghost" onClick={logout}>
           Sign out
@@ -578,6 +750,7 @@ function Dashboard() {
         {tab === 'compliance' ? <ComplianceTab /> : null}
         {tab === 'audit' ? <AuditTab /> : null}
         {tab === 'transactions' ? <TransactionsTab /> : null}
+        {tab === 'ops-admins' ? <OpsAdminsTab me={me} /> : null}
       </main>
     </div>
   );
@@ -585,11 +758,32 @@ function Dashboard() {
 
 function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
+  const [me, setMe] = useState<OpsAdminUser | null>(null);
+
+  useEffect(() => {
+    if (!authed) return;
+    void apiMe()
+      .then((r) => setMe(r.user))
+      .catch(() => {
+        clearToken();
+        setAuthed(false);
+      });
+  }, [authed]);
 
   if (!authed) {
     return <LoginScreen onSuccess={() => setAuthed(true)} />;
   }
-  return <Dashboard />;
+  if (!me) {
+    return (
+      <div className="login-wrap">
+        <div className="login-card">
+          <h1>Ekasi Pay Ops</h1>
+          <p className="muted">Loading account…</p>
+        </div>
+      </div>
+    );
+  }
+  return <Dashboard me={me} />;
 }
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {

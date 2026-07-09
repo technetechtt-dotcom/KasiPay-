@@ -50,10 +50,55 @@ async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-export async function apiLogin(password: string) {
-  return opsFetch<{ token: string; expiresInSec: number }>('/ops-api/login', {
+export type OpsAdminUser = {
+  id: string;
+  username: string;
+  role: 'super_admin' | 'operator';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+};
+
+export async function apiLogin(username: string, password: string) {
+  return opsFetch<{ token: string; expiresInSec: number; user: OpsAdminUser }>('/ops-api/login', {
     method: 'POST',
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function apiMe() {
+  return opsFetch<{ user: OpsAdminUser }>('/ops-api/me');
+}
+
+export async function apiAdminUsers() {
+  return opsFetch<{ users: OpsAdminUser[] }>('/ops-api/admin-users');
+}
+
+export async function apiCreateAdminUser(body: {
+  username: string;
+  password: string;
+  role: 'super_admin' | 'operator';
+}) {
+  return opsFetch<{ user: OpsAdminUser }>('/ops-api/admin-users', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiUpdateAdminUser(
+  id: string,
+  body: { role?: 'super_admin' | 'operator'; isActive?: boolean; password?: string },
+) {
+  return opsFetch<{ user: OpsAdminUser }>(`/ops-api/admin-users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiDeleteAdminUser(id: string) {
+  return opsFetch<{ ok: boolean }>(`/ops-api/admin-users/${id}`, {
+    method: 'DELETE',
   });
 }
 
