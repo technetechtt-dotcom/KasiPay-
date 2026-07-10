@@ -446,7 +446,7 @@ const SendCashFlow = ({
           setVoucher(newVoucher);
           setStep(5);
           toast.success(
-            'Cash Send created! The sender will receive an SMS with the voucher number, PIN, and where to withdraw.',
+            `Cash Send created — R${(Number(amount) + 10).toFixed(2)} deducted from your shop wallet.`,
           );
         } else {
           setError(
@@ -509,7 +509,19 @@ const SendCashFlow = ({
               R{voucher.amount.toFixed(2)}
             </span>
           </div>
+          <div className="flex justify-between items-center pt-2">
+            <span className="text-slate-600 font-medium">Deducted from wallet</span>
+            <span className="text-lg font-bold text-slate-900">
+              R{(voucher.amount + (voucher.fee ?? 10)).toFixed(2)}
+            </span>
+          </div>
         </KPCard>
+
+        <div className="bg-slate-50 text-slate-700 p-4 rounded-xl text-sm w-full mb-4 text-left">
+          Your shop wallet was reduced by{' '}
+          <strong>R{(voucher.amount + (voucher.fee ?? 10)).toFixed(2)}</strong>.
+          Current balance: <KPAmount amount={wallet.balance} />.
+        </div>
 
         <div className="bg-amber-50 text-amber-800 p-4 rounded-xl text-sm w-full mb-6 flex items-start gap-3 text-left">
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -708,18 +720,18 @@ const SendCashFlow = ({
             </div>
             <KPCard className="p-4 mb-6 bg-slate-50 border-none">
               <div className="flex justify-between py-2 border-b border-slate-200">
-                <span className="text-slate-500">Amount</span>
+                <span className="text-slate-500">Beneficiary receives</span>
                 <span className="font-bold">
                   R{Number(amount || 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-200">
-                <span className="text-slate-500">Agent Fee</span>
+                <span className="text-slate-500">Agent fee</span>
                 <span className="font-medium">R10.00</span>
               </div>
               <div className="flex justify-between py-2">
                 <span className="font-bold text-slate-900">
-                  Total to Collect
+                  Deducted from your shop wallet
                 </span>
                 <span className="font-bold text-emerald-600">
                   R{(Number(amount || 0) + 10).toFixed(2)}
@@ -727,7 +739,10 @@ const SendCashFlow = ({
               </div>
             </KPCard>
             <p className="text-sm text-center text-slate-500">
-              Shop Wallet Balance: <KPAmount amount={wallet.balance} />
+              Shop wallet balance: <KPAmount amount={wallet.balance} />
+            </p>
+            <p className="text-xs text-center text-slate-400 mt-2 px-2">
+              Take cash from the customer for the total above. When they withdraw elsewhere, that shop’s wallet is credited.
             </p>
           </motion.div>
         }
@@ -940,7 +955,9 @@ const CollectCashFlow = ({
 
         <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl text-sm w-full mb-8">
           Your shop wallet has been credited with{' '}
-          <KPAmount amount={voucher.amount} />.
+          <KPAmount amount={voucher.amount + (voucher.fee ?? 0)} />
+          {' '}(cash payout + agent fee). Hand{' '}
+          <KPAmount amount={voucher.amount} /> in cash to the customer.
         </div>
 
         <KPButton

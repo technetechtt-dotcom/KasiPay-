@@ -514,8 +514,19 @@ cashSendRouter.post(
         type: 'cash_send_collect',
         referencePrefix: 'CSC',
         description:
-          `Cash Send payout (${row.reference_number}) principal ${row.amount} from escrow (${poolId}); fee ${row.fee} retained in escrow`,
+          `Cash Send payout (${row.reference_number}) principal ${row.amount} from escrow (${poolId}) to collector wallet`,
       });
+      if (row.fee > 0) {
+        postBetweenWallets(database, {
+          fromWalletId: escrowId,
+          toWalletId: collectorWallet.id,
+          amount: row.fee,
+          type: 'cash_send_collect',
+          referencePrefix: 'CSF',
+          description:
+            `Cash Send collection fee (${row.reference_number}) R${row.fee} from escrow (${poolId}) to collector wallet`,
+        });
+      }
       const verified = 1;
       database
         .prepare(

@@ -529,8 +529,18 @@ cashSendRouterPg.post(
         amount: row.amount,
         type: 'cash_send_collect',
         referencePrefix: 'CSC',
-        description: `Cash Send payout (${row.reference_number}) principal ${row.amount} from escrow (${poolId}); fee ${row.fee} retained in escrow`,
+        description: `Cash Send payout (${row.reference_number}) principal ${row.amount} from escrow (${poolId}) to collector wallet`,
       });
+      if (row.fee > 0) {
+        await postBetweenWalletsPg(client, {
+          fromWalletId: escrowId,
+          toWalletId: collectorWallet.id,
+          amount: row.fee,
+          type: 'cash_send_collect',
+          referencePrefix: 'CSF',
+          description: `Cash Send collection fee (${row.reference_number}) R${row.fee} from escrow (${poolId}) to collector wallet`,
+        });
+      }
       await client.query(
         `UPDATE cash_send_vouchers
             SET status = 'collected', collected_at = $1,
