@@ -17,6 +17,7 @@ import {
   apiUsers,
   clearToken,
   getToken,
+  setToken,
   type OpsAdminUser,
   type OpsCashSendVoucher,
   type OpsUser,
@@ -44,8 +45,8 @@ function fmtDate(iso: string) {
 }
 
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [phone, setPhone] = useState('');
-  const [pin, setPin] = useState('');
+  const [username, setUsername] = useState('superadmin');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -54,7 +55,8 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     setError('');
     try {
-      await apiLogin(phone.replace(/\D/g, ''), pin);
+      const { token } = await apiLogin(username.trim(), password);
+      setToken(token);
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -68,34 +70,32 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       <form className="login-card" onSubmit={submit}>
         <h1>Ekasi Pay Ops</h1>
         <p className="muted">
-          Same admin backend as the main app â€” sign in with your admin phone and PIN.
+          Sign in with your ops username and password (same backend as the main
+          API).
         </p>
         <label>
-          Phone
+          Username
           <input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            autoComplete="tel"
-            placeholder="082â€¦"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
             required
           />
         </label>
         <label>
-          PIN
+          Password
           <input
             type="password"
-            inputMode="numeric"
-            maxLength={4}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
             required
           />
         </label>
         {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={loading || pin.length !== 4}>
-          {loading ? 'Signing inâ€¦' : 'Sign in'}
+        <button type="submit" disabled={loading || !password}>
+          {loading ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
     </div>
@@ -822,7 +822,7 @@ function App() {
       <div className="login-wrap">
         <div className="login-card">
           <h1>Ekasi Pay Ops</h1>
-          <p className="muted">Loading accountâ€¦</p>
+          <p className="muted">Loading account...</p>
         </div>
       </div>
     );

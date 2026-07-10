@@ -22,6 +22,8 @@ import { adminRouterPg } from './routes/adminPg.js';
 import { adminMonitoringRouterPg } from './routes/adminMonitoringPg.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
 import { adminUsersRouterPg } from './routes/adminUsersPg.js';
+import { opsAuthRouterPg } from './routes/opsAuthPg.js';
+import { ensureOpsAuthStore } from './opsAuth.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { analyticsRouterPg } from './routes/analyticsPg.js';
 import { authRouter } from './routes/auth.js';
@@ -61,6 +63,7 @@ import { recordAuditEventPg } from './services/auditPg.js';
 
 validateProductionConfig();
 await initDataStore();
+await ensureOpsAuthStore();
 
 const app = express();
 app.disable('x-powered-by');
@@ -136,18 +139,15 @@ app.use(
       ? true
       : (origin, cb) => {
           if (!origin) {
-            cb(Object.assign(new Error('Origin header required'), { status: 403 }));
+            cb(null, true);
             return;
           }
           const allowed = listFrontendOrigins();
           if (allowed.includes(origin)) {
             cb(null, true);
           } else {
-            cb(
-              Object.assign(new Error(`Origin ${origin} not allowed by CORS`), {
-                status: 403,
-              }),
-            );
+            // Reject without throwing — throwing can leave browsers hanging.
+            cb(null, false);
           }
         },
     credentials: false,
@@ -213,7 +213,11 @@ api.use((req, res, next) => {
   ) {
     return pinResetLimiter(req, res, next);
   }
-  if (['/register', '/login'].includes(req.path)) {
+  if (
+    req.path === '/register' ||
+    req.path === '/login' ||
+    req.path === '/ops/login'
+  ) {
     return authBurstLimiter(req, res, next);
   }
   next();
@@ -237,6 +241,7 @@ if (isPostgresMode()) {
   api.use(extensionAccountRouterPg);
   api.use(cashSendRouterPg);
   api.use(commissionsRouterPg);
+  api.use(opsAuthRouterPg);
   api.use(adminUsersRouterPg);
   api.use(adminMonitoringRouterPg);
   api.use(adminRouterPg);

@@ -1,10 +1,10 @@
 /**
- * Ops dashboard client — talks to the main Ekasi Pay API (`ekasi-pay-api`).
- * Auth is the same admin phone + PIN used in the merchant app.
+ * Ops dashboard client — main Ekasi Pay API.
+ * Login: ops username + password (`/api/ops/login`).
+ * Data: `/api/admin/*` (same backend as merchant admin).
  */
 
 const TOKEN_KEY = 'ekasi_ops_token';
-const REFRESH_KEY = 'ekasi_ops_refresh';
 let inMemoryToken: string | null = null;
 
 function readStorage(): Storage | null {
@@ -37,12 +37,11 @@ export function getToken(): string | null {
   return storage.getItem(TOKEN_KEY) ?? inMemoryToken;
 }
 
-export function setToken(token: string, refreshToken?: string): void {
+export function setToken(token: string): void {
   inMemoryToken = token;
   const storage = readStorage();
   if (!storage) return;
   storage.setItem(TOKEN_KEY, token);
-  if (refreshToken) storage.setItem(REFRESH_KEY, refreshToken);
 }
 
 export function clearToken(): void {
@@ -50,34 +49,7 @@ export function clearToken(): void {
   const storage = readStorage();
   if (!storage) return;
   storage.removeItem(TOKEN_KEY);
-  storage.removeItem(REFRESH_KEY);
-}
-
-async function refreshAccessToken(): Promise<boolean> {
-  const storage = readStorage();
-  const refresh = storage?.getItem(REFRESH_KEY);
-  if (!refresh) return false;
-  try {
-    const res = await fetch(resolveUrl('/api/refresh'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ refreshToken: refresh }),
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      token?: string;
-      refreshToken?: string;
-      error?: string;
-    };
-    if (!res.ok || !body.token) {
-      clearToken();
-      return false;
-    }
-    setToken(body.token, body.refreshToken);
-    return true;
-  } catch {
-    clearToken();
-    return false;
-  }
+  storage.removeItem('ekasi_ops_refresh');
 }
 
 async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -91,14 +63,26 @@ async function opsFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers['Content-Type'] = 'application/json';
   }
 
-  let res = await fetch(resolveUrl(path), { ...init, headers });
-  if (res.status === 401 && path !== '/api/login' && path !== '/api/refresh') {
-    const ok = await refreshAccessToken();
-    if (ok) {
-      const t2 = getToken();
-      if (t2) headers.Authorization = `Bearer ${t2}`;
-      res = await fetch(resolveUrl(path), { ...init, headers });
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20_000);
+  let res: Response;
+  try {
+    res = await fetch(resolveUrl(path), {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(
+        'Request timed out. The API may be waking up — wait a few seconds and try again.',
+      );
     }
+    throw new Error(
+      `Cannot reach API (${apiBaseUrl() || 'same origin'}). Check FRONTEND_ORIGINS on ekasi-pay-api includes this ops URL.`,
+    );
+  } finally {
+    window.clearTimeout(timer);
   }
 
   const body = (await res.json().catch(() => ({}))) as T & { error?: string };
@@ -122,84 +106,52 @@ export type OpsAdminUser = {
   phone?: string;
 };
 
-/** Admin phone + PIN login against the main API. */
-export async function apiLogin(phone: string, pin: string) {
+export async function apiLogin(username: string, password: string) {
   const result = await opsFetch<{
     token: string;
-    refreshToken: string;
-    user: { id: string; name: string; phone: string; role: string };
-  }>('/api/login', {
+    expiresInSec: number;
+    user: OpsAdminUser;
+  }>('/api/ops/login', {
     method: 'POST',
-    body: JSON.stringify({ phone, pin }),
+    body: JSON.stringify({ username, password }),
   });
-  if (result.user.role !== 'admin') {
-    throw new Error('Ops access requires an admin account.');
-  }
-  setToken(result.token, result.refreshToken);
-  return {
-    token: result.token,
-    expiresInSec: 3600,
-    user: {
-      id: result.user.id,
-      username: result.user.phone,
-      role: 'admin' as const,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString(),
-      name: result.user.name,
-      phone: result.user.phone,
-    },
-  };
+  setToken(result.token);
+  return result;
 }
 
 export async function apiMe() {
-  const { user } = await opsFetch<{
-    user: { id: string; name: string; phone: string; role: string };
-  }>('/api/me');
-  if (user.role !== 'admin') {
-    throw new Error('Ops access requires an admin account.');
-  }
-  return {
-    user: {
-      id: user.id,
-      username: user.phone,
-      role: 'admin' as const,
-      isActive: true,
-      createdAt: '',
-      updatedAt: '',
-      lastLoginAt: null,
-      name: user.name,
-      phone: user.phone,
-    } satisfies OpsAdminUser,
-  };
+  return opsFetch<{ user: OpsAdminUser }>('/api/ops/me');
 }
 
-/** Ops operator CRUD moved to main-app Admin → User Management. */
-export async function apiAdminUsers(): Promise<{ users: OpsAdminUser[] }> {
-  return { users: [] };
+export async function apiAdminUsers() {
+  return opsFetch<{ users: OpsAdminUser[] }>('/api/ops/admin-users');
 }
-export async function apiCreateAdminUser(_body: {
+
+export async function apiCreateAdminUser(body: {
   username: string;
   password: string;
   role: 'super_admin' | 'operator';
-}): Promise<{ user: OpsAdminUser }> {
-  throw new Error(
-    'Manage admin users in the main app: More → Admin Tools → User Management.',
-  );
+}) {
+  return opsFetch<{ user: OpsAdminUser }>('/api/ops/admin-users', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
+
 export async function apiUpdateAdminUser(
-  _id: string,
-  _body: { role?: 'super_admin' | 'operator'; isActive?: boolean; password?: string },
-): Promise<{ user: OpsAdminUser }> {
-  throw new Error(
-    'Manage admin users in the main app: More → Admin Tools → User Management.',
-  );
+  id: string,
+  body: { role?: 'super_admin' | 'operator'; isActive?: boolean; password?: string },
+) {
+  return opsFetch<{ user: OpsAdminUser }>(`/api/ops/admin-users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }
-export async function apiDeleteAdminUser(_id: string): Promise<{ ok: boolean }> {
-  throw new Error(
-    'Manage admin users in the main app: More → Admin Tools → User Management.',
-  );
+
+export async function apiDeleteAdminUser(id: string) {
+  return opsFetch<{ ok: boolean }>(`/api/ops/admin-users/${id}`, {
+    method: 'DELETE',
+  });
 }
 
 export type Overview = {

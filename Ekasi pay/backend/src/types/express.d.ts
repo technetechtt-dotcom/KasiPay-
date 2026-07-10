@@ -3,6 +3,11 @@ declare global {
   namespace Express {
     interface Request {
       auth?: { userId: string; phone: string; role: string; sessionId: string };
+      opsAuth?: {
+        operatorId: string;
+        username: string;
+        role: 'super_admin' | 'operator';
+      };
     }
   }
 }

@@ -5,6 +5,7 @@ import { getPgPool } from '../dbPg.js';
 import { toComplianceFlag, toLoan } from '../extraMappers.js';
 import { toMerchant } from '../mappers.js';
 import { requireAuth, requireRoles } from '../middleware/requireAuth.js';
+import { requireAdminOrOps } from '../opsAuth.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
 import {
   adminClaimListQuerySchema,
@@ -74,8 +75,7 @@ adminRouterPg.patch(
 
 adminRouterPg.get(
   '/admin/compliance/flags',
-  requireAuth,
-  requireRoles('admin'),
+  requireAdminOrOps,
   async (req, res) => {
     const status =
       typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -239,8 +239,7 @@ adminRouterPg.patch(
 
 adminRouterPg.get(
   '/admin/audit-events',
-  requireAuth,
-  requireRoles('admin'),
+  requireAdminOrOps,
   async (_req, res) => {
     const pool = getPgPool();
     const r = await pool.query<{

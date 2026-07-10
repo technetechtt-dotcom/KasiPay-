@@ -4,16 +4,16 @@ import { z } from 'zod';
 import { getPgPool } from '../dbPg.js';
 import { toComplianceFlag } from '../extraMappers.js';
 import { toPublicUser } from '../mappers.js';
-import { requireAuth, requireRoles } from '../middleware/requireAuth.js';
+import { requireAdminOrOps } from '../opsAuth.js';
 import type { RowUser } from '../types.js';
 
 /**
- * Ops-style monitoring reads on the main API (admin JWT).
- * Replaces the separate ekasi-ops-dashboard Express server.
+ * Ops-style monitoring reads on the main API.
+ * Accepts app admin JWT or ops username/password JWT.
  */
 export const adminMonitoringRouterPg = Router();
 
-const adminOnly = [requireAuth, requireRoles('admin')] as const;
+const gate = [requireAdminOrOps] as const;
 
 function extractCashSendVoucherNumber(
   description: string | null | undefined,
@@ -134,7 +134,7 @@ const VOUCHER_SELECT = `
   sender_first_name, sender_last_name, sender_name, sender_phone, sender_id_document
 `;
 
-adminMonitoringRouterPg.get('/admin/overview', ...adminOnly, async (_req, res) => {
+adminMonitoringRouterPg.get('/admin/overview', ...gate, async (_req, res) => {
   const pool = getPgPool();
   const [usersQ, walletsQ, flagsQ, txnsQ, merchantsQ] = await Promise.all([
     pool.query<{ total: string; active: string; suspended: string; merchants: string }>(
@@ -195,7 +195,7 @@ const usersQuery = z.object({
 
 adminMonitoringRouterPg.get(
   '/admin/directory/users',
-  ...adminOnly,
+  ...gate,
   async (req, res) => {
     const parsed = usersQuery.safeParse(req.query);
     if (!parsed.success) {
@@ -253,7 +253,7 @@ adminMonitoringRouterPg.get(
 
 adminMonitoringRouterPg.get(
   '/admin/directory/users/:id',
-  ...adminOnly,
+  ...gate,
   async (req, res) => {
     const pool = getPgPool();
     const userId = req.params.id;
@@ -304,7 +304,7 @@ adminMonitoringRouterPg.get(
 
 adminMonitoringRouterPg.get(
   '/admin/transactions',
-  ...adminOnly,
+  ...gate,
   async (req, res) => {
     const parsed = z
       .object({
@@ -427,7 +427,7 @@ adminMonitoringRouterPg.get(
 
 adminMonitoringRouterPg.get(
   '/admin/reconciliation',
-  ...adminOnly,
+  ...gate,
   async (_req, res) => {
     const pool = getPgPool();
     const tolerance = 0.01;
@@ -481,7 +481,7 @@ const cashSendListQuery = z.object({
 
 adminMonitoringRouterPg.get(
   '/admin/cash-send/vouchers',
-  ...adminOnly,
+  ...gate,
   async (req, res) => {
     const parsed = cashSendListQuery.safeParse(req.query);
     if (!parsed.success) {

@@ -33,6 +33,12 @@ services:
         sync: false
       - key: FRONTEND_ORIGINS
         sync: false
+      - key: OPS_DASHBOARD_PASSWORD
+        sync: false
+      - key: OPS_SUPER_ADMIN_USERNAME
+        value: superadmin
+      - key: OPS_JWT_SECRET
+        generateValue: true
 
   - type: web
     name: ekasi-pay-web
