@@ -38,6 +38,19 @@ const server = http.createServer((req, res) => {
   }
 
   const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0] || '/');
+  // Never SPA-fallback API paths — that caused fake 200 HTML logins and missing tokens.
+  if (urlPath === '/api' || urlPath.startsWith('/api/')) {
+    return send(
+      res,
+      404,
+      JSON.stringify({
+        error:
+          'This is the ops static host. API calls must go to ekasi-pay-api (check runtime-config.js).',
+      }),
+      'application/json',
+    );
+  }
+
   const safe = path.normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
   let filePath = path.join(dist, safe === path.sep ? 'index.html' : safe);
 

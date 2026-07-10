@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 
 import {
   apiAuditEvents,
+  apiBaseUrl,
   apiCashSendVouchers,
   apiComplianceFlags,
   apiLogin,
@@ -17,7 +18,6 @@ import {
   apiUsers,
   clearToken,
   getToken,
-  setToken,
   type OpsAdminUser,
   type OpsCashSendVoucher,
   type OpsUser,
@@ -49,16 +49,21 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const apiUrl = apiBaseUrl() || '(dev proxy)';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const { token } = await apiLogin(username.trim(), password);
-      setToken(token);
+      clearToken();
+      await apiLogin(username.trim(), password);
+      if (!getToken()) {
+        throw new Error('Login did not store a session token.');
+      }
       onSuccess();
     } catch (err) {
+      clearToken();
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
@@ -70,8 +75,10 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       <form className="login-card" onSubmit={submit}>
         <h1>Ekasi Pay Ops</h1>
         <p className="muted">
-          Sign in with your ops username and password (same backend as the main
-          API).
+          Sign in with your ops username and password.
+        </p>
+        <p className="muted" style={{ fontSize: 12 }}>
+          API: {apiUrl}
         </p>
         <label>
           Username
@@ -803,19 +810,34 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
 function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
   const [me, setMe] = useState<OpsAdminUser | null>(null);
+  const [bootError, setBootError] = useState('');
 
   useEffect(() => {
     if (!authed) return;
+    setBootError('');
     void apiMe()
       .then((r) => setMe(r.user))
-      .catch(() => {
+      .catch((e) => {
         clearToken();
+        setMe(null);
         setAuthed(false);
+        setBootError(e instanceof Error ? e.message : 'Session expired');
       });
   }, [authed]);
 
   if (!authed) {
-    return <LoginScreen onSuccess={() => setAuthed(true)} />;
+    return (
+      <>
+        {bootError ? (
+          <div className="login-wrap" style={{ paddingBottom: 0 }}>
+            <p className="error" style={{ textAlign: 'center' }}>
+              {bootError}
+            </p>
+          </div>
+        ) : null}
+        <LoginScreen onSuccess={() => setAuthed(true)} />
+      </>
+    );
   }
   if (!me) {
     return (
