@@ -52,6 +52,13 @@ describe('parseCashSendVoucherReference', () => {
     );
   });
 
+  it('accepts hex voucher numbers issued by generateCashSendReference', () => {
+    assert.equal(
+      parseCashSendVoucherReference('cs1a2b3c4d5e6f70'),
+      'CS1A2B3C4D5E6F70',
+    );
+  });
+
   it('rejects cellphones and internal ids', () => {
     assert.equal(parseCashSendVoucherReference('0697040585'), null);
     assert.equal(

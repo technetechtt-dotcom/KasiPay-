@@ -8,10 +8,13 @@ export function isSaCellphoneInput(raw: string): boolean {
   return /^0\d{9}$/.test(digits);
 }
 
-/** Collect accepts only CS-prefixed voucher numbers. */
+/**
+ * Collect accepts CS-prefixed voucher numbers.
+ * Issued refs are `CS` + 14 hex chars (see backend `generateCashSendReference`).
+ */
 export function isCashSendVoucherReference(raw: string): boolean {
   const ref = normalizeCashSendReference(raw);
-  return ref.startsWith('CS') && ref.length >= 10 && /^CS\d+$/.test(ref);
+  return ref.startsWith('CS') && ref.length >= 10 && /^CS[0-9A-F]+$/.test(ref);
 }
 
 export function parseCashSendVoucherReference(raw: string): string | null {

@@ -45,10 +45,13 @@ export function isSaCellphoneInput(raw: string): boolean {
   return /^0\d{9}$/.test(digits);
 }
 
-/** Public voucher number issued at send — the only key for collect. */
+/**
+ * Public voucher number issued at send — the only key for collect.
+ * Matches `generateCashSendReference` (`CS` + 14 hex chars).
+ */
 export function isCashSendVoucherReference(raw: string): boolean {
   const ref = normalizeCashSendReference(raw);
-  return ref.startsWith('CS') && ref.length >= 10 && /^CS\d+$/.test(ref);
+  return ref.startsWith('CS') && ref.length >= 10 && /^CS[0-9A-F]+$/.test(ref);
 }
 
 /**
