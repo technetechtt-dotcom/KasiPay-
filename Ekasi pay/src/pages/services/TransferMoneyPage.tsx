@@ -61,7 +61,7 @@ export const TransferMoneyPage = ({
         </p>
       </div>
 
-      <div className="flex-1 p-6 pb-8 space-y-4 overflow-y-auto">
+      <div className="flex-1 p-6 pb-nav space-y-4 overflow-y-auto">
         <KPCard className="p-5">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">

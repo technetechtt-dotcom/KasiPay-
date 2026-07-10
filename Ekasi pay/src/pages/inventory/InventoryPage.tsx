@@ -28,7 +28,7 @@ export const InventoryPage = ({
 
 
 
-}: {products: Product[];onRestock: (productId: string, quantity: number) => void;navigate: (p: string) => void;}) => {
+}: {products: Product[];onRestock: (productId: string, quantity: number) => void | Promise<boolean | void>;navigate: (p: string) => void;}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const lowStockCount = products.filter(
     (p) => p.stock > 0 && p.stock < 10
@@ -61,8 +61,11 @@ export const InventoryPage = ({
     return 'bg-emerald-500';
   };
   const handleRestock = (productId: string, quantity: number) => {
-    onRestock(productId, quantity);
-    toast.success('Stock updated');
+    void (async () => {
+      const result = await Promise.resolve(onRestock(productId, quantity));
+      if (result === false) return;
+      toast.success('Stock updated');
+    })();
   };
 
   const handleDownloadInventory = async () => {
@@ -235,7 +238,7 @@ export const InventoryPage = ({
       </div>
 
       {/* Product List */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 relative">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav relative">
         {Object.entries(groupedProducts).length === 0 ?
         <div className="text-center py-12 text-slate-500">
             <Package className="w-12 h-12 mx-auto mb-3 text-slate-300" />

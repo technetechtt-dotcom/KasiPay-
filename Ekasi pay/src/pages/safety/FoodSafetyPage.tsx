@@ -680,7 +680,17 @@ export const FoodSafetyPage = ({
           <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 sm:max-w-md shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">Track expiry</h3>
-              <button type="button" onClick={() => setShowExpiryModal(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExpiryModal(false);
+                  setExProduct('');
+                  setExCategory('');
+                  setExBatch('');
+                  setExDate('');
+                  setExQty('1');
+                  setExStatus('safe');
+                }}>
                 <X className="w-6 h-6 text-slate-400" />
               </button>
             </div>
@@ -755,7 +765,15 @@ export const FoodSafetyPage = ({
           <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 sm:max-w-md shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">Safety note</h3>
-              <button type="button" onClick={() => setShowAlertModal(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAlertModal(false);
+                  setAlTitle('');
+                  setAlDesc('');
+                  setAlSev('info');
+                  setAlType('inspection');
+                }}>
                 <X className="w-6 h-6 text-slate-400" />
               </button>
             </div>

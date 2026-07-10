@@ -268,7 +268,17 @@ export const LaybyPage = ({
           <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 sm:max-w-md shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">New layby</h3>
-              <button type="button" onClick={() => setShowForm(false)} aria-label="Close">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForm(false);
+                  setCustomerName('');
+                  setCustomerPhone('');
+                  setItemName('');
+                  setTotalPrice('');
+                  setAmountPaid('');
+                }}
+                aria-label="Close">
                 <X className="w-6 h-6 text-slate-400" />
               </button>
             </div>

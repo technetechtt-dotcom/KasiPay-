@@ -855,9 +855,9 @@ export function useAppState() {
       notes?: string;
       recordExpense?: boolean;
     },
-  ) => {
+  ): Promise<boolean> => {
     const product = products.find((p) => p.id === productId);
-    if (!product) return;
+    if (!product) return false;
 
     if (quantity < 0) {
       const nextStock = Math.max(0, product.stock + quantity);
@@ -874,14 +874,15 @@ export function useAppState() {
           reason: 'manual',
           costPriceAtTime: product.costPrice,
         });
+        return true;
       } catch (e) {
         toastMutationError('Update stock', e);
         await refreshAfterMutation();
+        return false;
       }
-      return;
     }
 
-    if (quantity === 0) return;
+    if (quantity === 0) return false;
 
     try {
       const costPrice = options?.costPrice ?? product.costPrice;
@@ -899,9 +900,11 @@ export function useAppState() {
         return [...byId.values()];
       });
       await refreshAfterMutation();
+      return true;
     } catch (e) {
       toastMutationError('Update stock', e);
       await refreshAfterMutation();
+      return false;
     }
   };
 
@@ -1178,31 +1181,33 @@ export function useAppState() {
 
   const addExpense = async (
     expense: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>
-  ): Promise<void> => {
-    if (!merchantProfile || !isPositiveAmount(expense.amount)) return;
+  ): Promise<boolean> => {
+    if (!merchantProfile || !isPositiveAmount(expense.amount)) return false;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       enqueueExpense(expense);
       toast.message('Offline — expense queued and will sync when online.');
-      return;
+      return true;
     }
     try {
       const { expense: created } = await apiCreateExpense(expense);
       setExpenses((prev) => [created, ...prev]);
       await refreshAfterMutation();
+      return true;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 0 || e.status >= 500)) {
         enqueueExpense(expense);
         toast.message('Network hiccup — expense queued for retry.');
-        return;
+        return true;
       }
       // TypeError = network unreachable in fetch
       if (e instanceof TypeError) {
         enqueueExpense(expense);
         toast.message('Network unreachable — expense queued for retry.');
-        return;
+        return true;
       }
       toastMutationError('Add expense', e);
       await refreshAfterMutation();
+      return false;
     }
   };
 

@@ -224,6 +224,8 @@ export const ShopPage = ({
               setCart([]);
               setSuccess(false);
               setShowCheckout(false);
+              setCustomerPhone('');
+              setPaymentMethod('cash');
             }}>
             
             New Sale
@@ -272,7 +274,7 @@ export const ShopPage = ({
       </div>
 
       {/* Scrollable Product Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav">
         {!searchQuery && selectedCategory === 'All' &&
         <>
             <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
@@ -426,7 +428,7 @@ export const ShopPage = ({
                 </span>
               </div>
 
-              <div className="space-y-3 mb-6 overflow-y-auto">
+              <div className="space-y-3 mb-6">
                 {cart.map((item) =>
             <div
               key={item.product.id}
@@ -473,11 +475,14 @@ export const ShopPage = ({
         }
         </motion.div>
       }
+      {!showCheckout && cart.length === 0 ?
       <FloatingScanButton
         accent="blue"
         label="Scan"
+        className="z-50"
         onClick={() => openProductScanner(navigate, { returnPage: 'shop', stockMode: 'sale' })}
       />
+      : null}
     </div>);
 
 };

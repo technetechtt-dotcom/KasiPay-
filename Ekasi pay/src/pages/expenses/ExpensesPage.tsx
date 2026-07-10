@@ -50,11 +50,12 @@ export const ExpensesPage = ({
 
 
 
-}: {expenses: Expense[];sales: Sale[];products: Product[];onAddExpense: (expense: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>) => void;navigate: (p: string) => void;}) => {
+}: {expenses: Expense[];sales: Sale[];products: Product[];onAddExpense: (expense: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>) => void | Promise<boolean | void>;navigate: (p: string) => void;}) => {
   const [showForm, setShowForm] = useState(false);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<ExpenseCategory>('supplier');
+  const [busy, setBusy] = useState(false);
   const totalGrossMargin = sales.reduce((sum, s) => {
     return (
       sum +
@@ -67,19 +68,32 @@ export const ExpensesPage = ({
   }, 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const netProfit = totalGrossMargin - totalExpenses;
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!amount || !description) return;
-    onAddExpense({
-      amount: Number(amount),
-      description,
-      category
-    });
+  const resetForm = () => {
     setAmount('');
     setDescription('');
     setCategory('other');
     setShowForm(false);
-    toast.success('Expense recorded');
+  };
+  const handleSubmit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!amount || !description || busy) return;
+    void (async () => {
+      setBusy(true);
+      try {
+        const result = await Promise.resolve(
+          onAddExpense({
+            amount: Number(amount),
+            description,
+            category,
+          }),
+        );
+        if (result === false) return;
+        resetForm();
+        toast.success('Expense recorded');
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
   // Group expenses by date
   const groupedExpenses = expenses.reduce(
@@ -148,7 +162,7 @@ export const ExpensesPage = ({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav">
         <AnimatePresence mode="wait">
           {showForm ?
           <motion.div
@@ -228,10 +242,10 @@ export const ExpensesPage = ({
 
                   <KPButton
                   onClick={handleSubmit}
-                  disabled={!amount || !description}
+                  disabled={busy || !amount || !description}
                   className="mt-2">
                   
-                    Save Expense
+                    {busy ? 'Saving…' : 'Save Expense'}
                   </KPButton>
                 </div>
               </KPCard>

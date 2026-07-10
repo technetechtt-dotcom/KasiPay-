@@ -114,7 +114,7 @@ export const MoneyServices = ({
     () => inferCashSendTabFromDraft(initialTab),
   );
   return (
-    <PageTransition className="min-h-0 h-full bg-slate-50">
+    <PageTransition className="min-h-0 h-full flex flex-col bg-slate-50">
       <CashSendConsentGate>
       <div className="flex flex-col flex-1 min-h-0">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
@@ -539,11 +539,35 @@ const SendCashFlow = ({
             <Copy className="w-5 h-5 mr-2" /> Copy Details for SMS
           </KPButton>
           <KPButton
+            onClick={() => {
+              setRecipientFirstName('');
+              setRecipientLastName('');
+              setRecipientPhone('');
+              setAmount('');
+              setPin('');
+              setVoucher(null);
+              setError('');
+              setStep(1);
+            }}
+            className="w-full">
+            Send another
+          </KPButton>
+          <KPButton
             variant="outline"
-            onClick={() => navigate('home')}
+            onClick={() => {
+              setRecipientFirstName('');
+              setRecipientLastName('');
+              setRecipientPhone('');
+              setAmount('');
+              setPin('');
+              setVoucher(null);
+              setError('');
+              setStep(1);
+              navigate('home');
+            }}
             className="w-full">
             
-            Back to Home
+            Done — Back to Home
           </KPButton>
         </div>
         </div>
@@ -552,7 +576,7 @@ const SendCashFlow = ({
   }
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-nav">
       <AnimatePresence mode="wait">
         {step === 1 &&
         <motion.div
@@ -967,6 +991,7 @@ const CollectCashFlow = ({
             setPin('');
             setScannedIdDoc('');
             setVoucher(null);
+            setError('');
           }}
           className="w-full">
           
@@ -978,7 +1003,7 @@ const CollectCashFlow = ({
   }
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-nav">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
           <Download className="w-5 h-5" />
@@ -1068,7 +1093,14 @@ const CollectCashFlow = ({
       <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 z-20 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] pb-safe">
         {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
         <div className="flex gap-3">
-          <KPButton variant="outline" onClick={() => setStep(1)} className="w-1/3">
+          <KPButton
+            variant="outline"
+            onClick={() => {
+              setScannedIdDoc('');
+              setError('');
+              setStep(1);
+            }}
+            className="w-1/3">
             Back
           </KPButton>
           <KPButton

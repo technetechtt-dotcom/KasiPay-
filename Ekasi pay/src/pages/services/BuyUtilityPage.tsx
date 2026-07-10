@@ -91,9 +91,12 @@ const onlyDigits = (v: string) => v.replace(/\D/g, '');
 export const BuyUtilityPage = ({
   wallet,
   navigate,
+  onRefresh,
 }: {
   wallet: Wallet;
   navigate: (page: string) => void;
+  /** Reload wallet + activity after a successful purchase. */
+  onRefresh?: () => Promise<void>;
 }) => {
   const [activeId, setActiveId] = useState<UtilityCategory>('airtime');
   const [provider, setProvider] = useState(CATEGORIES[0].providers[0]);
@@ -188,7 +191,9 @@ export const BuyUtilityPage = ({
       setLastReceipt(purchase);
       setHistory((prev) => [purchase, ...prev]);
       setAmount('');
+      setBeneficiary('');
       toast.success(`${def.label} purchased — voucher ready below.`);
+      if (onRefresh) await onRefresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Purchase failed';
       toast.error(msg);
@@ -217,7 +222,7 @@ export const BuyUtilityPage = ({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-5">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav space-y-5">
         <div className="grid grid-cols-4 gap-2">
           {CATEGORIES.map((c) => {
             const Icon = c.icon;

@@ -405,6 +405,7 @@ export const CreditBookPage = ({
     setDraftName('');
     setDraftQty('1');
     setDraftPrice('');
+    setAmount('');
   };
   const totalOutstanding = customers.reduce((sum, c) => sum + c.totalOwed, 0);
   const activeCustomers = customers.filter((c) => c.totalOwed > 0).length;
@@ -448,9 +449,10 @@ export const CreditBookPage = ({
       return;
     }
     void (async () => {
-      await Promise.resolve(
+      const ok = await Promise.resolve(
         onAddTransaction(customerId, 'payment', amt, 'Cash payment'),
       );
+      if (ok === false) return;
       toast.success('Payment recorded');
       setShowForm(null);
       setAmount('');
@@ -534,7 +536,7 @@ export const CreditBookPage = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav">
         <AnimatePresence mode="wait">
           {showForm ?
           <motion.div
@@ -563,6 +565,7 @@ export const CreditBookPage = ({
                     onClick={() => {
                       setShowForm(null);
                       resetPurchaseDraft();
+                      setSelectedCustomerId('');
                     }}
                     className="text-sm text-slate-500">
                     Cancel

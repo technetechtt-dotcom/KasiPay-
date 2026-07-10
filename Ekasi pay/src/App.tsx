@@ -664,7 +664,11 @@ export function App() {
         return <HelpPage navigate={state.navigate} />;
       case 'buy':
         return (
-          <BuyUtilityPage wallet={myWallet} navigate={state.navigate} />
+          <BuyUtilityPage
+            wallet={myWallet}
+            navigate={state.navigate}
+            onRefresh={state.reloadRemoteData}
+          />
         );
       case 'notifications':
         return (
