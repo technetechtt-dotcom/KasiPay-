@@ -165,10 +165,11 @@ export const AppShell: FC<AppShellProps> = ({
           : null}
         </div>
 
-        {/* Bottom Navigation */}
+        {/* Bottom Navigation — extra bottom padding clears phone-frame radius
+            and the device home indicator so icons/labels are not clipped. */}
         {!hideBottomNav.has(currentPage) ? (
-        <div className="shrink-0 w-full bg-white border-t border-slate-100 pt-2 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] z-50 rounded-b-[2.5rem] max-sm:rounded-b-none">
-          <div className="flex justify-between items-center">
+        <div className="shrink-0 flex-none w-full bg-white border-t border-slate-100 pt-2.5 px-3 z-50 rounded-b-[2.5rem] max-sm:rounded-b-none pb-[max(1.25rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] sm:pb-8">
+          <div className="flex justify-between items-center gap-0.5 overflow-visible">
             {navItems.map((item) => {
               const isActive =
                 currentPage === item.id ||
@@ -181,28 +182,28 @@ export const AppShell: FC<AppShellProps> = ({
               return (
                 <button
                   key={item.id}
+                  type="button"
                   onClick={() => navigate(item.id)}
-                  className="relative flex flex-col items-center justify-center w-16 h-14">
+                  className="relative flex flex-1 flex-col items-center justify-center min-h-[3.5rem] max-w-[4.75rem] py-1 overflow-visible">
                   
                   <motion.div
                     animate={{
-                      y: isActive ? -4 : 0,
                       color: isActive ? '#047857' : '#64748b'
                     }}
-                    className="flex flex-col items-center gap-1">
+                    className="flex flex-col items-center gap-0.5 overflow-visible">
                     
                     <Icon
-                      className={`w-6 h-6 ${isActive ? 'fill-emerald-50' : ''}`}
+                      className={`w-6 h-6 shrink-0 ${isActive ? 'fill-emerald-50' : ''}`}
                       strokeWidth={isActive ? 2.5 : 2} />
                     
-                    <span className="text-[10px] font-medium">
+                    <span className="text-[10px] font-medium leading-tight whitespace-nowrap">
                       {item.label}
                     </span>
                   </motion.div>
                   {isActive &&
                   <motion.div
                     layoutId="nav-indicator"
-                    className="absolute -top-2 w-1 h-1 rounded-full bg-emerald-600" />
+                    className="absolute top-0 w-1 h-1 rounded-full bg-emerald-600" />
 
                   }
                 </button>);

@@ -214,12 +214,28 @@ export function App() {
   const currentUser = state.currentUser;
   const myWallet = state.getMyWallet();
   if (!myWallet) {
+    // After login/register the wallet loads in the background — show syncing,
+    // not a hard error, until the first snapshot finishes.
+    if (state.isSyncingData) {
+      return (
+        <div className="p-8 text-center text-slate-500 mt-20">
+          <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          Loading your wallet…
+        </div>
+      );
+    }
     return (
       <div className="p-8 text-center text-slate-500 mt-20">
         Wallet unavailable for this account.
         <button
-          onClick={() => state.logout()}
+          type="button"
+          onClick={() => void state.reloadRemoteData()}
           className="block mx-auto mt-4 text-emerald-600">
+          Try again
+        </button>
+        <button
+          onClick={() => state.logout()}
+          className="block mx-auto mt-4 text-slate-500 text-sm">
           Log Out
         </button>
       </div>

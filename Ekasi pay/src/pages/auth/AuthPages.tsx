@@ -337,7 +337,6 @@ export const RegisterPage = ({
   const [pin, setPin] = useState('');
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [role, setRole] = useState<'customer' | 'merchant' | 'agent'>('merchant');
   const phoneDigits = phone.replace(/\D/g, '');
   const pinDigits = pin.replace(/\D/g, '').slice(0, 4);
   const nameOk = name.trim().length >= 2;
@@ -354,7 +353,8 @@ export const RegisterPage = ({
     }
     setSubmitting(true);
     try {
-      await Promise.resolve(onRegister(name.trim(), phone, pinDigits, role));
+      // New accounts are shop merchants by default (no account-type picker).
+      await Promise.resolve(onRegister(name.trim(), phone, pinDigits, 'merchant'));
     } finally {
       setSubmitting(false);
     }
@@ -406,30 +406,6 @@ export const RegisterPage = ({
             setFormError('');
           }}
           required />
-
-        <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Account Type</p>
-          <div className="grid grid-cols-3 gap-2">
-            {([
-              ['merchant', 'Merchant'],
-              ['customer', 'Customer'],
-              ['agent', 'Agent'],
-            ] as const).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setRole(id)}
-                className={`rounded-xl border px-2 py-2 text-xs font-semibold transition-colors ${
-                  role === id
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                    : 'border-slate-200 bg-white text-slate-600'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {formError ?
         <p className="text-sm text-red-600 mt-2" role="alert">
