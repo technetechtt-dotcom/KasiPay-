@@ -603,26 +603,25 @@ export const SpazaHome = ({
                 return (
                   <KPCard
                     key={`sale-${sale.id}`}
-                    className="p-4 flex items-center justify-between">
-                    
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-50 text-blue-600">
+                    className="!p-4 flex items-center gap-3 overflow-hidden">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center bg-blue-50 text-blue-600">
                           <ShoppingCart className="w-5 h-5" />
                         </div>
-                        <div>
-                          <p className="font-medium text-slate-900">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-slate-900 truncate">
                             Shop Sale
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-slate-500 truncate">
                             {sale.items.length} items • {sale.paymentMethod}
                           </p>
                         </div>
                       </div>
                       <KPAmount
-                      amount={sale.total}
-                      showSign
-                      className="text-emerald-600" />
-                    
+                        amount={sale.total}
+                        showSign
+                        className="shrink-0 text-right tabular-nums text-emerald-600"
+                      />
                     </KPCard>);
 
               } else {
@@ -630,39 +629,45 @@ export const SpazaHome = ({
                   activityType: 'transaction';
                 };
                 const isOutgoing = tx.fromWalletId === wallet.id;
+                const title =
+                  tx.type === 'cash_send_hold' ? 'Cash Send'
+                  : tx.type === 'cash_send_collect' ? 'Cash collected'
+                  : tx.type === 'cash_send_cancel_refund' ? 'Cash Send cancelled'
+                  : tx.type === 'cash_send_expire_refund' ? 'Cash Send expired'
+                  : tx.type === 'transfer' ? 'Transfer'
+                  : tx.description || tx.type;
+                const subtitle =
+                  tx.status === 'pending' ? 'Pending'
+                  : tx.reference ? tx.reference
+                  : 'Completed';
                 return (
                   <KPCard
                     key={`tx-${tx.id}`}
-                    className="p-4 flex items-center justify-between">
-                    
-                      <div className="flex items-center gap-3">
+                    className="!p-4 flex items-center gap-3 overflow-hidden">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center ${isOutgoing ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                        
+                          className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center ${isOutgoing ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-600'}`}>
                           {isOutgoing ?
-                        <ArrowUpRight className="w-5 h-5" /> :
-
-                        <ArrowDownLeft className="w-5 h-5" />
-                        }
+                            <ArrowUpRight className="w-5 h-5" /> :
+                            <ArrowDownLeft className="w-5 h-5" />
+                          }
                         </div>
-                        <div>
-                          <p className="font-medium text-slate-900">
-                            {tx.description}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-slate-900 truncate">
+                            {title}
                           </p>
-                          <p className="text-xs text-slate-500">
-                            {tx.status === 'pending' ?
-                          'Pending Collection' :
-                          'Completed'}
+                          <p className="text-xs text-slate-500 truncate">
+                            {subtitle}
                           </p>
                         </div>
                       </div>
                       <KPAmount
-                      amount={tx.amount}
-                      showSign
-                      className={
-                      isOutgoing ? 'text-slate-900' : 'text-emerald-600'
-                      } />
-                    
+                        amount={isOutgoing ? -Math.abs(tx.amount) : Math.abs(tx.amount)}
+                        showSign
+                        className={`shrink-0 text-right tabular-nums ${
+                          isOutgoing ? 'text-slate-900' : 'text-emerald-600'
+                        }`}
+                      />
                     </KPCard>);
 
               }
