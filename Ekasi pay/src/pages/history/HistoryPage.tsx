@@ -6,7 +6,27 @@ import {
   PageTransition } from
 '../../components/shared/UIComponents';
 import { ArrowDownLeft, ArrowUpRight, ShoppingCart, Plus } from 'lucide-react';
-import type { Transaction, Sale, Wallet } from '../../types';
+import type { Transaction, Sale, Wallet, TransactionType } from '../../types';
+
+function extractCashSendVoucherNumber(description: string | undefined): string | null {
+  const match = (description ?? '').toUpperCase().match(/CS[0-9A-F]{8,}/);
+  return match ? match[0] : null;
+}
+
+function transactionTitle(tx: Transaction): string {
+  const map: Partial<Record<TransactionType, string>> = {
+    cash_send_hold: 'Cash Send',
+    cash_send_collect: 'Cash collected',
+    cash_send_cancel_refund: 'Cash Send cancelled',
+    cash_send_expire_refund: 'Cash Send expired',
+    transfer: 'Transfer',
+    deposit: 'Deposit',
+    withdrawal: 'Withdrawal',
+    payment: 'Payment',
+  };
+  return map[tx.type] ?? (tx.description || tx.type);
+}
+
 export const HistoryPage = ({
   transactions,
   sales,
@@ -59,7 +79,7 @@ export const HistoryPage = ({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-3 pb-8">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-3 pb-nav">
         {filteredActivity.length === 0 ?
         <div className="flex flex-col items-center justify-center h-40 text-slate-500">
             <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">
@@ -88,23 +108,23 @@ export const HistoryPage = ({
                 }}
                 key={`sale-${sale.id}`}>
                 
-                  <KPCard className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-50 text-blue-600">
+                  <KPCard className="!p-4 flex items-center gap-3 overflow-hidden">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center bg-blue-50 text-blue-600">
                         <ShoppingCart className="w-5 h-5" />
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-900">Shop Sale</p>
-                        <p className="text-xs text-slate-500">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-slate-900 truncate">Shop Sale</p>
+                        <p className="text-xs text-slate-500 truncate">
                           {sale.items.length} items • {sale.paymentMethod}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <KPAmount
                       amount={sale.total}
                       showSign
-                      className="text-emerald-600 block" />
+                      className="text-emerald-600 block tabular-nums" />
                     
                       <span className="text-[10px] text-slate-400">
                         {item.date.toLocaleDateString()}
@@ -119,6 +139,7 @@ export const HistoryPage = ({
             };
             const isOutgoing = tx.fromWalletId === wallet.id;
             const isDeposit = tx.type === 'deposit';
+            const voucherNumber = extractCashSendVoucherNumber(tx.description);
             let icon = isOutgoing ?
             <ArrowUpRight className="w-5 h-5" /> :
 
@@ -140,30 +161,34 @@ export const HistoryPage = ({
                 }}
                 key={`tx-${tx.id}`}>
                 
-                  <KPCard className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <KPCard className="!p-4 flex items-center gap-3 overflow-hidden">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${isOutgoing ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center ${isOutgoing ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-600'}`}>
                       
                         {icon}
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-900">
-                          {tx.description}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-slate-900 truncate">
+                          {transactionTitle(tx)}
                         </p>
-                        <p className="text-xs text-slate-500">
-                          {tx.status === 'pending' ? 'Pending' : 'Transfer'}
+                        <p className="text-xs text-slate-500 truncate">
+                          {voucherNumber ?
+                            `Voucher ${voucherNumber}`
+                          : tx.status === 'pending' ?
+                            'Pending'
+                          : tx.reference || 'Completed'}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <KPAmount
-                      amount={tx.amount}
+                      amount={isOutgoing ? -Math.abs(tx.amount) : Math.abs(tx.amount)}
                       showSign
                       className={
                       isOutgoing ?
-                      'text-slate-900 block' :
-                      'text-emerald-600 block'
+                      'text-slate-900 block tabular-nums' :
+                      'text-emerald-600 block tabular-nums'
                       } />
                     
                       <span className="text-[10px] text-slate-400">

@@ -821,7 +821,7 @@ function TransactionsTab() {
       <div className="filters">
         <input
           type="search"
-          placeholder="Search reference, description, type, id…"
+          placeholder="Search voucher, reference, description, type…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -852,6 +852,7 @@ function TransactionsTab() {
               <th>Type</th>
               <th>Amount</th>
               <th>Status</th>
+              <th>Voucher</th>
               <th>Reference</th>
               <th>Description</th>
               <th>When</th>
@@ -863,6 +864,7 @@ function TransactionsTab() {
                 <td>{t.type}</td>
                 <td>{fmtMoney(t.amount)}</td>
                 <td>{t.status}</td>
+                <td className="mono">{t.voucherNumber ?? '—'}</td>
                 <td className="mono">{t.reference}</td>
                 <td>{t.description || '—'}</td>
                 <td>{fmtDate(t.created_at)}</td>

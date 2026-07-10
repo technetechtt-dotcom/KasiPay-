@@ -239,6 +239,7 @@ export async function apiTransactions(params?: {
       created_at: string;
       from_wallet_id: string | null;
       to_wallet_id: string | null;
+      voucherNumber: string | null;
     }[];
     total: number;
     limit: number;

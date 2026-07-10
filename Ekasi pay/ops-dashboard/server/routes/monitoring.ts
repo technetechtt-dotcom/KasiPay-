@@ -6,6 +6,26 @@ import { toComplianceFlag, toPublicUser, type RowUser } from '../mappers.js';
 
 export const monitoringRouter = Router();
 
+/** Pull CS… voucher number out of cash-send ledger descriptions. */
+function extractCashSendVoucherNumber(
+  description: string | null | undefined,
+  reference?: string | null,
+): string | null {
+  const fromDesc = (description ?? '').toUpperCase().match(/CS[0-9A-F]{8,}/);
+  if (fromDesc) return fromDesc[0];
+  const fromRef = (reference ?? '').toUpperCase().match(/CS[0-9A-F]{8,}/);
+  return fromRef ? fromRef[0] : null;
+}
+
+function withVoucherNumber<T extends { description?: string | null; reference?: string | null }>(
+  row: T,
+): T & { voucherNumber: string | null } {
+  return {
+    ...row,
+    voucherNumber: extractCashSendVoucherNumber(row.description, row.reference),
+  };
+}
+
 monitoringRouter.get('/overview', async (_req, res) => {
   if (isPostgresMode()) {
     const pool = getPgPool();
@@ -526,7 +546,7 @@ monitoringRouter.get('/transactions', async (req, res) => {
 
     const p = periodQ.rows[0];
     return res.json({
-      transactions: listQ.rows,
+      transactions: listQ.rows.map(withVoucherNumber),
       total: Number(countQ.rows[0]?.total ?? 0),
       limit,
       offset,
@@ -628,7 +648,9 @@ monitoringRouter.get('/transactions', async (req, res) => {
   ).map((r) => r.type);
 
   return res.json({
-    transactions: rows,
+    transactions: (rows as { description?: string | null; reference?: string | null }[]).map(
+      withVoucherNumber,
+    ),
     total: countRow.total,
     limit,
     offset,
