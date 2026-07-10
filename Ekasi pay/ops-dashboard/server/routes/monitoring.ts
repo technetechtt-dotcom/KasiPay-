@@ -434,33 +434,228 @@ monitoringRouter.get('/audit-events', async (req, res) => {
 });
 
 monitoringRouter.get('/transactions', async (req, res) => {
-  const limit = Math.min(Number(req.query.limit ?? 100), 500);
+  const parsed = z
+    .object({
+      search: z.string().optional(),
+      type: z.string().optional(),
+      status: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const search = (parsed.data.search ?? '').trim();
+  const type = (parsed.data.type ?? '').trim();
+  const status = (parsed.data.status ?? '').trim();
+  const limit = parsed.data.limit ?? 100;
+  const offset = parsed.data.offset ?? 0;
+
+  const periodTotalsSqlPg = `
+    SELECT
+      COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW()))::text AS day_count,
+      COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0)::text AS day_volume,
+      COUNT(*) FILTER (WHERE created_at >= date_trunc('week', NOW()))::text AS week_count,
+      COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('week', NOW())), 0)::text AS week_volume,
+      COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW()))::text AS month_count,
+      COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0)::text AS month_volume,
+      COUNT(*) FILTER (WHERE created_at >= date_trunc('year', NOW()))::text AS year_count,
+      COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('year', NOW())), 0)::text AS year_volume
+    FROM transactions
+  `;
 
   if (isPostgresMode()) {
     const pool = getPgPool();
-    const r = await pool.query(
-      `SELECT id, type, amount, status, reference, description, created_at,
-              from_wallet_id, to_wallet_id
-         FROM transactions
-        ORDER BY created_at DESC
-        LIMIT $1`,
-      [limit],
-    );
-    return res.json({ transactions: r.rows });
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (type && type !== 'all') {
+      params.push(type);
+      clauses.push(`type = $${params.length}`);
+    }
+    if (status && status !== 'all') {
+      params.push(status);
+      clauses.push(`status = $${params.length}`);
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      const i = params.length;
+      clauses.push(
+        `(reference ILIKE $${i} OR description ILIKE $${i} OR type ILIKE $${i} OR id::text ILIKE $${i})`,
+      );
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit, offset);
+
+    const [listQ, countQ, filteredQ, periodQ, typesQ] = await Promise.all([
+      pool.query(
+        `SELECT id, type, amount, status, reference, description, created_at,
+                from_wallet_id, to_wallet_id
+           FROM transactions
+           ${where}
+          ORDER BY created_at DESC
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      ),
+      pool.query<{ total: string }>(
+        `SELECT COUNT(*)::text AS total FROM transactions ${where}`,
+        params.slice(0, params.length - 2),
+      ),
+      pool.query<{ count: string; volume: string }>(
+        `SELECT COUNT(*)::text AS count, COALESCE(SUM(amount), 0)::text AS volume
+           FROM transactions ${where}`,
+        params.slice(0, params.length - 2),
+      ),
+      pool.query<{
+        day_count: string;
+        day_volume: string;
+        week_count: string;
+        week_volume: string;
+        month_count: string;
+        month_volume: string;
+        year_count: string;
+        year_volume: string;
+      }>(periodTotalsSqlPg),
+      pool.query<{ type: string }>(
+        `SELECT DISTINCT type FROM transactions ORDER BY type ASC`,
+      ),
+    ]);
+
+    const p = periodQ.rows[0];
+    return res.json({
+      transactions: listQ.rows,
+      total: Number(countQ.rows[0]?.total ?? 0),
+      limit,
+      offset,
+      types: typesQ.rows.map((r) => r.type),
+      totals: {
+        day: {
+          count: Number(p?.day_count ?? 0),
+          volume: Number(p?.day_volume ?? 0),
+        },
+        week: {
+          count: Number(p?.week_count ?? 0),
+          volume: Number(p?.week_volume ?? 0),
+        },
+        month: {
+          count: Number(p?.month_count ?? 0),
+          volume: Number(p?.month_volume ?? 0),
+        },
+        year: {
+          count: Number(p?.year_count ?? 0),
+          volume: Number(p?.year_volume ?? 0),
+        },
+        filtered: {
+          count: Number(filteredQ.rows[0]?.count ?? 0),
+          volume: Number(filteredQ.rows[0]?.volume ?? 0),
+        },
+      },
+    });
   }
 
   const db = getSqliteDb();
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (type && type !== 'all') {
+    clauses.push('type = ?');
+    params.push(type);
+  }
+  if (status && status !== 'all') {
+    clauses.push('status = ?');
+    params.push(status);
+  }
+  if (search) {
+    clauses.push(
+      `(reference LIKE ? OR description LIKE ? OR type LIKE ? OR id LIKE ?)`,
+    );
+    const like = `%${search}%`;
+    params.push(like, like, like, like);
+  }
+
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db
     .prepare(
       `SELECT id, type, amount, status, reference, description, created_at,
               from_wallet_id, to_wallet_id
          FROM transactions
+         ${where}
         ORDER BY datetime(created_at) DESC
-        LIMIT ?`,
+        LIMIT ? OFFSET ?`,
     )
-    .all(limit);
+    .all(...params, limit, offset);
+  const countRow = db
+    .prepare(`SELECT COUNT(*) AS total FROM transactions ${where}`)
+    .get(...params) as { total: number };
+  const filteredRow = db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS volume
+         FROM transactions ${where}`,
+    )
+    .get(...params) as { count: number; volume: number };
 
-  return res.json({ transactions: rows });
+  const periodRow = db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'start of day') THEN 1 ELSE 0 END) AS day_count,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'start of day') THEN amount ELSE 0 END) AS day_volume,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'weekday 0', '-6 days') THEN 1 ELSE 0 END) AS week_count,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'weekday 0', '-6 days') THEN amount ELSE 0 END) AS week_volume,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'start of month') THEN 1 ELSE 0 END) AS month_count,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'start of month') THEN amount ELSE 0 END) AS month_volume,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'start of year') THEN 1 ELSE 0 END) AS year_count,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', 'start of year') THEN amount ELSE 0 END) AS year_volume
+       FROM transactions`,
+    )
+    .get() as {
+    day_count: number;
+    day_volume: number;
+    week_count: number;
+    week_volume: number;
+    month_count: number;
+    month_volume: number;
+    year_count: number;
+    year_volume: number;
+  };
+
+  const types = (
+    db.prepare(`SELECT DISTINCT type FROM transactions ORDER BY type ASC`).all() as {
+      type: string;
+    }[]
+  ).map((r) => r.type);
+
+  return res.json({
+    transactions: rows,
+    total: countRow.total,
+    limit,
+    offset,
+    types,
+    totals: {
+      day: {
+        count: Number(periodRow.day_count ?? 0),
+        volume: Number(periodRow.day_volume ?? 0),
+      },
+      week: {
+        count: Number(periodRow.week_count ?? 0),
+        volume: Number(periodRow.week_volume ?? 0),
+      },
+      month: {
+        count: Number(periodRow.month_count ?? 0),
+        volume: Number(periodRow.month_volume ?? 0),
+      },
+      year: {
+        count: Number(periodRow.year_count ?? 0),
+        volume: Number(periodRow.year_volume ?? 0),
+      },
+      filtered: {
+        count: Number(filteredRow.count ?? 0),
+        volume: Number(filteredRow.volume ?? 0),
+      },
+    },
+  });
 });
 
 monitoringRouter.get('/reconciliation', async (_req, res) => {

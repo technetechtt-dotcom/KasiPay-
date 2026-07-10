@@ -1,6 +1,6 @@
 import './styles.css';
 
-import { Component, StrictMode, useCallback, useEffect, useState } from 'react';
+import { Component, Fragment, StrictMode, useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -526,10 +526,15 @@ function AuditTab() {
 }
 
 function CashSendTab() {
-  const [status, setStatus] = useState<'collected' | 'all' | 'active'>('collected');
+  const [status, setStatus] = useState<
+    'collected' | 'all' | 'active' | 'expired' | 'cancelled'
+  >('all');
   const [search, setSearch] = useState('');
   const [vouchers, setVouchers] = useState<OpsCashSendVoucher[]>([]);
   const [total, setTotal] = useState(0);
+  const [amountSum, setAmountSum] = useState(0);
+  const [feeSum, setFeeSum] = useState(0);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -544,6 +549,8 @@ function CashSendTab() {
       });
       setVouchers(r.vouchers);
       setTotal(r.total);
+      setAmountSum(r.amountSum ?? 0);
+      setFeeSum(r.feeSum ?? 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load vouchers');
     } finally {
@@ -562,18 +569,32 @@ function CashSendTab() {
         <span className="badge">{total} records</span>
       </div>
       <p className="muted">
-        Who sent the money (at voucher creation) and who withdrew it (beneficiary ID scanned at
-        collection).
+        Full voucher details: sender KYC, beneficiary, fees, expiry, collection ID scan, and
+        cancel/expire reasons.
       </p>
+      <div className="stat-grid" style={{ marginBottom: '1rem' }}>
+        <div className="stat-card">
+          <div className="stat-label">Filtered amount</div>
+          <div className="stat-value">{fmtMoney(amountSum)}</div>
+          <div className="stat-sub">{total} vouchers</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Filtered fees</div>
+          <div className="stat-value">{fmtMoney(feeSum)}</div>
+          <div className="stat-sub">Agent / platform fees</div>
+        </div>
+      </div>
       <div className="filters">
         <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
-          <option value="collected">Withdrawn only</option>
-          <option value="active">Active (unclaimed)</option>
           <option value="all">All statuses</option>
+          <option value="active">Active (unclaimed)</option>
+          <option value="collected">Withdrawn</option>
+          <option value="expired">Expired</option>
+          <option value="cancelled">Cancelled</option>
         </select>
         <input
           type="search"
-          placeholder="Search voucher, sender, or withdrawer…"
+          placeholder="Search voucher, sender, withdrawer, ID, address…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -586,16 +607,20 @@ function CashSendTab() {
         <table className="cash-send-table">
           <thead>
             <tr>
-              <th rowSpan={2}>Voucher number</th>
+              <th rowSpan={2} />
+              <th rowSpan={2}>Voucher</th>
               <th rowSpan={2}>Amount</th>
+              <th rowSpan={2}>Fee</th>
               <th rowSpan={2}>Status</th>
               <th rowSpan={2}>Created</th>
+              <th rowSpan={2}>Expires</th>
               <th rowSpan={2}>Withdrawn</th>
-              <th colSpan={4} className="th-group">
-                Sender (who sent)
+              <th rowSpan={2}>ID verified</th>
+              <th colSpan={5} className="th-group">
+                Sender (customer who sent)
               </th>
               <th colSpan={4} className="th-group">
-                Withdrawer (who collected)
+                Beneficiary / withdrawer
               </th>
             </tr>
             <tr>
@@ -603,30 +628,96 @@ function CashSendTab() {
               <th>Surname</th>
               <th>Phone</th>
               <th>SA ID</th>
+              <th>Address</th>
               <th>Name</th>
               <th>Surname</th>
               <th>Phone</th>
-              <th>SA ID</th>
+              <th>SA ID scanned</th>
             </tr>
           </thead>
           <tbody>
-            {vouchers.map((v) => (
-              <tr key={v.id}>
-                <td className="mono">{v.referenceNumber}</td>
-                <td>{fmtMoney(v.amount)}</td>
-                <td>{v.status}</td>
-                <td>{fmtDate(v.createdAt)}</td>
-                <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : '—'}</td>
-                <td>{v.sender.firstName || '—'}</td>
-                <td>{v.sender.lastName || '—'}</td>
-                <td>{v.sender.phone || '—'}</td>
-                <td className="mono">{v.sender.idDocument ?? '—'}</td>
-                <td>{v.withdrawer.firstName || '—'}</td>
-                <td>{v.withdrawer.lastName || '—'}</td>
-                <td>{v.withdrawer.phone || '—'}</td>
-                <td className="mono">{v.withdrawer.idDocument ?? '—'}</td>
-              </tr>
-            ))}
+            {vouchers.map((v) => {
+              const open = expandedId === v.id;
+              return (
+                <Fragment key={v.id}>
+                  <tr>
+                    <td>
+                      <button
+                        type="button"
+                        className="ghost"
+                        style={{ padding: '0.25rem 0.5rem' }}
+                        onClick={() => setExpandedId(open ? null : v.id)}
+                      >
+                        {open ? 'Hide' : 'Details'}
+                      </button>
+                    </td>
+                    <td className="mono">{v.referenceNumber}</td>
+                    <td>{fmtMoney(v.amount)}</td>
+                    <td>{fmtMoney(v.fee)}</td>
+                    <td>{v.status}</td>
+                    <td>{fmtDate(v.createdAt)}</td>
+                    <td>{fmtDate(v.expiresAt)}</td>
+                    <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : '—'}</td>
+                    <td>{v.idVerifiedAtWithdrawal ? 'Yes' : '—'}</td>
+                    <td>{v.sender.firstName || '—'}</td>
+                    <td>{v.sender.lastName || '—'}</td>
+                    <td>{v.sender.phone || '—'}</td>
+                    <td className="mono">{v.sender.idDocument ?? '—'}</td>
+                    <td>{v.senderAddress || '—'}</td>
+                    <td>{v.withdrawer.firstName || '—'}</td>
+                    <td>{v.withdrawer.lastName || '—'}</td>
+                    <td>{v.withdrawer.phone || '—'}</td>
+                    <td className="mono">
+                      {v.collectorScannedId ?? v.withdrawer.idDocument ?? '—'}
+                    </td>
+                  </tr>
+                  {open ? (
+                    <tr className="detail-row">
+                      <td colSpan={18}>
+                        <div className="detail-grid">
+                          <div>
+                            <strong>Voucher ID</strong>
+                            <div className="mono muted">{v.id}</div>
+                          </div>
+                          <div>
+                            <strong>Shop user ID (agent)</strong>
+                            <div className="mono muted">{v.senderUserId ?? '—'}</div>
+                          </div>
+                          <div>
+                            <strong>Sender address</strong>
+                            <div>{v.senderAddress ?? '—'}</div>
+                          </div>
+                          <div>
+                            <strong>Sender SA ID (full)</strong>
+                            <div className="mono">{v.sender.idDocument ?? '—'}</div>
+                          </div>
+                          <div>
+                            <strong>Beneficiary ID on file</strong>
+                            <div className="mono">{v.recipientIdOnFile ?? '—'}</div>
+                          </div>
+                          <div>
+                            <strong>ID scanned at collection</strong>
+                            <div className="mono">{v.collectorScannedId ?? '—'}</div>
+                          </div>
+                          <div>
+                            <strong>ID verified at withdrawal</strong>
+                            <div>{v.idVerifiedAtWithdrawal ? 'Yes' : 'No'}</div>
+                          </div>
+                          <div>
+                            <strong>Cancel / expire reason</strong>
+                            <div>{v.cancelReason ?? '—'}</div>
+                          </div>
+                          <div>
+                            <strong>Total held (amount + fee)</strong>
+                            <div>{fmtMoney(v.amount + v.fee)}</div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -638,28 +729,121 @@ function CashSendTab() {
 }
 
 function TransactionsTab() {
-  const [txns, setTxns] = useState<Awaited<ReturnType<typeof apiTransactions>>['transactions']>([]);
-  const [recon, setRecon] = useState<Awaited<ReturnType<typeof apiReconciliation>> | null>(null);
+  const [txns, setTxns] = useState<
+    Awaited<ReturnType<typeof apiTransactions>>['transactions']
+  >([]);
+  const [totals, setTotals] = useState<
+    Awaited<ReturnType<typeof apiTransactions>>['totals'] | null
+  >(null);
+  const [types, setTypes] = useState<string[]>([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const [type, setType] = useState('all');
+  const [status, setStatus] = useState('all');
+  const [recon, setRecon] = useState<Awaited<ReturnType<typeof apiReconciliation>> | null>(
+    null,
+  );
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [t, r] = await Promise.all([
+        apiTransactions({
+          search: search || undefined,
+          type: type === 'all' ? undefined : type,
+          status: status === 'all' ? undefined : status,
+          limit: 200,
+        }),
+        apiReconciliation(),
+      ]);
+      setTxns(t.transactions);
+      setTotals(t.totals);
+      setTypes(t.types ?? []);
+      setTotal(t.total);
+      setRecon(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [search, type, status]);
 
   useEffect(() => {
-    void Promise.all([apiTransactions(), apiReconciliation()])
-      .then(([t, r]) => {
-        setTxns(t.transactions);
-        setRecon(r);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'));
-  }, []);
+    void load();
+  }, [load]);
 
   return (
     <div className="panel">
-      <h2>Transactions</h2>
+      <div className="panel-head">
+        <h2>Transactions</h2>
+        <span className="badge">{total} matching</span>
+      </div>
       {recon ? (
         <p className={recon.ok ? 'ok-banner' : 'warn-banner'}>
           Reconciliation: {recon.ok ? 'OK' : `${recon.discrepancies.length} discrepancies`}{' '}
           ({recon.walletsChecked} wallets checked)
         </p>
       ) : null}
+
+      {totals ? (
+        <div className="stat-grid" style={{ marginBottom: '1rem' }}>
+          <div className="stat-card">
+            <div className="stat-label">Today</div>
+            <div className="stat-value">{fmtMoney(totals.day.volume)}</div>
+            <div className="stat-sub">{totals.day.count} txns</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">This week</div>
+            <div className="stat-value">{fmtMoney(totals.week.volume)}</div>
+            <div className="stat-sub">{totals.week.count} txns</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">This month</div>
+            <div className="stat-value">{fmtMoney(totals.month.volume)}</div>
+            <div className="stat-sub">{totals.month.count} txns</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">This year</div>
+            <div className="stat-value">{fmtMoney(totals.year.volume)}</div>
+            <div className="stat-sub">{totals.year.count} txns</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Filtered total</div>
+            <div className="stat-value">{fmtMoney(totals.filtered.volume)}</div>
+            <div className="stat-sub">{totals.filtered.count} matching</div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="filters">
+        <input
+          type="search"
+          placeholder="Search reference, description, type, id…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="all">All types</option>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="all">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="pending">Pending</option>
+          <option value="failed">Failed</option>
+        </select>
+        <button type="button" onClick={() => void load()} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+
       {error ? <p className="error">{error}</p> : null}
       <div className="table-wrap">
         <table>
@@ -669,6 +853,7 @@ function TransactionsTab() {
               <th>Amount</th>
               <th>Status</th>
               <th>Reference</th>
+              <th>Description</th>
               <th>When</th>
             </tr>
           </thead>
@@ -678,13 +863,17 @@ function TransactionsTab() {
                 <td>{t.type}</td>
                 <td>{fmtMoney(t.amount)}</td>
                 <td>{t.status}</td>
-                <td>{t.reference}</td>
+                <td className="mono">{t.reference}</td>
+                <td>{t.description || '—'}</td>
                 <td>{fmtDate(t.created_at)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {txns.length === 0 && !loading ? (
+        <p className="muted">No transactions match this filter.</p>
+      ) : null}
     </div>
   );
 }

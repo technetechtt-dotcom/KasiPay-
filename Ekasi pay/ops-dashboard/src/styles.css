@@ -275,6 +275,28 @@ tbody tr.selected {
   margin: 0 0 1rem;
 }
 
+.detail-row td {
+  background: #0f172a;
+  border-bottom: 1px solid #475569;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem 1.25rem;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.detail-grid strong {
+  display: block;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.2rem;
+}
+
 .detail-dl dt {
   color: #94a3b8;
 }

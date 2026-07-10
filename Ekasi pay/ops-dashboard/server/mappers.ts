@@ -55,6 +55,9 @@ export type RowCashSendVoucher = {
   created_at: string;
   expires_at: string;
   collected_at: string | null;
+  cancel_reason?: string | null;
+  sender_user_id?: string | null;
+  sender_address?: string | null;
   recipient_first_name?: string | null;
   recipient_last_name?: string | null;
   recipient_name?: string | null;
@@ -79,14 +82,12 @@ function splitLegacyName(name: string | null | undefined): {
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
-/** Mask SA ID for ops list views — last 4 digits only. */
-function maskSaId(id: string | null | undefined): string | null {
+function digitsOnly(id: string | null | undefined): string | null {
   const digits = (id ?? '').replace(/\D/g, '');
-  if (digits.length < 4) return null;
-  return `***${digits.slice(-4)}`;
+  return digits.length > 0 ? digits : null;
 }
 
-/** Ops view of a Cash Send voucher with sender and withdrawer KYC. */
+/** Ops view of a Cash Send voucher with full sender / beneficiary / collection details. */
 export function toOpsCashSendVoucher(row: RowCashSendVoucher) {
   const recipientLegacy = splitLegacyName(row.recipient_name);
   const withdrawerFirstName =
@@ -100,12 +101,9 @@ export function toOpsCashSendVoucher(row: RowCashSendVoucher) {
   const senderLastName =
     (row.sender_last_name ?? '').trim() || senderLegacy.lastName;
 
-  const scanned = (row.collector_scanned_id ?? '').replace(/\D/g, '');
-  const onFile = (row.recipient_id_document ?? '').replace(/\D/g, '');
-  const withdrawerId =
-    scanned.length === 13 ? scanned : onFile.length === 13 ? onFile : scanned || onFile || null;
-
-  const senderId = (row.sender_id_document ?? '').replace(/\D/g, '') || null;
+  const scanned = digitsOnly(row.collector_scanned_id);
+  const onFile = digitsOnly(row.recipient_id_document);
+  const senderId = digitsOnly(row.sender_id_document);
 
   return {
     id: row.id,
@@ -117,18 +115,23 @@ export function toOpsCashSendVoucher(row: RowCashSendVoucher) {
     expiresAt: row.expires_at,
     collectedAt: row.collected_at,
     withdrawnAt: row.collected_at,
+    cancelReason: row.cancel_reason ?? null,
+    senderUserId: row.sender_user_id ?? null,
+    senderAddress: (row.sender_address ?? '').trim() || null,
     sender: {
       firstName: senderFirstName,
       lastName: senderLastName,
       phone: row.sender_phone,
-      idDocument: maskSaId(senderId),
+      idDocument: senderId,
     },
     withdrawer: {
       firstName: withdrawerFirstName,
       lastName: withdrawerLastName,
       phone: row.recipient_phone,
-      idDocument: maskSaId(withdrawerId),
+      idDocument: scanned ?? onFile,
     },
+    recipientIdOnFile: onFile,
+    collectorScannedId: scanned,
     idVerifiedAtWithdrawal: row.collected_with_id_verified === 1,
   };
 }

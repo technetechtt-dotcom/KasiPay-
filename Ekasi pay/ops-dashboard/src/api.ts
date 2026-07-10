@@ -215,7 +215,19 @@ export async function apiAuditEvents() {
   }>('/ops-api/audit-events');
 }
 
-export async function apiTransactions() {
+export async function apiTransactions(params?: {
+  search?: string;
+  type?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const q = new URLSearchParams();
+  if (params?.search) q.set('search', params.search);
+  if (params?.type) q.set('type', params.type);
+  if (params?.status) q.set('status', params.status);
+  q.set('limit', String(params?.limit ?? 100));
+  if (params?.offset) q.set('offset', String(params.offset));
   return opsFetch<{
     transactions: {
       id: string;
@@ -225,8 +237,21 @@ export async function apiTransactions() {
       reference: string;
       description: string;
       created_at: string;
+      from_wallet_id: string | null;
+      to_wallet_id: string | null;
     }[];
-  }>('/ops-api/transactions?limit=100');
+    total: number;
+    limit: number;
+    offset: number;
+    types: string[];
+    totals: {
+      day: { count: number; volume: number };
+      week: { count: number; volume: number };
+      month: { count: number; volume: number };
+      year: { count: number; volume: number };
+      filtered: { count: number; volume: number };
+    };
+  }>(`/ops-api/transactions?${q}`);
 }
 
 export async function apiReconciliation() {
@@ -261,8 +286,13 @@ export type OpsCashSendVoucher = {
   expiresAt: string;
   collectedAt: string | null;
   withdrawnAt: string | null;
+  cancelReason: string | null;
+  senderUserId: string | null;
+  senderAddress: string | null;
   sender: OpsCashSendParty;
   withdrawer: OpsCashSendParty;
+  recipientIdOnFile: string | null;
+  collectorScannedId: string | null;
   idVerifiedAtWithdrawal: boolean;
 };
 
@@ -279,6 +309,8 @@ export async function apiCashSendVouchers(params: {
   if (params.offset) q.set('offset', String(params.offset));
   return opsFetch<{
     total: number;
+    amountSum: number;
+    feeSum: number;
     limit: number;
     offset: number;
     vouchers: OpsCashSendVoucher[];
