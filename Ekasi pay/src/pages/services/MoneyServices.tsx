@@ -29,10 +29,7 @@ import {
   consumePendingCollectSaId,
   consumePendingSenderSaId } from
 '../../lib/scannerSession';
-import {
-  loadSenderKycProfile,
-  saveSenderKycProfile,
-} from '../../lib/senderKycProfile';
+import { clearSenderKycProfile } from '../../lib/senderKycProfile';
 import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
 import { saIdValidationMessage } from '../../lib/saIdValidation';
 import {
@@ -41,6 +38,10 @@ import {
 } from '../../lib/cashSendReference';
 import { ApiError, apiLookupCashSend } from '../../services/api';
 import { CashSendConsentGate } from '../../components/consent/CashSendDataConsent';
+
+const onlyDigits = (v: string) => v.replace(/\D/g, '');
+const SEND_CASH_SCAN_DRAFT_KEY = 'ekasi.sendCashDraft.v1';
+const COLLECT_CASH_SCAN_DRAFT_KEY = 'ekasi.collectCashDraft.v1';
 
 export type CashSendCreatePayload = {
   senderPhone: string;
@@ -121,7 +122,15 @@ export const MoneyServices = ({
         <div className="flex items-center mb-4">
           {showBackButton &&
           <button
-            onClick={() => navigate('home')}
+            onClick={() => {
+              clearSenderKycProfile();
+              try {
+                sessionStorage.removeItem(SEND_CASH_SCAN_DRAFT_KEY);
+              } catch {
+                /* ignore */
+              }
+              navigate('home');
+            }}
             className="p-2 -ml-2 text-slate-500 hover:text-slate-900 transition-colors">
             
               <ArrowLeft className="w-6 h-6" />
@@ -158,6 +167,7 @@ export const MoneyServices = ({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {activeTab === 'send' &&
         <SendCashFlow
+          key="send-cash-flow"
           wallet={wallet}
           authenticatedUserPhone={authenticatedUserPhone}
           createCashSend={createCashSend}
@@ -252,11 +262,6 @@ type SendCashFlowProps = {
   scanReturnRoute: string;
 };
 
-const onlyDigits = (v: string) => v.replace(/\D/g, '');
-
-const SEND_CASH_SCAN_DRAFT_KEY = 'ekasi.sendCashDraft.v1';
-const COLLECT_CASH_SCAN_DRAFT_KEY = 'ekasi.collectCashDraft.v1';
-
 function inferCashSendTabFromDraft(
   initialTab: 'send' | 'receive' | 'vouchers',
 ): 'send' | 'receive' | 'vouchers' {
@@ -290,6 +295,29 @@ const SendCashFlow = ({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [voucher, setVoucher] = useState<CashSendVoucher | null>(null);
+  const goingToScannerRef = useRef(false);
+
+  const resetAllFields = () => {
+    setSenderFirstName('');
+    setSenderLastName('');
+    setSenderId('');
+    setSenderPhone('');
+    setSenderAddress('');
+    setRecipientFirstName('');
+    setRecipientLastName('');
+    setRecipientPhone('');
+    setAmount('');
+    setPin('');
+    setVoucher(null);
+    setError('');
+    setStep(1);
+    clearSenderKycProfile();
+    try {
+      sessionStorage.removeItem(SEND_CASH_SCAN_DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     let usedDraft = false;
@@ -321,31 +349,30 @@ const SendCashFlow = ({
     } catch {
       sessionStorage.removeItem(SEND_CASH_SCAN_DRAFT_KEY);
     }
-    // Only prefill from the persisted KYC profile if there's no in-progress
-    // draft, otherwise we'd clobber the user's typing.
+    // Do not prefill customer KYC from a previous send — each voucher starts blank
+    // unless we are restoring a mid-flow ID-scan draft.
     if (!usedDraft) {
-      const stored = loadSenderKycProfile(onlyDigits(authenticatedUserPhone));
-      if (stored) {
-        setSenderFirstName(stored.firstName);
-        setSenderLastName(stored.lastName);
-        setSenderId(stored.idDocument);
-        setSenderAddress(stored.address);
-        if (
-          stored.senderCellphone &&
-          onlyDigits(stored.senderCellphone).length >= 10 &&
-          onlyDigits(stored.senderCellphone) !== onlyDigits(authenticatedUserPhone)
-        ) {
-          setSenderPhone(onlyDigits(stored.senderCellphone));
-        }
-      }
+      clearSenderKycProfile();
     }
     const sid = consumePendingSenderSaId();
     if (sid && onlyDigits(sid).length === 13)
       setSenderId(onlyDigits(sid).slice(0, 13));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot mount
+
+    return () => {
+      clearSenderKycProfile();
+      if (!goingToScannerRef.current) {
+        try {
+          sessionStorage.removeItem(SEND_CASH_SCAN_DRAFT_KEY);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot mount/unmount
   }, []);
 
   const openSendIdScanner = () => {
+    goingToScannerRef.current = true;
     sessionStorage.setItem(
       SEND_CASH_SCAN_DRAFT_KEY,
       JSON.stringify({
@@ -445,17 +472,7 @@ const SendCashFlow = ({
           pin,
         });
         if (newVoucher) {
-          // Cache the sender KYC for the next voucher — saves four
-          // re-keystrokes per send and reduces transcription errors.
-          saveSenderKycProfile({
-            phone: onlyDigits(authenticatedUserPhone),
-            firstName: senderFirstName.trim(),
-            lastName: senderLastName.trim(),
-            idDocument: onlyDigits(senderId),
-            address: senderAddress.trim(),
-            senderCellphone: onlyDigits(senderPhone),
-            savedAt: new Date().toISOString(),
-          });
+          clearSenderKycProfile();
           setVoucher(newVoucher);
           setStep(5);
           toast.success(
@@ -499,16 +516,16 @@ const SendCashFlow = ({
           Share these details with the recipient securely.
         </p>
 
-        <KPCard className="w-full mb-6 p-6 border-2 border-emerald-100 bg-emerald-50/30">
-          <div className="mb-4">
+        <KPCard className="w-full mb-6 !p-4 sm:!p-6 border-2 border-emerald-100 bg-emerald-50/30 overflow-hidden">
+          <div className="mb-4 min-w-0">
             <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-1">
               Reference Number
             </p>
-            <p className="text-3xl font-mono font-bold text-slate-900 tracking-widest">
+            <p className="text-base sm:text-xl font-mono font-bold text-slate-900 tracking-wide break-all">
               {voucher.referenceNumber}
             </p>
           </div>
-          <div className="mb-4">
+          <div className="mb-4 min-w-0">
             <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-1">
               ATM PIN
             </p>
@@ -516,15 +533,15 @@ const SendCashFlow = ({
               {voucher.atmPin}
             </p>
           </div>
-          <div className="flex justify-between items-center pt-4 border-t border-emerald-200/50">
-            <span className="text-slate-600 font-medium">Amount</span>
-            <span className="text-xl font-bold text-emerald-700">
+          <div className="flex justify-between items-center gap-3 pt-4 border-t border-emerald-200/50">
+            <span className="text-slate-600 font-medium shrink-0">Amount</span>
+            <span className="text-xl font-bold text-emerald-700 tabular-nums">
               R{voucher.amount.toFixed(2)}
             </span>
           </div>
-          <div className="flex justify-between items-center pt-2">
-            <span className="text-slate-600 font-medium">Deducted from wallet</span>
-            <span className="text-lg font-bold text-slate-900">
+          <div className="flex justify-between items-center gap-3 pt-2">
+            <span className="text-slate-600 font-medium shrink-0">Deducted from wallet</span>
+            <span className="text-lg font-bold text-slate-900 tabular-nums">
               R{(voucher.amount + (voucher.fee ?? 10)).toFixed(2)}
             </span>
           </div>
@@ -553,14 +570,7 @@ const SendCashFlow = ({
           </KPButton>
           <KPButton
             onClick={() => {
-              setRecipientFirstName('');
-              setRecipientLastName('');
-              setRecipientPhone('');
-              setAmount('');
-              setPin('');
-              setVoucher(null);
-              setError('');
-              setStep(1);
+              resetAllFields();
             }}
             className="w-full">
             Send another
@@ -568,14 +578,7 @@ const SendCashFlow = ({
           <KPButton
             variant="outline"
             onClick={() => {
-              setRecipientFirstName('');
-              setRecipientLastName('');
-              setRecipientPhone('');
-              setAmount('');
-              setPin('');
-              setVoucher(null);
-              setError('');
-              setStep(1);
+              resetAllFields();
               navigate('home');
             }}
             className="w-full">
