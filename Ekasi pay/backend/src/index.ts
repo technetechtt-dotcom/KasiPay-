@@ -19,6 +19,7 @@ import { activityRouter } from './routes/activity.js';
 import { activityRouterPg } from './routes/activityPg.js';
 import { adminRouter } from './routes/admin.js';
 import { adminRouterPg } from './routes/adminPg.js';
+import { adminMonitoringRouterPg } from './routes/adminMonitoringPg.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
 import { adminUsersRouterPg } from './routes/adminUsersPg.js';
 import { analyticsRouter } from './routes/analytics.js';
@@ -237,6 +238,7 @@ if (isPostgresMode()) {
   api.use(cashSendRouterPg);
   api.use(commissionsRouterPg);
   api.use(adminUsersRouterPg);
+  api.use(adminMonitoringRouterPg);
   api.use(adminRouterPg);
   api.use(utilitiesRouterPg);
   api.use((_req, res) => {

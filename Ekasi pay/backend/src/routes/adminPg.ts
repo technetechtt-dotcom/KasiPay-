@@ -76,12 +76,34 @@ adminRouterPg.get(
   '/admin/compliance/flags',
   requireAuth,
   requireRoles('admin'),
-  async (_req, res) => {
+  async (req, res) => {
+    const status =
+      typeof req.query.status === 'string' ? req.query.status : undefined;
     const pool = getPgPool();
-    const r = await pool.query(
-      `SELECT * FROM compliance_flags ORDER BY created_at DESC LIMIT 500`,
-    );
-    return res.json({ flags: r.rows.map(toComplianceFlag) });
+    const r = status
+      ? await pool.query(
+          `SELECT f.*, u.name AS user_name, u.phone AS user_phone
+             FROM compliance_flags f
+             LEFT JOIN users u ON u.id = f.user_id
+            WHERE f.status = $1
+            ORDER BY f.created_at DESC
+            LIMIT $2`,
+          [status, 500],
+        )
+      : await pool.query(
+          `SELECT f.*, u.name AS user_name, u.phone AS user_phone
+             FROM compliance_flags f
+             LEFT JOIN users u ON u.id = f.user_id
+            ORDER BY f.created_at DESC
+            LIMIT 500`,
+        );
+    return res.json({
+      flags: r.rows.map((row) => ({
+        ...toComplianceFlag(row),
+        userName: row.user_name ?? undefined,
+        userPhone: row.user_phone ?? undefined,
+      })),
+    });
   },
 );
 

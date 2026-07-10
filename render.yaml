@@ -1,7 +1,9 @@
 # Ekasi Pay — Render Blueprint
 # Repo layout: app code lives under "Ekasi pay/" (note the space).
 # Set secret env vars in the Render dashboard after the first sync:
-#   DATABASE_URL, SMS_PROVIDER (+ Twilio/Clickatell keys), OPS_DASHBOARD_PASSWORD
+#   DATABASE_URL, SMS_PROVIDER (+ Twilio/Clickatell keys)
+# FRONTEND_ORIGINS on ekasi-pay-api must include both web and ops origins
+# (comma-separated), e.g. https://ekasi-pay-web.onrender.com,https://ekasi-ops-dashboard.onrender.com
 
 services:
   - type: web
@@ -30,10 +32,7 @@ services:
       - key: CLICKATELL_API_KEY
         sync: false
       - key: FRONTEND_ORIGINS
-        fromService:
-          name: ekasi-pay-web
-          type: web
-          property: host
+        sync: false
 
   - type: web
     name: ekasi-pay-web
@@ -50,23 +49,13 @@ services:
 
   - type: web
     name: ekasi-ops-dashboard
-    runtime: node
+    runtime: static
     rootDir: Ekasi pay/ops-dashboard
     buildCommand: npm install && npm run build
-    startCommand: npm start
-    healthCheckPath: /health
-    plan: starter
+    staticPublishPath: dist
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: OPS_JWT_SECRET
-        generateValue: true
-      - key: OPS_DASHBOARD_PASSWORD
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: OPS_DASHBOARD_ORIGIN
+      - key: API_HOST
         fromService:
-          name: ekasi-ops-dashboard
+          name: ekasi-pay-api
           type: web
           property: host

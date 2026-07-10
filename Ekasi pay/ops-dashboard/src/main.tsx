@@ -1,4 +1,4 @@
-import './styles.css';
+﻿import './styles.css';
 
 import { Component, Fragment, StrictMode, useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -6,22 +6,17 @@ import { createRoot } from 'react-dom/client';
 
 import {
   apiAuditEvents,
-  apiAdminUsers,
   apiCashSendVouchers,
   apiComplianceFlags,
-  apiCreateAdminUser,
-  apiDeleteAdminUser,
   apiLogin,
   apiMe,
   apiOverview,
   apiReconciliation,
   apiTransactions,
-  apiUpdateAdminUser,
   apiUserDetail,
   apiUsers,
   clearToken,
   getToken,
-  setToken,
   type OpsAdminUser,
   type OpsCashSendVoucher,
   type OpsUser,
@@ -34,8 +29,7 @@ type Tab =
   | 'compliance'
   | 'audit'
   | 'transactions'
-  | 'cashsend'
-  | 'ops-admins';
+  | 'cashsend';
 
 function fmtMoney(n: number) {
   return `R${n.toFixed(2)}`;
@@ -50,8 +44,8 @@ function fmtDate(iso: string) {
 }
 
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [username, setUsername] = useState('superadmin');
-  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -60,8 +54,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     setError('');
     try {
-      const { token } = await apiLogin(username, password);
-      setToken(token);
+      await apiLogin(phone.replace(/\D/g, ''), pin);
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -74,179 +67,37 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
         <h1>Ekasi Pay Ops</h1>
-        <p className="muted">Separate monitoring console — not the merchant app.</p>
+        <p className="muted">
+          Same admin backend as the main app â€” sign in with your admin phone and PIN.
+        </p>
         <label>
-          Username
+          Phone
           <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            autoComplete="tel"
+            placeholder="082â€¦"
             required
           />
         </label>
         <label>
-          Password
+          PIN
           <input
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            inputMode="numeric"
+            maxLength={4}
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             autoComplete="current-password"
             required
           />
         </label>
         {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={loading}>
-          {loading ? 'Signing in…' : 'Sign in'}
+        <button type="submit" disabled={loading || pin.length !== 4}>
+          {loading ? 'Signing inâ€¦' : 'Sign in'}
         </button>
       </form>
-    </div>
-  );
-}
-
-function OpsAdminsTab({ me }: { me: OpsAdminUser }) {
-  const [users, setUsers] = useState<OpsAdminUser[]>([]);
-  const [error, setError] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'super_admin' | 'operator'>('operator');
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const r = await apiAdminUsers();
-      setUsers(r.users);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load ops users');
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const createUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError('');
-    try {
-      await apiCreateAdminUser({ username, password, role });
-      setUsername('');
-      setPassword('');
-      setRole('operator');
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create user');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="split-panel">
-      <div className="panel">
-        <h2>Ops users</h2>
-        <p className="muted">Super Admin can create, edit, disable, and delete operator accounts.</p>
-        {error ? <p className="error">{error}</p> : null}
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Last login</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.username}</td>
-                  <td>{u.role}</td>
-                  <td>{u.isActive ? 'active' : 'disabled'}</td>
-                  <td>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : 'never'}</td>
-                  <td style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const next = !u.isActive;
-                        await apiUpdateAdminUser(u.id, { isActive: next });
-                        await load();
-                      }}
-                    >
-                      {u.isActive ? 'Disable' : 'Enable'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const nextRole = u.role === 'operator' ? 'super_admin' : 'operator';
-                        await apiUpdateAdminUser(u.id, { role: nextRole });
-                        await load();
-                      }}
-                    >
-                      Toggle role
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const newPwd = window.prompt(`Set new password for ${u.username} (min 8 chars):`);
-                        if (!newPwd) return;
-                        await apiUpdateAdminUser(u.id, { password: newPwd });
-                        await load();
-                      }}
-                    >
-                      Reset password
-                    </button>
-                    {u.id !== me.id ? (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm(`Delete ops user "${u.username}"?`)) return;
-                          await apiDeleteAdminUser(u.id);
-                          await load();
-                        }}
-                      >
-                        Delete
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div className="panel">
-        <h2>Create ops user</h2>
-        <form className="login-card" onSubmit={createUser} style={{ width: '100%', padding: 0, background: 'transparent', border: 'none' }}>
-          <label>
-            Username
-            <input value={username} onChange={(e) => setUsername(e.target.value)} required />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
-              required
-            />
-          </label>
-          <label>
-            Role
-            <select value={role} onChange={(e) => setRole(e.target.value as 'super_admin' | 'operator')}>
-              <option value="operator">Operator</option>
-              <option value="super_admin">Super Admin</option>
-            </select>
-          </label>
-          <button type="submit" disabled={saving}>
-            {saving ? 'Creating…' : 'Create user'}
-          </button>
-        </form>
-      </div>
     </div>
   );
 }
@@ -335,7 +186,7 @@ function UsersTab() {
         </div>
         <div className="filters">
           <input
-            placeholder="Search name, phone, id…"
+            placeholder="Search name, phone, idâ€¦"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -440,7 +291,7 @@ function UsersTab() {
                 <ul className="txn-list">
                   {detail.recentTransactions.map((t) => (
                     <li key={t.id}>
-                      {t.type} {fmtMoney(t.amount)} — {t.reference}
+                      {t.type} {fmtMoney(t.amount)} â€” {t.reference}
                     </li>
                   ))}
                 </ul>
@@ -594,12 +445,12 @@ function CashSendTab() {
         </select>
         <input
           type="search"
-          placeholder="Search voucher, sender, withdrawer, ID, address…"
+          placeholder="Search voucher, sender, withdrawer, ID, addressâ€¦"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <button type="button" onClick={() => void load()} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
+          {loading ? 'Loadingâ€¦' : 'Refresh'}
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}
@@ -657,18 +508,18 @@ function CashSendTab() {
                     <td>{v.status}</td>
                     <td>{fmtDate(v.createdAt)}</td>
                     <td>{fmtDate(v.expiresAt)}</td>
-                    <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : '—'}</td>
-                    <td>{v.idVerifiedAtWithdrawal ? 'Yes' : '—'}</td>
-                    <td>{v.sender.firstName || '—'}</td>
-                    <td>{v.sender.lastName || '—'}</td>
-                    <td>{v.sender.phone || '—'}</td>
-                    <td className="mono">{v.sender.idDocument ?? '—'}</td>
-                    <td>{v.senderAddress || '—'}</td>
-                    <td>{v.withdrawer.firstName || '—'}</td>
-                    <td>{v.withdrawer.lastName || '—'}</td>
-                    <td>{v.withdrawer.phone || '—'}</td>
+                    <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : 'â€”'}</td>
+                    <td>{v.idVerifiedAtWithdrawal ? 'Yes' : 'â€”'}</td>
+                    <td>{v.sender.firstName || 'â€”'}</td>
+                    <td>{v.sender.lastName || 'â€”'}</td>
+                    <td>{v.sender.phone || 'â€”'}</td>
+                    <td className="mono">{v.sender.idDocument ?? 'â€”'}</td>
+                    <td>{v.senderAddress || 'â€”'}</td>
+                    <td>{v.withdrawer.firstName || 'â€”'}</td>
+                    <td>{v.withdrawer.lastName || 'â€”'}</td>
+                    <td>{v.withdrawer.phone || 'â€”'}</td>
                     <td className="mono">
-                      {v.collectorScannedId ?? v.withdrawer.idDocument ?? '—'}
+                      {v.collectorScannedId ?? v.withdrawer.idDocument ?? 'â€”'}
                     </td>
                   </tr>
                   {open ? (
@@ -681,23 +532,23 @@ function CashSendTab() {
                           </div>
                           <div>
                             <strong>Shop user ID (agent)</strong>
-                            <div className="mono muted">{v.senderUserId ?? '—'}</div>
+                            <div className="mono muted">{v.senderUserId ?? 'â€”'}</div>
                           </div>
                           <div>
                             <strong>Sender address</strong>
-                            <div>{v.senderAddress ?? '—'}</div>
+                            <div>{v.senderAddress ?? 'â€”'}</div>
                           </div>
                           <div>
                             <strong>Sender SA ID (full)</strong>
-                            <div className="mono">{v.sender.idDocument ?? '—'}</div>
+                            <div className="mono">{v.sender.idDocument ?? 'â€”'}</div>
                           </div>
                           <div>
                             <strong>Beneficiary ID on file</strong>
-                            <div className="mono">{v.recipientIdOnFile ?? '—'}</div>
+                            <div className="mono">{v.recipientIdOnFile ?? 'â€”'}</div>
                           </div>
                           <div>
                             <strong>ID scanned at collection</strong>
-                            <div className="mono">{v.collectorScannedId ?? '—'}</div>
+                            <div className="mono">{v.collectorScannedId ?? 'â€”'}</div>
                           </div>
                           <div>
                             <strong>ID verified at withdrawal</strong>
@@ -705,7 +556,7 @@ function CashSendTab() {
                           </div>
                           <div>
                             <strong>Cancel / expire reason</strong>
-                            <div>{v.cancelReason ?? '—'}</div>
+                            <div>{v.cancelReason ?? 'â€”'}</div>
                           </div>
                           <div>
                             <strong>Total held (amount + fee)</strong>
@@ -821,7 +672,7 @@ function TransactionsTab() {
       <div className="filters">
         <input
           type="search"
-          placeholder="Search voucher, reference, description, type…"
+          placeholder="Search voucher, reference, description, typeâ€¦"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -840,7 +691,7 @@ function TransactionsTab() {
           <option value="failed">Failed</option>
         </select>
         <button type="button" onClick={() => void load()} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
+          {loading ? 'Loadingâ€¦' : 'Refresh'}
         </button>
       </div>
 
@@ -864,9 +715,9 @@ function TransactionsTab() {
                 <td>{t.type}</td>
                 <td>{fmtMoney(t.amount)}</td>
                 <td>{t.status}</td>
-                <td className="mono">{t.voucherNumber ?? '—'}</td>
+                <td className="mono">{t.voucherNumber ?? 'â€”'}</td>
                 <td className="mono">{t.reference}</td>
-                <td>{t.description || '—'}</td>
+                <td>{t.description || 'â€”'}</td>
                 <td>{fmtDate(t.created_at)}</td>
               </tr>
             ))}
@@ -907,7 +758,6 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
     { id: 'compliance', label: 'Compliance' },
     { id: 'audit', label: 'Audit' },
     { id: 'transactions', label: 'Transactions' },
-    ...(me.role === 'super_admin' ? [{ id: 'ops-admins' as Tab, label: 'Ops Users' }] : []),
   ];
 
   return (
@@ -915,7 +765,11 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
       <header className="topbar">
         <div>
           <strong>Ekasi Pay Ops</strong>
-          <span className="muted"> signed in as {me.username}</span>
+          <span className="muted">
+            {' '}
+            signed in as {me.name ?? me.username}
+            {me.phone ? ` (${me.phone})` : ''}
+          </span>
         </div>
         <button type="button" className="ghost" onClick={logout}>
           Sign out
@@ -941,7 +795,6 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {tab === 'compliance' ? <ComplianceTab /> : null}
         {tab === 'audit' ? <AuditTab /> : null}
         {tab === 'transactions' ? <TransactionsTab /> : null}
-        {tab === 'ops-admins' ? <OpsAdminsTab me={me} /> : null}
       </main>
     </div>
   );
@@ -969,7 +822,7 @@ function App() {
       <div className="login-wrap">
         <div className="login-card">
           <h1>Ekasi Pay Ops</h1>
-          <p className="muted">Loading account…</p>
+          <p className="muted">Loading accountâ€¦</p>
         </div>
       </div>
     );

@@ -6,8 +6,9 @@ export default defineConfig({
   server: {
     port: 5174,
     proxy: {
-      '/ops-api': 'http://localhost:8790',
-      '/health': 'http://localhost:8790',
+      // Local main API (same backend as merchant app + admin).
+      '/api': 'http://localhost:8787',
+      '/health': 'http://localhost:8787',
     },
   },
   build: {
