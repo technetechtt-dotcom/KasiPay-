@@ -146,7 +146,9 @@ app.use(
           if (allowed.includes(origin)) {
             cb(null, true);
           } else {
-            // Reject without throwing — throwing can leave browsers hanging.
+            console.warn(
+              `[cors] blocked origin=${origin} allowed=${allowed.join(',')}`,
+            );
             cb(null, false);
           }
         },

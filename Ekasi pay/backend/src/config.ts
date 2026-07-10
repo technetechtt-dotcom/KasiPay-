@@ -67,11 +67,21 @@ function normalizeOrigin(value: string): string {
 
 /** Comma-separated origins (prod CORS). Falls back to FRONTEND_ORIGIN. */
 export function listFrontendOrigins(): string[] {
-  const multi = process.env.FRONTEND_ORIGINS?.split(/[\s,]+/)
+  const fromEnv = [
+    ...(process.env.FRONTEND_ORIGINS?.split(/[\s,]+/) ?? []),
+    process.env.FRONTEND_ORIGIN ?? '',
+    process.env.OPS_DASHBOARD_ORIGIN ?? '',
+    // Local ops Vite
+    'http://localhost:5174',
+    // Default Render service hosts (safe known public URLs for this project).
+    'https://ekasi-pay-web.onrender.com',
+    'https://ekasi-ops-dashboard.onrender.com',
+  ]
     .map((s) => normalizeOrigin(s))
     .filter(Boolean);
-  if (multi && multi.length > 0) return multi;
-  return [normalizeOrigin(FRONTEND_ORIGIN)];
+
+  // Deduplicate while preserving order.
+  return [...new Set(fromEnv)];
 }
 
 /** Short-lived bearer JWT (seconds). */
