@@ -64,6 +64,8 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
   const senderPhone = `082${String(num).padStart(7, '0')}`.slice(0, 10);
   const collectorPhone = `083${String(num + 1).padStart(7, '0')}`.slice(0, 10);
   const recipientPhone = `084${String(num + 2).padStart(7, '0')}`.slice(0, 10);
+  /** Walk-in customer cellphone (must differ from merchant account phone). */
+  const customerSenderPhone = `085${String(num + 4).padStart(7, '0')}`.slice(0, 10);
 
   let baseUrl = '';
   let server: http.Server | null = null;
@@ -177,7 +179,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       senderFirstName: 'Test',
       senderLastName: 'Sender',
       senderIdDocument: '8001015009080',
-      senderPhone,
+      senderPhone: customerSenderPhone,
       senderAddress: '1 Test St, Johannesburg',
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
@@ -194,7 +196,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       senderFirstName: 'Test',
       senderLastName: 'Sender',
       senderIdDocument: senderSaId,
-      senderPhone,
+      senderPhone: customerSenderPhone,
       senderAddress: '1 Test St, Johannesburg',
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
@@ -215,7 +217,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       senderFirstName: 'Test',
       senderLastName: 'Sender',
       senderIdDocument: senderSaId,
-      senderPhone,
+      senderPhone: customerSenderPhone,
       senderAddress: '1 Test St, Johannesburg',
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',

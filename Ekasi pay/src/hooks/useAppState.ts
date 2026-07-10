@@ -1046,6 +1046,15 @@ export function useAppState() {
       toast.error('Enter a valid sender cellphone (10 digits).');
       return null;
     }
+    if (
+      currentUser.phone &&
+      normalizePhone(currentUser.phone) === cleanedSender
+    ) {
+      toast.error(
+        'Enter the customer’s cellphone — not your shop account number.',
+      );
+      return null;
+    }
     const atmPin = normalizeAtmPin(input.pin);
     if (!isCashSendVoucherPinValid(atmPin)) {
       toast.error(cashSendVoucherPinMessage(atmPin) ?? 'Enter a valid 4-digit PIN.');

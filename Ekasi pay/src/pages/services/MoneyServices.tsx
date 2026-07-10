@@ -330,7 +330,11 @@ const SendCashFlow = ({
         setSenderLastName(stored.lastName);
         setSenderId(stored.idDocument);
         setSenderAddress(stored.address);
-        if (stored.senderCellphone && onlyDigits(stored.senderCellphone).length >= 10) {
+        if (
+          stored.senderCellphone &&
+          onlyDigits(stored.senderCellphone).length >= 10 &&
+          onlyDigits(stored.senderCellphone) !== onlyDigits(authenticatedUserPhone)
+        ) {
           setSenderPhone(onlyDigits(stored.senderCellphone));
         }
       }
@@ -379,6 +383,15 @@ const SendCashFlow = ({
         setError(
           senderIdMsg ??
             'Complete sender details: name, surname, valid 13-digit SA ID, cellphone, and physical address.'
+        );
+        return;
+      }
+      if (
+        authenticatedUserPhone &&
+        onlyDigits(senderPhone) === onlyDigits(authenticatedUserPhone)
+      ) {
+        setError(
+          'Enter the customer’s cellphone — not your shop account number.',
         );
         return;
       }
@@ -640,7 +653,7 @@ const SendCashFlow = ({
               </KPButton>
             </div>
             <KPInput
-            label="Sender cellphone"
+            label="Customer cellphone (sender)"
             type="tel"
             inputMode="tel"
             autoComplete="tel"
@@ -649,6 +662,9 @@ const SendCashFlow = ({
             onChange={(e) =>
               setSenderPhone(onlyDigits(e.target.value).slice(0, 10))
             } />
+            <p className="text-xs text-slate-500 -mt-2">
+              Voucher SMS goes to this number — not your shop login phone.
+            </p>
             <KPInput
             label="Sender physical address"
             placeholder="Street, suburb, city"

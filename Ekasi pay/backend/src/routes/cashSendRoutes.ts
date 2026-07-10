@@ -209,14 +209,16 @@ cashSendRouter.post(
       .status(400)
       .json({ error: 'Beneficiary cellphone must differ from the sender’s.' });
   }
-  if (!digitsOnlyPhoneSame(parsed.data.senderPhone, req.auth!.phone)) {
+  // Agent model: sender phone is the walk-in customer's number, not the shop login.
+  if (digitsOnlyPhoneSame(parsed.data.senderPhone, req.auth!.phone)) {
     return res.status(400).json({
-      error: 'Sender phone must match your registered account phone.',
+      error:
+        'Enter the customer’s cellphone — not your shop account number. The voucher SMS is sent to the customer.',
     });
   }
   const database = getDb();
   const userId = req.auth!.userId;
-  const phone = req.auth!.phone;
+  const customerSenderPhone = parsed.data.senderPhone;
   const wallet = database
     .prepare(
       `SELECT * FROM wallets WHERE user_id = ? AND COALESCE(wallet_kind, 'user') = 'user'`
@@ -276,7 +278,7 @@ cashSendRouter.post(
       .run(
         id,
         userId,
-        phone,
+        customerSenderPhone,
         senderDisplay,
         parsed.data.senderFirstName,
         parsed.data.senderLastName,
@@ -330,7 +332,7 @@ cashSendRouter.post(
   const beneficiaryName =
     `${parsed.data.recipientFirstName} ${parsed.data.recipientLastName}`.trim();
   const smsSent = await notifySenderCashSendVoucher({
-    senderPhone: phone,
+    senderPhone: customerSenderPhone,
     amount: parsed.data.amount,
     beneficiaryName,
     referenceNumber: ref,
