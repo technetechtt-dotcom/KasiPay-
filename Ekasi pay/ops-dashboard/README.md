@@ -40,7 +40,8 @@ Vite proxies `/api` to `http://localhost:8787`.
 
 ## Production (Render)
 
-- Service type: **static**
+- Service type: **Node** web service (serves the built static UI)
 - Build: `npm install && npm run build`
-- `API_HOST` / `VITE_API_URL` → main API host
+- Start: `npm start`
+- `API_HOST` / `VITE_API_URL` → main API host (baked into `runtime-config.js` at build)
 - On `ekasi-pay-api`, set `FRONTEND_ORIGINS` to include both the web app and ops origins (comma-separated)

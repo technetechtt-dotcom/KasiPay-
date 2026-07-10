@@ -49,12 +49,21 @@ services:
 
   - type: web
     name: ekasi-ops-dashboard
-    runtime: static
+    runtime: node
     rootDir: Ekasi pay/ops-dashboard
     buildCommand: npm install && npm run build
-    staticPublishPath: dist
+    startCommand: npm start
+    healthCheckPath: /health
+    plan: starter
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: API_HOST
+        fromService:
+          name: ekasi-pay-api
+          type: web
+          property: host
+      - key: VITE_API_URL
         fromService:
           name: ekasi-pay-api
           type: web
