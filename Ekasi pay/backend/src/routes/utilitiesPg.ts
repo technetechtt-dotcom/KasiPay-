@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getPgPool } from '../dbPg.js';
 import { toTransaction } from '../mappers.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
@@ -16,6 +17,8 @@ import {
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 
 export const utilitiesRouterPg = Router();
+
+utilitiesRouterPg.use(requireAuth, requireApprovedMerchant);
 
 const buyBody = z.object({
   category: z.enum(['airtime', 'data', 'electricity', 'dstv']),

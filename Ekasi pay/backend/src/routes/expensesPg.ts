@@ -5,11 +5,14 @@ import { Router } from 'express';
 import { getPgPool } from '../dbPg.js';
 import { toExpense } from '../mappers.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { expenseCreateSchema } from '../validation.js';
 
 export const expensesRouterPg = Router();
+
+expensesRouterPg.use(requireAuth, requireApprovedMerchant);
 
 expensesRouterPg.get('/expenses', requireAuth, async (req, res) => {
   const pool = getPgPool();

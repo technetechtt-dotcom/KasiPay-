@@ -5,6 +5,7 @@ import type { PoolClient } from 'pg';
 
 import { getPgPool } from '../dbPg.js';
 import { toProduct } from '../mappers.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { stockIntakeBodySchema } from '../validation.js';
@@ -28,6 +29,10 @@ type SlipRow = {
   expense_id: string | null;
   created_at: string;
 };
+
+export const stockIntakeRouterPg = Router();
+
+stockIntakeRouterPg.use(requireAuth, requireApprovedMerchant);
 
 function toPurchaseSlip(row: SlipRow) {
   return {
@@ -201,8 +206,6 @@ async function applyStockIntakePg(
     movementIds: movements,
   };
 }
-
-export const stockIntakeRouterPg = Router();
 
 stockIntakeRouterPg.get('/purchase-slips', requireAuth, async (req, res) => {
   const pool = getPgPool();

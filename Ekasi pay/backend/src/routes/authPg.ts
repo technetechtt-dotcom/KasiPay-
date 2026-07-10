@@ -97,8 +97,9 @@ authRouterPg.post('/register', async (req, res) => {
       const category = body.category?.trim() || 'Retail';
       const merchantId = randomUUID();
       await client.query(
-        `INSERT INTO merchants (id, user_id, business_name, location, category)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO merchants (
+           id, user_id, business_name, location, category, approval_status
+         ) VALUES ($1, $2, $3, $4, $5, 'pending_docs')`,
         [merchantId, userId, businessName, location, category],
       );
     }

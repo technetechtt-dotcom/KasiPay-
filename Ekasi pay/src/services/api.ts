@@ -462,6 +462,98 @@ export async function apiUpdateMerchantProfile(body: {
   );
 }
 
+export async function apiGetMerchantDocuments() {
+  return apiRequest<{
+    merchant: import('../types').Merchant;
+    required: import('../types').MerchantDocType[];
+    documents: import('../types').MerchantDocumentStatus[];
+  }>('/api/merchants/me/documents');
+}
+
+export async function apiUploadMerchantDocument(body: {
+  docType: import('../types').MerchantDocType;
+  fileName: string;
+  contentType: string;
+  dataBase64: string;
+}) {
+  return apiRequest<{
+    merchant: import('../types').Merchant;
+    document: import('../types').MerchantDocumentStatus;
+  }>('/api/merchants/me/documents', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiSubmitMerchantDocuments() {
+  return apiRequest<{ merchant: import('../types').Merchant }>(
+    '/api/merchants/me/documents/submit',
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export type AdminMerchantRow = import('../types').Merchant & {
+  ownerName?: string;
+  ownerPhone?: string;
+  documentsUploaded?: number;
+  documentsRequired?: number;
+};
+
+export async function apiAdminListMerchants(
+  status?: import('../types').MerchantApprovalStatus,
+) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  return apiRequest<{ merchants: AdminMerchantRow[] }>(
+    `/api/admin/merchants${qs}`,
+  );
+}
+
+export async function apiAdminGetMerchant(merchantId: string) {
+  return apiRequest<{
+    merchant: AdminMerchantRow;
+    documents: import('../types').MerchantDocumentStatus[];
+  }>(`/api/admin/merchants/${merchantId}`);
+}
+
+export async function apiAdminFetchMerchantDocument(
+  merchantId: string,
+  docType: import('../types').MerchantDocType,
+): Promise<{ blob: Blob; fileName: string }> {
+  const path = `/api/admin/merchants/${merchantId}/documents/${docType}`;
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res = await fetch(resolveUrl(path), { headers });
+  if (res.status === 401) {
+    const ok = await refreshAccessToken();
+    if (ok) {
+      const t2 = getToken();
+      if (t2) headers.Authorization = `Bearer ${t2}`;
+      res = await fetch(resolveUrl(path), { headers });
+    }
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, 'Could not download document');
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return { blob, fileName: match?.[1] ?? `${docType}.bin` };
+}
+
+export async function apiAdminReviewMerchant(
+  merchantId: string,
+  body: { status: 'approved' | 'rejected'; reason?: string },
+) {
+  return apiRequest<{ merchant: AdminMerchantRow }>(
+    `/api/admin/merchants/${merchantId}/approval`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 export async function apiGetProducts(merchantId: string) {
   const q = new URLSearchParams({ merchantId });
   return apiRequest<{ products: import('../types').Product[] }>(

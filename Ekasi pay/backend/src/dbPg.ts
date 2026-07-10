@@ -45,8 +45,27 @@ async function bootstrapSchema(p: Pool): Promise<void> {
       user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       business_name TEXT NOT NULL,
       location TEXT NOT NULL,
-      category TEXT NOT NULL
+      category TEXT NOT NULL,
+      approval_status TEXT NOT NULL DEFAULT 'approved',
+      rejection_reason TEXT,
+      reviewed_at TIMESTAMPTZ,
+      reviewed_by TEXT,
+      docs_submitted_at TIMESTAMPTZ
     );
+
+    CREATE TABLE IF NOT EXISTS merchant_documents (
+      id TEXT PRIMARY KEY,
+      merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+      doc_type TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      file_data BYTEA NOT NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL,
+      UNIQUE (merchant_id, doc_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_merchant_documents_merchant
+      ON merchant_documents(merchant_id);
 
     CREATE TABLE IF NOT EXISTS wallets (
       id TEXT PRIMARY KEY,
@@ -139,6 +158,12 @@ async function bootstrapSchema(p: Pool): Promise<void> {
 
     ALTER TABLE credit_customers ADD COLUMN IF NOT EXISTS sa_id_hash TEXT;
     ALTER TABLE credit_customers ADD COLUMN IF NOT EXISTS id_verified_at TIMESTAMPTZ;
+
+    ALTER TABLE merchants ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'approved';
+    ALTER TABLE merchants ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+    ALTER TABLE merchants ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+    ALTER TABLE merchants ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+    ALTER TABLE merchants ADD COLUMN IF NOT EXISTS docs_submitted_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS credit_otp_codes (
       id TEXT PRIMARY KEY,

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { getPgPool } from '../dbPg.js';
 import { toTransaction } from '../mappers.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { createComplianceFlagPg } from '../services/compliancePg.js';
@@ -10,6 +11,8 @@ import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 import { transferBodySchema } from '../validation.js';
 
 export const transfersRouterPg = Router();
+
+transfersRouterPg.use(requireAuth, requireApprovedMerchant);
 
 transfersRouterPg.post(
   '/transfers',

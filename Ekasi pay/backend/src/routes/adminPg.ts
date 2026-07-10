@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
 import { toComplianceFlag, toLoan } from '../extraMappers.js';
+import { toMerchant } from '../mappers.js';
 import { requireAuth, requireRoles } from '../middleware/requireAuth.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
 import {
@@ -298,6 +299,270 @@ adminRouterPg.post(
       walletsChecked: r.rows.length,
       discrepancies,
       ok: discrepancies.length === 0,
+    });
+  },
+);
+
+type AdminMerchantRow = {
+  id: string;
+  user_id: string;
+  business_name: string;
+  location: string;
+  category: string;
+  approval_status: string;
+  rejection_reason: string | null;
+  reviewed_at: string | Date | null;
+  reviewed_by: string | null;
+  docs_submitted_at: string | Date | null;
+  owner_name: string | null;
+  owner_phone: string | null;
+};
+
+const merchantListQuery = z.object({
+  status: z
+    .enum(['pending_docs', 'pending_approval', 'approved', 'rejected'])
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
+adminRouterPg.get(
+  '/admin/merchants',
+  requireAuth,
+  requireRoles('admin'),
+  async (req, res) => {
+    const parsed = merchantListQuery.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const pool = getPgPool();
+    const r = parsed.data.status
+      ? await pool.query<AdminMerchantRow>(
+          `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+             FROM merchants m
+             LEFT JOIN users u ON u.id = m.user_id
+            WHERE m.approval_status = $1
+            ORDER BY COALESCE(m.docs_submitted_at, m.reviewed_at) DESC NULLS LAST
+            LIMIT $2`,
+          [parsed.data.status, parsed.data.limit],
+        )
+      : await pool.query<AdminMerchantRow>(
+          `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+             FROM merchants m
+             LEFT JOIN users u ON u.id = m.user_id
+            ORDER BY COALESCE(m.docs_submitted_at, m.reviewed_at) DESC NULLS LAST
+            LIMIT $1`,
+          [parsed.data.limit],
+        );
+
+    const merchantIds = r.rows.map((row) => row.id);
+    const docCounts = new Map<string, number>();
+    if (merchantIds.length > 0) {
+      const dq = await pool.query<{ merchant_id: string; c: string }>(
+        `SELECT merchant_id, COUNT(*)::text AS c
+           FROM merchant_documents
+          WHERE merchant_id = ANY($1::text[])
+          GROUP BY merchant_id`,
+        [merchantIds],
+      );
+      for (const row of dq.rows) {
+        docCounts.set(row.merchant_id, Number(row.c));
+      }
+    }
+
+    return res.json({
+      merchants: r.rows.map((row) => ({
+        ...toMerchant(row),
+        ownerName: row.owner_name ?? undefined,
+        ownerPhone: row.owner_phone ?? undefined,
+        documentsUploaded: docCounts.get(row.id) ?? 0,
+        documentsRequired: 4,
+      })),
+    });
+  },
+);
+
+adminRouterPg.get(
+  '/admin/merchants/:id',
+  requireAuth,
+  requireRoles('admin'),
+  async (req, res) => {
+    const pool = getPgPool();
+    const r = await pool.query<AdminMerchantRow>(
+      `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+         FROM merchants m
+         LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.id = $1`,
+      [req.params.id],
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ error: 'Merchant not found' });
+
+    const docs = await pool.query<{
+      doc_type: string;
+      file_name: string;
+      content_type: string;
+      size_bytes: number;
+      uploaded_at: string | Date;
+    }>(
+      `SELECT doc_type, file_name, content_type, size_bytes, uploaded_at
+         FROM merchant_documents
+        WHERE merchant_id = $1
+        ORDER BY doc_type`,
+      [row.id],
+    );
+
+    return res.json({
+      merchant: {
+        ...toMerchant(row),
+        ownerName: row.owner_name ?? undefined,
+        ownerPhone: row.owner_phone ?? undefined,
+      },
+      documents: docs.rows.map((d) => ({
+        docType: d.doc_type,
+        fileName: d.file_name,
+        contentType: d.content_type,
+        sizeBytes: d.size_bytes,
+        uploadedAt:
+          typeof d.uploaded_at === 'string' ?
+            d.uploaded_at
+          : d.uploaded_at.toISOString(),
+      })),
+    });
+  },
+);
+
+adminRouterPg.get(
+  '/admin/merchants/:id/documents/:docType',
+  requireAuth,
+  requireRoles('admin'),
+  async (req, res) => {
+    const pool = getPgPool();
+    const r = await pool.query<{
+      file_name: string;
+      content_type: string;
+      file_data: Buffer;
+    }>(
+      `SELECT file_name, content_type, file_data
+         FROM merchant_documents
+        WHERE merchant_id = $1 AND doc_type = $2`,
+      [req.params.id, req.params.docType],
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ error: 'Document not found' });
+    res.setHeader('Content-Type', row.content_type);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${row.file_name.replace(/"/g, '')}"`,
+    );
+    return res.send(row.file_data);
+  },
+);
+
+const merchantApprovalBody = z.object({
+  status: z.enum(['approved', 'rejected']),
+  reason: z.string().trim().max(500).optional(),
+});
+
+adminRouterPg.patch(
+  '/admin/merchants/:id/approval',
+  requireAuth,
+  requireRoles('admin'),
+  async (req, res) => {
+    const parsed = merchantApprovalBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    if (parsed.data.status === 'rejected' && !parsed.data.reason?.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required.' });
+    }
+
+    const pool = getPgPool();
+    const existingQ = await pool.query<AdminMerchantRow>(
+      `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+         FROM merchants m
+         LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.id = $1`,
+      [req.params.id],
+    );
+    const existing = existingQ.rows[0];
+    if (!existing) return res.status(404).json({ error: 'Merchant not found' });
+
+    if (existing.approval_status === 'approved' && parsed.data.status === 'approved') {
+      return res.json({
+        merchant: {
+          ...toMerchant(existing),
+          ownerName: existing.owner_name ?? undefined,
+          ownerPhone: existing.owner_phone ?? undefined,
+        },
+      });
+    }
+
+    if (
+      parsed.data.status === 'approved' &&
+      existing.approval_status !== 'pending_approval' &&
+      existing.approval_status !== 'rejected'
+    ) {
+      // Allow approve from pending_approval primarily; also allow if docs exist.
+      const docsQ = await pool.query<{ c: string }>(
+        `SELECT COUNT(*)::text AS c FROM merchant_documents WHERE merchant_id = $1`,
+        [existing.id],
+      );
+      if (Number(docsQ.rows[0]?.c ?? 0) < 4) {
+        return res.status(400).json({
+          error: 'Merchant must submit all four compliance documents first.',
+        });
+      }
+    }
+
+    const now = new Date().toISOString();
+    await pool.query(
+      `UPDATE merchants
+          SET approval_status = $1,
+              rejection_reason = $2,
+              reviewed_at = $3,
+              reviewed_by = $4
+        WHERE id = $5`,
+      [
+        parsed.data.status,
+        parsed.data.status === 'rejected' ? parsed.data.reason!.trim() : null,
+        now,
+        req.auth!.userId,
+        existing.id,
+      ],
+    );
+
+    if (parsed.data.status === 'approved') {
+      await pool.query(
+        `UPDATE users SET kyc_status = 'verified' WHERE id = $1`,
+        [existing.user_id],
+      );
+    } else if (parsed.data.status === 'rejected') {
+      await pool.query(
+        `UPDATE users SET kyc_status = 'rejected' WHERE id = $1`,
+        [existing.user_id],
+      );
+    }
+
+    await recordAuditEventPg(pool, {
+      type: 'admin.merchant_approval',
+      message: `Merchant ${existing.business_name} (${existing.id}) -> ${parsed.data.status}`,
+      actorUserId: req.auth!.userId,
+    });
+
+    const freshQ = await pool.query<AdminMerchantRow>(
+      `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+         FROM merchants m
+         LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.id = $1`,
+      [existing.id],
+    );
+    const fresh = freshQ.rows[0];
+    return res.json({
+      merchant: {
+        ...toMerchant(fresh),
+        ownerName: fresh.owner_name ?? undefined,
+        ownerPhone: fresh.owner_phone ?? undefined,
+      },
     });
   },
 );

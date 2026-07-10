@@ -619,6 +619,55 @@ function applyIncrementalMigrations(database: Database.Database) {
     database.exec(`ALTER TABLE credit_customers ADD COLUMN id_verified_at TEXT`);
   }
 
+  const merchantCols = new Set(
+    (
+      database.prepare('PRAGMA table_info(merchants)').all() as {
+        name: string;
+      }[]
+    ).map((c) => c.name),
+  );
+  if (!merchantCols.has('approval_status')) {
+    database.exec(
+      `ALTER TABLE merchants ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'approved'`,
+    );
+  }
+  if (!merchantCols.has('rejection_reason')) {
+    database.exec(`ALTER TABLE merchants ADD COLUMN rejection_reason TEXT`);
+  }
+  if (!merchantCols.has('reviewed_at')) {
+    database.exec(`ALTER TABLE merchants ADD COLUMN reviewed_at TEXT`);
+  }
+  if (!merchantCols.has('reviewed_by')) {
+    database.exec(`ALTER TABLE merchants ADD COLUMN reviewed_by TEXT`);
+  }
+  if (!merchantCols.has('docs_submitted_at')) {
+    database.exec(`ALTER TABLE merchants ADD COLUMN docs_submitted_at TEXT`);
+  }
+
+  const merchantDocs = database
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='merchant_documents'`,
+    )
+    .get() as { name: string } | undefined;
+  if (!merchantDocs) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS merchant_documents (
+        id TEXT PRIMARY KEY,
+        merchant_id TEXT NOT NULL,
+        doc_type TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        file_data BLOB NOT NULL,
+        uploaded_at TEXT NOT NULL,
+        UNIQUE (merchant_id, doc_type),
+        FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_merchant_documents_merchant
+        ON merchant_documents(merchant_id);
+    `);
+  }
+
   const creditOtp = database
     .prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name='credit_otp_codes'`,

@@ -106,6 +106,7 @@ export const AppShell: FC<AppShellProps> = ({
     'users',
     'compliance',
     'claims',
+    'merchant-approvals',
     'commissions',
     'settings',
     'help',

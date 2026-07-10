@@ -101,8 +101,8 @@ authRouter.post('/register', (req, res) => {
         const merchantId = randomUUID();
         database
           .prepare(
-            `INSERT INTO merchants (id, user_id, business_name, location, category)
-             VALUES (?, ?, ?, ?, ?)`
+            `INSERT INTO merchants (id, user_id, business_name, location, category, approval_status)
+             VALUES (?, ?, ?, ?, ?, 'pending_docs')`
           )
           .run(merchantId, userId, businessName, location, category);
       }

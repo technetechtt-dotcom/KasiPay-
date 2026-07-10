@@ -4,6 +4,7 @@ import { Router } from 'express';
 
 import { getPgPool } from '../dbPg.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
@@ -20,7 +21,9 @@ type SaleItem = {
 
 export const salesRouterPg = Router();
 
-salesRouterPg.get('/sales', requireAuth, async (req, res) => {
+salesRouterPg.use(requireAuth, requireApprovedMerchant);
+
+salesRouterPg.get('/sales', async (req, res) => {
   const pool = getPgPool();
   let merchantId: string;
   try {
@@ -52,7 +55,7 @@ salesRouterPg.get('/sales', requireAuth, async (req, res) => {
   return res.json({ sales });
 });
 
-salesRouterPg.post('/sales', requireAuth, idempotentPg('POST /sales'), async (req, res) => {
+salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
   const parsed = saleCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

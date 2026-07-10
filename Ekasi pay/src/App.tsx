@@ -13,7 +13,9 @@ import {
   UserManagement,
   CompliancePage,
   ClaimsReviewPage,
+  MerchantApprovalsPage,
 } from './pages/admin/AdminPages';
+import { MerchantOnboardingPage } from './pages/onboarding/MerchantOnboardingPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddStockPage } from './pages/inventory/AddStockPage';
 import { RecordPurchaseSlipPage } from './pages/inventory/RecordPurchaseSlipPage';
@@ -181,7 +183,14 @@ export function App() {
       </div>
     );
   }
-  const adminPages = new Set(['admin', 'ledger', 'users', 'compliance', 'claims']);
+  const adminPages = new Set([
+    'admin',
+    'ledger',
+    'users',
+    'compliance',
+    'claims',
+    'merchant-approvals',
+  ]);
   // --- Auth Flow Routing ---
   if (!state.isAuthenticated) {if (state.authStep === 'login') {
       return (
@@ -241,6 +250,40 @@ export function App() {
       </div>
     );
   }
+  const merchantApproval = state.merchantProfile?.approvalStatus;
+  const needsMerchantOnboarding =
+    currentUser.role === 'merchant' &&
+    !!state.merchantProfile &&
+    merchantApproval != null &&
+    merchantApproval !== 'approved';
+
+  if (
+    currentUser.role === 'merchant' &&
+    state.isSyncingData &&
+    !state.merchantProfile
+  ) {
+    return (
+      <div className="p-8 text-center text-slate-500 mt-20">
+        <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        Loading your merchant profile…
+      </div>
+    );
+  }
+
+  if (needsMerchantOnboarding && state.merchantProfile) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-8 max-sm:p-0 max-sm:bg-slate-50">
+        <div className="relative w-full max-w-[400px] h-[850px] max-h-[95dvh] max-sm:max-w-none max-sm:h-[100dvh] max-sm:max-h-[100dvh] bg-slate-50 rounded-[3rem] max-sm:rounded-none shadow-2xl max-sm:shadow-none overflow-hidden border-[8px] max-sm:border-0 border-slate-800 flex flex-col">
+          <MerchantOnboardingPage
+            merchant={state.merchantProfile}
+            onMerchantUpdated={state.setMerchantProfile}
+            onLogout={state.logout}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const merchant =
     state.merchantProfile ?? {
       id: '',
@@ -727,6 +770,8 @@ export function App() {
         return <CompliancePage navigate={state.navigate} />;
       case 'claims':
         return <ClaimsReviewPage navigate={state.navigate} />;
+      case 'merchant-approvals':
+        return <MerchantApprovalsPage navigate={state.navigate} />;
       default:
         return (
           <div className="p-8 text-center text-slate-500 mt-20">

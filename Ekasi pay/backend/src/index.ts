@@ -152,7 +152,17 @@ app.use(
     credentials: false,
   })
 );
-app.use(express.json({ limit: '512kb' }));
+app.use((req, res, next) => {
+  // Compliance document uploads are base64 JSON and need a higher limit.
+  if (
+    req.method === 'POST' &&
+    (req.path === '/api/merchants/me/documents' ||
+      req.originalUrl.startsWith('/api/merchants/me/documents'))
+  ) {
+    return express.json({ limit: '6mb' })(req, res, next);
+  }
+  return express.json({ limit: '512kb' })(req, res, next);
+});
 
 /** Per-IP limiter for high-risk auth POSTs (register / login). */
 const authBurstLimiter = rateLimit({

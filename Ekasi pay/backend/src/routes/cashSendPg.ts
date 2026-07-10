@@ -15,6 +15,7 @@ import { optionalSaIdBody, saIdBody } from '../cashSendSchemas.js';
 import { getPgPool } from '../dbPg.js';
 import { toCashSendVoucher } from '../extraMappers.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { hashPin, verifyPin } from '../password.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
@@ -36,6 +37,8 @@ import {
 const COMMISSION_FEE_SHARE = 0.5;
 
 export const cashSendRouterPg = Router();
+
+cashSendRouterPg.use(requireAuth, requireApprovedMerchant);
 
 const FEE = 10;
 const DAYS_VALID = 14;

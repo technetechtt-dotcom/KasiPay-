@@ -68,6 +68,33 @@ export interface Merchant {
   businessName: string;
   location: string;
   category: string;
+  /** Compliance onboarding: docs → admin review → approved. */
+  approvalStatus?: MerchantApprovalStatus;
+  rejectionReason?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  docsSubmittedAt?: string | null;
+}
+
+export type MerchantApprovalStatus =
+  | 'pending_docs'
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected';
+
+export type MerchantDocType =
+  | 'cipc_14_3'
+  | 'beee_certificate'
+  | 'municipal_business_reg'
+  | 'proof_of_bank';
+
+export interface MerchantDocumentStatus {
+  docType: MerchantDocType;
+  uploaded: boolean;
+  fileName?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  uploadedAt?: string;
 }
 
 export interface Product {

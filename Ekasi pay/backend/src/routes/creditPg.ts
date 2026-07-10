@@ -15,6 +15,7 @@ import {
 import { NODE_ENV } from '../config.js';
 import { getPgPool } from '../dbPg.js';
 import { toCreditCustomer, toCreditTransaction } from '../mappers.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { sendSms } from '../services/sms.js';
@@ -26,6 +27,8 @@ import {
 } from '../validation.js';
 
 export const creditRouterPg = Router();
+
+creditRouterPg.use(requireAuth, requireApprovedMerchant);
 
 type OtpRow = {
   id: string;

@@ -5,12 +5,15 @@ import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
 import { toProduct } from '../mappers.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { lookupBarcodeInCatalog } from '../services/barcodeCatalog.js';
 import { productCreateSchema, productUpdateSchema } from '../validation.js';
 
 export const productsRouterPg = Router();
+
+productsRouterPg.use(requireAuth, requireApprovedMerchant);
 
 const barcodeQuery = z.object({
   code: z.string().min(4).max(32),

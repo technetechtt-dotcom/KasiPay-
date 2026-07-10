@@ -163,18 +163,46 @@ export function toLedgerEntry(row: {
   };
 }
 
+export type MerchantApprovalStatus =
+  | 'pending_docs'
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected';
+
 export function toMerchant(row: {
   id: string;
   user_id: string;
   business_name: string;
   location: string;
   category: string;
+  approval_status?: string | null;
+  rejection_reason?: string | null;
+  reviewed_at?: string | Date | null;
+  reviewed_by?: string | null;
+  docs_submitted_at?: string | Date | null;
 }) {
+  const approvalStatus = (row.approval_status ??
+    'approved') as MerchantApprovalStatus;
   return {
     id: row.id,
     userId: row.user_id,
     businessName: row.business_name,
     location: row.location,
     category: row.category,
+    approvalStatus,
+    rejectionReason: row.rejection_reason ?? null,
+    reviewedAt:
+      row.reviewed_at == null ? null : (
+        typeof row.reviewed_at === 'string' ?
+          row.reviewed_at
+        : row.reviewed_at.toISOString()
+      ),
+    reviewedBy: row.reviewed_by ?? null,
+    docsSubmittedAt:
+      row.docs_submitted_at == null ? null : (
+        typeof row.docs_submitted_at === 'string' ?
+          row.docs_submitted_at
+        : row.docs_submitted_at.toISOString()
+      ),
   };
 }
