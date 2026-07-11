@@ -551,6 +551,44 @@ export async function apiReconciliation() {
   }>('/api/admin/reconciliation');
 }
 
+export async function apiRunReconciliation() {
+  return opsFetch<{
+    ranAt: string;
+    walletsChecked: number;
+    ok: boolean;
+    discrepancies: {
+      walletId: string;
+      userId: string;
+      poolId?: string;
+      kind?: string;
+      delta: number;
+      walletBalance: number;
+      ledgerBalance: number;
+    }[];
+  }>('/api/admin/reconciliation/run', { method: 'POST' });
+}
+
+export async function apiPatchAppUser(
+  userId: string,
+  body: { role?: string; suspended?: boolean },
+) {
+  return opsFetch<{
+    user: {
+      id: string;
+      name: string;
+      phone: string;
+      role: string;
+      kycStatus: string;
+      accountTier: string;
+      createdAt: string;
+      suspendedAt?: string | null;
+    };
+  }>(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
 export type OpsCashSendParty = {
   firstName: string;
   lastName: string;

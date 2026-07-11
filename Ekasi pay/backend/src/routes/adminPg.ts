@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { getPgPool } from '../dbPg.js';
 import { toComplianceFlag, toLoan } from '../extraMappers.js';
 import { toMerchant } from '../mappers.js';
-import { requireAuth, requireRoles } from '../middleware/requireAuth.js';
 import { requireAdminOrOps } from '../opsAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
@@ -361,11 +360,7 @@ type ReconRow = {
   ledger_balance: number;
 };
 
-adminRouterPg.post(
-  '/admin/reconciliation/run',
-  requireAuth,
-  requireRoles('admin'),
-  async (_req, res) => {
+adminRouterPg.post('/admin/reconciliation/run', ...gate, async (_req, res) => {
     const pool = getPgPool();
     const r = await pool.query<ReconRow>(
       `

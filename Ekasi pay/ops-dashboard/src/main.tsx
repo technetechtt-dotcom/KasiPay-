@@ -5,10 +5,13 @@ import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import {
+  apiAdminUsers,
   apiAuditEvents,
   apiBaseUrl,
   apiCashSendVouchers,
   apiComplianceFlags,
+  apiCreateAdminUser,
+  apiDeleteAdminUser,
   apiDisburseLoan,
   apiFetchMerchantDocument,
   apiInsuranceClaims,
@@ -18,9 +21,12 @@ import {
   apiMerchantDetail,
   apiMerchants,
   apiOverview,
+  apiPatchAppUser,
   apiReconciliation,
   apiReviewMerchant,
+  apiRunReconciliation,
   apiTransactions,
+  apiUpdateAdminUser,
   apiUpdateComplianceFlag,
   apiUpdateInsuranceClaim,
   apiUserDetail,
@@ -43,6 +49,8 @@ type Tab =
   | 'merchants'
   | 'claims'
   | 'loans'
+  | 'ledger'
+  | 'operators'
   | 'compliance'
   | 'audit'
   | 'transactions'
@@ -176,6 +184,7 @@ function UsersTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof apiUserDetail>> | null>(null);
   const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -206,6 +215,42 @@ function UsersTab() {
       .then(setDetail)
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load user'));
   }, [selectedId]);
+
+  const patchUser = async (body: { role?: string; suspended?: boolean }) => {
+    if (!detail) return;
+    setBusyId(detail.user.id);
+    setError('');
+    try {
+      const { user } = await apiPatchAppUser(detail.user.id, body);
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              user: {
+                ...prev.user,
+                role: user.role,
+                suspendedAt: user.suspendedAt ?? null,
+              },
+            }
+          : prev,
+      );
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === user.id
+            ? {
+                ...u,
+                role: user.role,
+                suspendedAt: user.suspendedAt ?? null,
+              }
+            : u,
+        ),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update user');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="split-panel">
@@ -302,6 +347,36 @@ function UsersTab() {
                 </>
               ) : null}
             </dl>
+            <div className="review-box">
+              <label className="muted">
+                Change role
+                <select
+                  value={detail.user.role}
+                  disabled={busyId === detail.user.id}
+                  onChange={(e) => void patchUser({ role: e.target.value })}
+                >
+                  {['customer', 'merchant', 'agent', 'admin'].map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className={detail.user.suspendedAt ? '' : 'danger'}
+                disabled={busyId === detail.user.id}
+                onClick={() =>
+                  void patchUser({ suspended: !detail.user.suspendedAt })
+                }
+              >
+                {busyId === detail.user.id
+                  ? 'Saving…'
+                  : detail.user.suspendedAt
+                    ? 'Reactivate account'
+                    : 'Suspend account'}
+              </button>
+            </div>
             {detail.complianceFlags.length > 0 ? (
               <>
                 <h3>Compliance flags</h3>
@@ -818,6 +893,258 @@ function LoansTab() {
   );
 }
 
+function LedgerTab() {
+  const [report, setReport] = useState<Awaited<
+    ReturnType<typeof apiRunReconciliation>
+  > | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const r = await apiReconciliation();
+      setReport(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load reconciliation');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const run = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await apiRunReconciliation();
+      setReport(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reconciliation failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Ledger &amp; reconciliation</h2>
+        <div className="row-actions">
+          <button type="button" className="ghost" onClick={() => void load()}>
+            Refresh
+          </button>
+          <button type="button" disabled={busy} onClick={() => void run()}>
+            {busy ? 'Running…' : 'Run reconciliation'}
+          </button>
+        </div>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {report ? (
+        <>
+          <p className={report.ok ? 'ok-banner' : 'warn-banner'}>
+            {report.ok
+              ? `OK — ${report.walletsChecked} wallets balanced`
+              : `${report.discrepancies.length} discrepancy(ies) across ${report.walletsChecked} wallets`}
+            <span className="muted"> · {fmtDate(report.ranAt)}</span>
+          </p>
+          {!report.ok ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Wallet</th>
+                    <th>User</th>
+                    <th>Wallet bal</th>
+                    <th>Ledger bal</th>
+                    <th>Delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.discrepancies.map((d) => (
+                    <tr key={d.walletId}>
+                      <td className="mono">{d.walletId.slice(0, 10)}…</td>
+                      <td className="mono">{d.userId.slice(0, 10)}…</td>
+                      <td>{fmtMoney(d.walletBalance)}</td>
+                      <td>{fmtMoney(d.ledgerBalance)}</td>
+                      <td>{fmtMoney(d.delta)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className="muted">Loading reconciliation…</p>
+      )}
+    </div>
+  );
+}
+
+function OperatorsTab({ me }: { me: OpsAdminUser }) {
+  const [users, setUsers] = useState<OpsAdminUser[]>([]);
+  const [error, setError] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'operator' | 'super_admin'>('operator');
+  const [busy, setBusy] = useState(false);
+
+  const canManage = me.role === 'super_admin';
+
+  const load = useCallback(async () => {
+    if (!canManage) return;
+    setError('');
+    try {
+      const r = await apiAdminUsers();
+      setUsers(r.users);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load operators');
+    }
+  }, [canManage]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await apiCreateAdminUser({ username, password, role });
+      setUsername('');
+      setPassword('');
+      setRole('operator');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleActive = async (u: OpsAdminUser) => {
+    setBusy(true);
+    setError('');
+    try {
+      await apiUpdateAdminUser(u.id, { isActive: !u.isActive });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (u: OpsAdminUser) => {
+    if (!window.confirm(`Delete ops user ${u.username}?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await apiDeleteAdminUser(u.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!canManage) {
+    return (
+      <div className="panel">
+        <h2>Ops operators</h2>
+        <p className="muted">Only super admins can manage ops operator accounts.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Ops operators</h2>
+        <button type="button" className="ghost" onClick={() => void load()}>
+          Refresh
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <form className="review-box" onSubmit={create} style={{ marginBottom: '1.25rem' }}>
+        <h3 style={{ margin: 0 }}>Create operator</h3>
+        <input
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          minLength={3}
+        />
+        <input
+          type="password"
+          placeholder="Password (min 8)"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          minLength={8}
+        />
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as 'operator' | 'super_admin')}
+        >
+          <option value="operator">Operator</option>
+          <option value="super_admin">Super admin</option>
+        </select>
+        <button type="submit" disabled={busy}>
+          {busy ? 'Saving…' : 'Create'}
+        </button>
+      </form>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Active</th>
+              <th>Last login</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.username}</td>
+                <td>{u.role}</td>
+                <td>{u.isActive ? 'yes' : 'no'}</td>
+                <td>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : '—'}</td>
+                <td>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={busy || u.id === me.id}
+                      onClick={() => void toggleActive(u)}
+                    >
+                      {u.isActive ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={busy || u.id === me.id}
+                      onClick={() => void remove(u)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function AuditTab() {
   const [events, setEvents] = useState<Awaited<ReturnType<typeof apiAuditEvents>>['events']>([]);
   const [error, setError] = useState('');
@@ -1226,8 +1553,10 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
     { id: 'merchants', label: 'Merchants' },
     { id: 'claims', label: 'Claims' },
     { id: 'loans', label: 'Loans' },
+    { id: 'ledger', label: 'Ledger' },
     { id: 'cashsend', label: 'Cash Send' },
     { id: 'compliance', label: 'Compliance' },
+    { id: 'operators', label: 'Operators' },
     { id: 'audit', label: 'Audit' },
     { id: 'transactions', label: 'Transactions' },
   ];
@@ -1266,8 +1595,10 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {tab === 'merchants' ? <MerchantsTab /> : null}
         {tab === 'claims' ? <ClaimsTab /> : null}
         {tab === 'loans' ? <LoansTab /> : null}
+        {tab === 'ledger' ? <LedgerTab /> : null}
         {tab === 'cashsend' ? <CashSendTab /> : null}
         {tab === 'compliance' ? <ComplianceTab /> : null}
+        {tab === 'operators' ? <OperatorsTab me={me} /> : null}
         {tab === 'audit' ? <AuditTab /> : null}
         {tab === 'transactions' ? <TransactionsTab /> : null}
       </main>
