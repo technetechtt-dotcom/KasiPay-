@@ -630,6 +630,8 @@ export function App() {
             groups={state.stokvelGroups}
             onCreateGroup={state.addStokvelGroupRecord}
             onUpdateMembers={state.updateStokvelMembers}
+            onCreateLoan={state.addStokvelLoan}
+            onRepayLoan={state.repayStokvelLoan}
             navigate={state.navigate}
           />
         );

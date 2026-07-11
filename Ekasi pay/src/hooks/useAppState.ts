@@ -43,6 +43,8 @@ import {
   apiCreateLaybyOrder,
   apiFileInsuranceClaim,
   apiUpdateStokvelMembers,
+  apiCreateStokvelLoan,
+  apiRepayStokvelLoan,
   apiCreatePriceComparison,
   apiCreateStokvelGroup,
   apiCreateSupplier,
@@ -1515,6 +1517,45 @@ export function useAppState() {
     }
   };
 
+  const addStokvelLoan = async (
+    stokvelId: string,
+    input: {
+      lenderName: string;
+      lenderPhone: string;
+      borrowerName: string;
+      borrowerPhone: string;
+      amount: number;
+      interestRatePercent: number;
+      fromPool?: boolean;
+      notes?: string;
+    },
+  ): Promise<boolean> => {
+    try {
+      await apiCreateStokvelLoan(stokvelId, input);
+      await refreshAfterMutation();
+      return true;
+    } catch (e) {
+      toastMutationError('Stokvel loan', e);
+      await refreshAfterMutation();
+      return false;
+    }
+  };
+
+  const repayStokvelLoan = async (
+    stokvelId: string,
+    loanId: string,
+  ): Promise<boolean> => {
+    try {
+      await apiRepayStokvelLoan(stokvelId, loanId);
+      await refreshAfterMutation();
+      return true;
+    } catch (e) {
+      toastMutationError('Stokvel loan repayment', e);
+      await refreshAfterMutation();
+      return false;
+    }
+  };
+
   const fileInsuranceClaim = async (
     policyId: string,
     body: {
@@ -1790,6 +1831,8 @@ export function useAppState() {
     upsertSupplierVerificationRecord,
     addStokvelGroupRecord,
     updateStokvelMembers,
+    addStokvelLoan,
+    repayStokvelLoan,
     fileInsuranceClaim,
     recordLaybyInstallment,
     addLaybyOrderRecord,

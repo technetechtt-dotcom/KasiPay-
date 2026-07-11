@@ -286,6 +286,25 @@ async function bootstrapSchema(p: Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS stokvel_loans (
+      id TEXT PRIMARY KEY,
+      stokvel_id TEXT NOT NULL REFERENCES stokvel_groups(id) ON DELETE CASCADE,
+      lender_name TEXT NOT NULL,
+      lender_phone TEXT NOT NULL,
+      borrower_name TEXT NOT NULL,
+      borrower_phone TEXT NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
+      interest_rate_percent DOUBLE PRECISION NOT NULL,
+      interest_amount DOUBLE PRECISION NOT NULL,
+      total_due DOUBLE PRECISION NOT NULL,
+      from_pool BOOLEAN NOT NULL DEFAULT FALSE,
+      status TEXT NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL,
+      repaid_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_stokvel_loans_group ON stokvel_loans(stokvel_id);
+
     CREATE TABLE IF NOT EXISTS layby_orders (
       id TEXT PRIMARY KEY,
       merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,

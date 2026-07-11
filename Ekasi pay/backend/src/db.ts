@@ -177,6 +177,25 @@ function migrate(database: Database.Database) {
       FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS stokvel_loans (
+      id TEXT PRIMARY KEY,
+      stokvel_id TEXT NOT NULL,
+      lender_name TEXT NOT NULL,
+      lender_phone TEXT NOT NULL,
+      borrower_name TEXT NOT NULL,
+      borrower_phone TEXT NOT NULL,
+      amount REAL NOT NULL,
+      interest_rate_percent REAL NOT NULL,
+      interest_amount REAL NOT NULL,
+      total_due REAL NOT NULL,
+      from_pool INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      repaid_at TEXT,
+      FOREIGN KEY (stokvel_id) REFERENCES stokvel_groups (id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS layby_orders (
       id TEXT PRIMARY KEY,
       merchant_id TEXT NOT NULL,

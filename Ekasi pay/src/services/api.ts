@@ -837,6 +837,37 @@ export async function apiUpdateStokvelMembers(
   );
 }
 
+export async function apiCreateStokvelLoan(
+  stokvelId: string,
+  body: {
+    lenderName: string;
+    lenderPhone: string;
+    borrowerName: string;
+    borrowerPhone: string;
+    amount: number;
+    interestRatePercent: number;
+    fromPool?: boolean;
+    notes?: string;
+  },
+) {
+  return apiRequest<{
+    loan: import('../types').StokvelLoan;
+    group: import('../types').StokvelGroup;
+  }>(`/api/stokvel/${stokvelId}/loans`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiRepayStokvelLoan(stokvelId: string, loanId: string) {
+  return apiRequest<{
+    loan: import('../types').StokvelLoan;
+    group: import('../types').StokvelGroup;
+  }>(`/api/stokvel/${stokvelId}/loans/${loanId}/repay`, {
+    method: 'PATCH',
+  });
+}
+
 export async function apiGetLaybyOrders() {
   return apiRequest<{ orders: import('../types').LaybyOrder[] }>('/api/layby');
 }

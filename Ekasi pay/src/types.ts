@@ -223,6 +223,25 @@ export interface SupplierOrder {
 }
 
 // Stokvel / Savings Group
+export interface StokvelLoan {
+  id: string;
+  stokvelId: string;
+  lenderName: string;
+  lenderPhone: string;
+  borrowerName: string;
+  borrowerPhone: string;
+  amount: number;
+  /** Percent charged on every R100 (10 → R10 interest per R100). */
+  interestRatePercent: number;
+  interestAmount: number;
+  totalDue: number;
+  fromPool: boolean;
+  status: 'active' | 'repaid';
+  notes?: string;
+  createdAt: string;
+  repaidAt?: string;
+}
+
 export interface StokvelGroup {
   id: string;
   name: string;
@@ -232,6 +251,7 @@ export interface StokvelGroup {
   frequency: 'weekly' | 'monthly';
   nextPayoutDate: string;
   createdAt: string;
+  loans?: StokvelLoan[];
 }
 
 // Layby

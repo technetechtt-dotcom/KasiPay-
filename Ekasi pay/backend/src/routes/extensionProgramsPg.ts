@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
 import {
+  calcStokvelLoanInterest,
   toExpiryItem,
   toFoodSafetyAlert,
   toInsurance,
@@ -13,6 +14,7 @@ import {
   toPriceComparison,
   toStockMovement,
   toStokvel,
+  toStokvelLoan,
   toVoiceNote,
 } from '../extraMappers.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -46,7 +48,29 @@ extensionProgramsRouterPg.get('/stokvel', requireAuth, async (req, res) => {
     `SELECT * FROM stokvel_groups WHERE merchant_id = $1 ORDER BY created_at DESC`,
     [merchantId],
   );
-  return res.json({ groups: r.rows.map(toStokvel) });
+  const groups = r.rows.map(toStokvel);
+  const ids = groups.map((g) => g.id);
+  const loansByGroup = new Map<string, ReturnType<typeof toStokvelLoan>[]>();
+  if (ids.length > 0) {
+    const lq = await pool.query(
+      `SELECT * FROM stokvel_loans
+        WHERE stokvel_id = ANY($1::text[])
+        ORDER BY created_at DESC`,
+      [ids],
+    );
+    for (const row of lq.rows) {
+      const loan = toStokvelLoan(row);
+      const list = loansByGroup.get(loan.stokvelId) ?? [];
+      list.push(loan);
+      loansByGroup.set(loan.stokvelId, list);
+    }
+  }
+  return res.json({
+    groups: groups.map((g) => ({
+      ...g,
+      loans: loansByGroup.get(g.id) ?? [],
+    })),
+  });
 });
 
 const stokvelBody = z.object({
@@ -156,6 +180,191 @@ extensionProgramsRouterPg.patch(
       [row.id],
     );
     return res.json({ group: toStokvel(freshQ.rows[0]) });
+  },
+);
+
+const STOKVEL_INTEREST_TIERS = [10, 20, 30, 40, 50] as const;
+
+const stokvelLoanBody = z.object({
+  lenderName: z.string().trim().min(1),
+  lenderPhone: z
+    .string()
+    .min(9)
+    .max(20)
+    .transform((v) => v.replace(/\s+/g, '')),
+  borrowerName: z.string().trim().min(1),
+  borrowerPhone: z
+    .string()
+    .min(9)
+    .max(20)
+    .transform((v) => v.replace(/\s+/g, '')),
+  amount: z.coerce.number().positive(),
+  /** Percent charged on every R100 loaned (10 → R10 interest per R100). */
+  interestRatePercent: z.coerce
+    .number()
+    .refine((v) => (STOKVEL_INTEREST_TIERS as readonly number[]).includes(v), {
+      message: 'Interest must be 10, 20, 30, 40, or 50 percent per R100',
+    }),
+  fromPool: z.boolean().default(false),
+  notes: z.string().trim().max(500).optional(),
+});
+
+extensionProgramsRouterPg.post(
+  '/stokvel/:id/loans',
+  requireAuth,
+  async (req, res) => {
+    const pool = getPgPool();
+    let merchantId: string;
+    try {
+      merchantId = await ensureMerchantIdPg(pool, req.auth!.userId);
+    } catch {
+      return res.status(403).json({ error: 'Merchant profile required' });
+    }
+    const parsed = stokvelLoanBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const groupQ = await pool.query<{
+      id: string;
+      current_amount: number;
+    }>(
+      `SELECT id, current_amount FROM stokvel_groups WHERE id = $1 AND merchant_id = $2`,
+      [req.params.id, merchantId],
+    );
+    const group = groupQ.rows[0];
+    if (!group) return res.status(404).json({ error: 'Stokvel not found' });
+
+    const b = parsed.data;
+    if (b.fromPool && group.current_amount < b.amount) {
+      return res.status(400).json({
+        error: `Pool only has R${Number(group.current_amount).toFixed(2)} — not enough to loan R${b.amount.toFixed(2)}.`,
+      });
+    }
+
+    const { interestAmount, totalDue } = calcStokvelLoanInterest(
+      b.amount,
+      b.interestRatePercent,
+    );
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO stokvel_loans
+          (id, stokvel_id, lender_name, lender_phone, borrower_name, borrower_phone,
+           amount, interest_rate_percent, interest_amount, total_due, from_pool,
+           status, notes, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active',$12,$13)`,
+        [
+          id,
+          group.id,
+          b.lenderName,
+          b.lenderPhone,
+          b.borrowerName,
+          b.borrowerPhone,
+          b.amount,
+          b.interestRatePercent,
+          interestAmount,
+          totalDue,
+          b.fromPool,
+          b.notes ?? null,
+          now,
+        ],
+      );
+      if (b.fromPool) {
+        await client.query(
+          `UPDATE stokvel_groups
+              SET current_amount = current_amount - $1
+            WHERE id = $2`,
+          [b.amount, group.id],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    const loanQ = await pool.query(`SELECT * FROM stokvel_loans WHERE id = $1`, [
+      id,
+    ]);
+    const groupFresh = await pool.query(
+      `SELECT * FROM stokvel_groups WHERE id = $1`,
+      [group.id],
+    );
+    return res.status(201).json({
+      loan: toStokvelLoan(loanQ.rows[0]),
+      group: toStokvel(groupFresh.rows[0]),
+    });
+  },
+);
+
+extensionProgramsRouterPg.patch(
+  '/stokvel/:id/loans/:loanId/repay',
+  requireAuth,
+  async (req, res) => {
+    const pool = getPgPool();
+    let merchantId: string;
+    try {
+      merchantId = await ensureMerchantIdPg(pool, req.auth!.userId);
+    } catch {
+      return res.status(403).json({ error: 'Merchant profile required' });
+    }
+    const groupQ = await pool.query<{ id: string }>(
+      `SELECT id FROM stokvel_groups WHERE id = $1 AND merchant_id = $2`,
+      [req.params.id, merchantId],
+    );
+    if (!groupQ.rows[0]) {
+      return res.status(404).json({ error: 'Stokvel not found' });
+    }
+    const loanQ = await pool.query(
+      `SELECT * FROM stokvel_loans WHERE id = $1 AND stokvel_id = $2`,
+      [req.params.loanId, req.params.id],
+    );
+    const loan = loanQ.rows[0];
+    if (!loan) return res.status(404).json({ error: 'Loan not found' });
+    if (loan.status === 'repaid') {
+      return res.status(409).json({ error: 'Loan is already repaid' });
+    }
+    const now = new Date().toISOString();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE stokvel_loans SET status = 'repaid', repaid_at = $1 WHERE id = $2`,
+        [now, loan.id],
+      );
+      if (loan.from_pool) {
+        // Principal returns to the pool; interest stays with the lender track record.
+        await client.query(
+          `UPDATE stokvel_groups
+              SET current_amount = current_amount + $1
+            WHERE id = $2`,
+          [loan.amount, req.params.id],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+    const freshLoan = await pool.query(
+      `SELECT * FROM stokvel_loans WHERE id = $1`,
+      [loan.id],
+    );
+    const freshGroup = await pool.query(
+      `SELECT * FROM stokvel_groups WHERE id = $1`,
+      [req.params.id],
+    );
+    return res.json({
+      loan: toStokvelLoan(freshLoan.rows[0]),
+      group: toStokvel(freshGroup.rows[0]),
+    });
   },
 );
 

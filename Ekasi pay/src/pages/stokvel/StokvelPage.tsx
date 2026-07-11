@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   KPCard,
   PageTransition,
@@ -14,16 +14,29 @@ import {
   X,
   Trash2,
   UserPlus,
+  HandCoins,
 } from 'lucide-react';
-import type { StokvelGroup } from '../../types';
+import type { StokvelGroup, StokvelLoan } from '../../types';
 import { toast } from 'sonner';
 
 type Member = { name: string; phone: string; contributed: number };
+
+const INTEREST_TIERS = [10, 20, 30, 40, 50] as const;
+
+function calcInterest(amount: number, ratePercent: number) {
+  const interestAmount = Number(((amount / 100) * ratePercent).toFixed(2));
+  return {
+    interestAmount,
+    totalDue: Number((amount + interestAmount).toFixed(2)),
+  };
+}
 
 export const StokvelPage = ({
   groups,
   onCreateGroup,
   onUpdateMembers,
+  onCreateLoan,
+  onRepayLoan,
   navigate,
 }: {
   groups: StokvelGroup[];
@@ -35,8 +48,21 @@ export const StokvelPage = ({
     frequency: 'weekly' | 'monthly';
     nextPayoutDate: string;
   }) => Promise<boolean>;
-  /** Replace the members list on an existing stokvel. */
   onUpdateMembers?: (id: string, members: Member[]) => Promise<boolean>;
+  onCreateLoan?: (
+    stokvelId: string,
+    payload: {
+      lenderName: string;
+      lenderPhone: string;
+      borrowerName: string;
+      borrowerPhone: string;
+      amount: number;
+      interestRatePercent: number;
+      fromPool?: boolean;
+      notes?: string;
+    },
+  ) => Promise<boolean>;
+  onRepayLoan?: (stokvelId: string, loanId: string) => Promise<boolean>;
   navigate: (p: string) => void;
 }) => {
   const [showForm, setShowForm] = useState(false);
@@ -46,12 +72,11 @@ export const StokvelPage = ({
   const [currentAmount, setCurrentAmount] = useState('0');
   const [frequency, setFrequency] = useState<'weekly' | 'monthly'>('monthly');
   const [nextPayout, setNextPayout] = useState('');
-  /** Draft members captured in the create flow. */
   const [draftMembers, setDraftMembers] = useState<Member[]>([]);
   const [draftMemberName, setDraftMemberName] = useState('');
   const [draftMemberPhone, setDraftMemberPhone] = useState('');
-  /** Manage-members modal state. */
   const [manageGroup, setManageGroup] = useState<StokvelGroup | null>(null);
+  const [loanGroup, setLoanGroup] = useState<StokvelGroup | null>(null);
 
   const submit = async () => {
     const t = Number(targetAmount);
@@ -123,7 +148,8 @@ export const StokvelPage = ({
           </div>
         </div>
         <p className="text-sm text-slate-500 mb-4">
-          Save together with other spaza owners for bulk buying and emergencies.
+          Save together, track member loans, and set interest per R100 loaned
+          out.
         </p>
         <KPButton
           type="button"
@@ -140,6 +166,8 @@ export const StokvelPage = ({
           )}
           {groups.map((group) => {
             const progress = (group.currentAmount / group.targetAmount) * 100;
+            const loans = group.loans ?? [];
+            const activeLoans = loans.filter((l) => l.status === 'active');
             return (
               <KPCard key={group.id} className="overflow-hidden">
                 <div className="bg-purple-600 p-5 text-white">
@@ -201,7 +229,7 @@ export const StokvelPage = ({
                       </button>
                     : null}
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-3 mb-5">
                     {group.members.length === 0 && (
                       <p className="text-sm text-slate-400">No members listed yet.</p>
                     )}
@@ -225,6 +253,49 @@ export const StokvelPage = ({
                           <p className="text-[10px] text-slate-400">Contributed</p>
                         </div>
                       </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between mb-3 border-t border-slate-100 pt-4">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <HandCoins className="w-3.5 h-3.5" />
+                      Member loans
+                      {activeLoans.length > 0 ?
+                        <span className="normal-case font-medium text-amber-700">
+                          ({activeLoans.length} open)
+                        </span>
+                      : null}
+                    </h4>
+                    {onCreateLoan ?
+                      <button
+                        type="button"
+                        onClick={() => setLoanGroup(group)}
+                        className="text-xs font-medium text-purple-700 flex items-center gap-1">
+                        <Plus className="w-3.5 h-3.5" /> Record loan
+                      </button>
+                    : null}
+                  </div>
+                  <div className="space-y-3">
+                    {loans.length === 0 && (
+                      <p className="text-sm text-slate-400">
+                        No loans yet. Example: Ivan loaned R1,000 to George at
+                        10% per R100.
+                      </p>
+                    )}
+                    {loans.map((loan) => (
+                      <LoanRow
+                        key={loan.id}
+                        loan={loan}
+                        onRepay={
+                          onRepayLoan && loan.status === 'active'
+                            ? async () => {
+                                const ok = await onRepayLoan(group.id, loan.id);
+                                if (ok) toast.success('Loan marked repaid');
+                                return ok;
+                              }
+                            : undefined
+                        }
+                      />
                     ))}
                   </div>
                 </div>
@@ -297,25 +368,19 @@ export const StokvelPage = ({
               </button>
             </div>
             {draftMembers.length > 0 ?
-              <ul className="space-y-1 text-xs mb-3">
+              <ul className="text-sm space-y-1 mb-4">
                 {draftMembers.map((m, i) =>
-                  <li
-                    key={`${m.phone}-${i}`}
-                    className="flex justify-between items-center bg-slate-50 rounded-md px-2 py-1">
+                  <li key={`${m.phone}-${i}`} className="flex justify-between text-slate-600">
                     <span>
-                      <strong className="text-slate-700">{m.name}</strong>{' '}
-                      <span className="text-slate-400">· {m.phone}</span>
+                      {m.name} · {m.phone}
                     </span>
                     <button
                       type="button"
                       onClick={() =>
-                        setDraftMembers((prev) =>
-                          prev.filter((_, idx) => idx !== i),
-                        )
+                        setDraftMembers((prev) => prev.filter((_, idx) => idx !== i))
                       }
-                      aria-label="Remove member"
-                      className="text-red-500">
-                      <Trash2 className="w-3.5 h-3.5" />
+                      aria-label="Remove">
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
                     </button>
                   </li>
                 )}
@@ -344,7 +409,270 @@ export const StokvelPage = ({
           }}
         />
       : null}
+
+      {loanGroup && onCreateLoan ?
+        <RecordLoanModal
+          group={loanGroup}
+          onClose={() => setLoanGroup(null)}
+          onSave={async (payload) => {
+            const ok = await onCreateLoan(loanGroup.id, payload);
+            if (ok) {
+              toast.success('Loan recorded');
+              setLoanGroup(null);
+            }
+            return ok;
+          }}
+        />
+      : null}
     </PageTransition>
+  );
+};
+
+function LoanRow({
+  loan,
+  onRepay,
+}: {
+  loan: StokvelLoan;
+  onRepay?: () => Promise<boolean>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+      <div className="flex justify-between gap-2 mb-1">
+        <p className="font-medium text-slate-900">
+          {loan.lenderName}{' '}
+          <span className="font-normal text-slate-500">loaned to</span>{' '}
+          {loan.borrowerName}
+        </p>
+        <KPBadge variant={loan.status === 'active' ? 'warning' : 'success'}>
+          {loan.status}
+        </KPBadge>
+      </div>
+      <p className="text-slate-600">
+        R{loan.amount.toLocaleString()} at {loan.interestRatePercent}% per R100
+        → interest R{loan.interestAmount.toLocaleString()} · due{' '}
+        <strong>R{loan.totalDue.toLocaleString()}</strong>
+      </p>
+      <p className="text-[11px] text-slate-400 mt-1">
+        {loan.lenderPhone} → {loan.borrowerPhone}
+        {loan.fromPool ? ' · from pool' : ''}
+        {' · '}
+        {new Date(loan.createdAt).toLocaleDateString()}
+      </p>
+      {onRepay ?
+        <button
+          type="button"
+          disabled={busy}
+          className="mt-2 text-xs font-medium text-emerald-700"
+          onClick={() => {
+            void (async () => {
+              setBusy(true);
+              try {
+                await onRepay();
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}>
+          {busy ? 'Saving…' : 'Mark repaid'}
+        </button>
+      : null}
+    </div>
+  );
+}
+
+const RecordLoanModal = ({
+  group,
+  onClose,
+  onSave,
+}: {
+  group: StokvelGroup;
+  onClose: () => void;
+  onSave: (payload: {
+    lenderName: string;
+    lenderPhone: string;
+    borrowerName: string;
+    borrowerPhone: string;
+    amount: number;
+    interestRatePercent: number;
+    fromPool?: boolean;
+    notes?: string;
+  }) => Promise<boolean>;
+}) => {
+  const [lenderPhone, setLenderPhone] = useState(group.members[0]?.phone ?? '');
+  const [borrowerName, setBorrowerName] = useState('');
+  const [borrowerPhone, setBorrowerPhone] = useState('');
+  const [amount, setAmount] = useState('');
+  const [rate, setRate] = useState<(typeof INTEREST_TIERS)[number]>(10);
+  const [fromPool, setFromPool] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const lender = useMemo(
+    () => group.members.find((m) => m.phone === lenderPhone),
+    [group.members, lenderPhone],
+  );
+
+  const preview = useMemo(() => {
+    const a = Number(amount);
+    if (!(a > 0)) return null;
+    return calcInterest(a, rate);
+  }, [amount, rate]);
+
+  const submit = async () => {
+    const a = Number(amount);
+    if (!lender) {
+      toast.error('Pick which member loaned the money.');
+      return;
+    }
+    if (!borrowerName.trim() || borrowerPhone.replace(/\s+/g, '').length < 9) {
+      toast.error('Add borrower name and phone.');
+      return;
+    }
+    if (!(a > 0)) {
+      toast.error('Enter a loan amount.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onSave({
+        lenderName: lender.name,
+        lenderPhone: lender.phone,
+        borrowerName: borrowerName.trim(),
+        borrowerPhone: borrowerPhone.replace(/\s+/g, ''),
+        amount: a,
+        interestRatePercent: rate,
+        fromPool,
+        notes: notes.trim() || undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 sm:max-w-md shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-lg">Record loan — {group.name}</h3>
+          <button type="button" onClick={onClose} aria-label="Close">
+            <X className="w-6 h-6 text-slate-400" />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          Track who loaned to whom. Interest is charged per R100 (e.g. 10% =
+          R10 interest on every R100).
+        </p>
+
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Member who loaned (lender)
+        </label>
+        {group.members.length === 0 ?
+          <p className="text-sm text-amber-700 mb-3">
+            Add members first, then record loans.
+          </p>
+        :
+          <select
+            className="w-full border rounded-xl py-3 px-3 mb-3 text-sm bg-white"
+            value={lenderPhone}
+            onChange={(e) => setLenderPhone(e.target.value)}>
+            {group.members.map((m) => (
+              <option key={m.phone} value={m.phone}>
+                {m.name} ({m.phone})
+              </option>
+            ))}
+          </select>
+        }
+
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Borrower name
+        </label>
+        <KPInput
+          className="mb-3"
+          value={borrowerName}
+          onChange={(e) => setBorrowerName(e.target.value)}
+          placeholder="e.g. George"
+        />
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Borrower phone
+        </label>
+        <KPInput
+          className="mb-3"
+          value={borrowerPhone}
+          onChange={(e) => setBorrowerPhone(e.target.value)}
+          inputMode="tel"
+        />
+
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Amount (R)
+        </label>
+        <KPInput
+          type="number"
+          className="mb-3"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="1000"
+        />
+
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Interest per R100
+        </label>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {INTEREST_TIERS.map((tier) => (
+            <button
+              key={tier}
+              type="button"
+              onClick={() => setRate(tier)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                rate === tier
+                  ? 'bg-purple-700 text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}>
+              {tier}%
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          {rate}% on R100 = R{rate} interest. On R1,000 = R
+          {((1000 / 100) * rate).toFixed(0)} interest.
+        </p>
+
+        {preview ?
+          <div className="mb-3 rounded-xl bg-purple-50 text-purple-900 text-sm p-3">
+            Interest: <strong>R{preview.interestAmount.toLocaleString()}</strong>
+            {' · '}
+            Total due:{' '}
+            <strong>R{preview.totalDue.toLocaleString()}</strong>
+          </div>
+        : null}
+
+        <label className="flex items-center gap-2 text-sm text-slate-700 mb-3">
+          <input
+            type="checkbox"
+            checked={fromPool}
+            onChange={(e) => setFromPool(e.target.checked)}
+          />
+          Taken from stokvel pool (deduct R{amount || '0'} now)
+        </label>
+
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          Notes (optional)
+        </label>
+        <KPInput
+          className="mb-4"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        <KPButton
+          type="button"
+          disabled={busy || group.members.length === 0}
+          onClick={() => void submit()}
+          className="bg-purple-600">
+          {busy ? 'Saving…' : 'Save loan'}
+        </KPButton>
+      </div>
+    </div>
   );
 };
 
@@ -444,36 +772,27 @@ const ManageMembersModal = ({
             className="bg-slate-50 rounded-lg px-3 py-2 text-sm border border-slate-200"
             inputMode="tel"
           />
-          <input
-            placeholder="Contributed (R)"
-            value={contributed}
-            onChange={(e) => setContributed(e.target.value)}
-            className="col-span-2 bg-slate-50 rounded-lg px-3 py-2 text-sm border border-slate-200"
-            type="number"
-            inputMode="decimal"
-          />
         </div>
+        <input
+          placeholder="Contributed (R)"
+          type="number"
+          value={contributed}
+          onChange={(e) => setContributed(e.target.value)}
+          className="w-full bg-slate-50 rounded-lg px-3 py-2 text-sm border border-slate-200 mb-2"
+        />
         <button
           type="button"
           onClick={add}
-          className="w-full mb-3 py-2 rounded-lg bg-purple-100 text-purple-700 text-sm font-medium">
-          + Add member
+          className="w-full mb-4 py-2 rounded-xl bg-purple-100 text-purple-800 text-sm font-medium">
+          Add member
         </button>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium text-sm">
-            Cancel
-          </button>
-          <KPButton
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="flex-1 bg-purple-600">
-            {busy ? 'Saving…' : 'Save members'}
-          </KPButton>
-        </div>
+        <KPButton
+          type="button"
+          disabled={busy}
+          onClick={() => void save()}
+          className="bg-purple-600">
+          {busy ? 'Saving…' : 'Save members'}
+        </KPButton>
       </div>
     </div>
   );

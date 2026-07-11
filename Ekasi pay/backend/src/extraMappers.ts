@@ -87,6 +87,54 @@ export function toStokvel(row: {
   };
 }
 
+export function toStokvelLoan(row: {
+  id: string;
+  stokvel_id: string;
+  lender_name: string;
+  lender_phone: string;
+  borrower_name: string;
+  borrower_phone: string;
+  amount: number;
+  interest_rate_percent: number;
+  interest_amount: number;
+  total_due: number;
+  from_pool: boolean | number;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  repaid_at: string | null;
+}) {
+  return {
+    id: row.id,
+    stokvelId: row.stokvel_id,
+    lenderName: row.lender_name,
+    lenderPhone: row.lender_phone,
+    borrowerName: row.borrower_name,
+    borrowerPhone: row.borrower_phone,
+    amount: Number(row.amount),
+    interestRatePercent: Number(row.interest_rate_percent),
+    interestAmount: Number(row.interest_amount),
+    totalDue: Number(row.total_due),
+    fromPool: Boolean(row.from_pool),
+    status: row.status as 'active' | 'repaid',
+    notes: row.notes ?? undefined,
+    createdAt: row.created_at,
+    repaidAt: row.repaid_at ?? undefined,
+  };
+}
+
+/** Interest for every R100 loaned at the chosen percent (e.g. 10% → R10 per R100). */
+export function calcStokvelLoanInterest(
+  principal: number,
+  ratePercent: number,
+): { interestAmount: number; totalDue: number } {
+  const interestAmount = Number(((principal / 100) * ratePercent).toFixed(2));
+  return {
+    interestAmount,
+    totalDue: Number((principal + interestAmount).toFixed(2)),
+  };
+}
+
 export function toLayby(row: {
   id: string;
   merchant_id: string;
