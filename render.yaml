@@ -42,7 +42,7 @@ services:
       - key: OPS_DASHBOARD_PASSWORD
         sync: false
       - key: OPS_SUPER_ADMIN_USERNAME
-        value: superadmin
+        value: OPS
       - key: OPS_JWT_SECRET
         generateValue: true
 

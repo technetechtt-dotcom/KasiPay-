@@ -32,7 +32,7 @@ export const OPS_TOKEN_TTL_SEC = Number(
 );
 
 export const OPS_SUPER_ADMIN_USERNAME =
-  process.env.OPS_SUPER_ADMIN_USERNAME?.trim() || 'superadmin';
+  process.env.OPS_SUPER_ADMIN_USERNAME?.trim() || 'OPS';
 /** Password for the single env-managed ops account (`OPS_SUPER_ADMIN_USERNAME`). */
 export const OPS_SUPER_ADMIN_PASSWORD =
   process.env.OPS_DASHBOARD_PASSWORD?.trim() ||
