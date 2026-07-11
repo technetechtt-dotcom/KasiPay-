@@ -68,7 +68,7 @@ function fmtDate(iso: string) {
 }
 
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [username, setUsername] = useState('OPS');
+  const [username, setUsername] = useState('IvanIJ');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
