@@ -665,7 +665,9 @@ function MerchantsTab() {
                     disabled={busyId === m.id}
                     onClick={() => void review(m.id, 'approved')}
                   >
-                    Approve
+                    {(m.documentsUploaded ?? 0) < 4
+                      ? 'Approve without all docs'
+                      : 'Approve'}
                   </button>
                   <button
                     type="button"

@@ -588,22 +588,7 @@ adminRouterPg.patch(
       });
     }
 
-    if (
-      parsed.data.status === 'approved' &&
-      existing.approval_status !== 'pending_approval' &&
-      existing.approval_status !== 'rejected'
-    ) {
-      const docsQ = await pool.query<{ c: string }>(
-        `SELECT COUNT(*)::text AS c FROM merchant_documents WHERE merchant_id = $1`,
-        [existing.id],
-      );
-      if (Number(docsQ.rows[0]?.c ?? 0) < 4) {
-        return res.status(400).json({
-          error: 'Merchant must submit all four compliance documents first.',
-        });
-      }
-    }
-
+    // Admins/ops may approve even when documents are incomplete.
     const now = new Date().toISOString();
     const reviewer =
       appActorUserId(req) ??

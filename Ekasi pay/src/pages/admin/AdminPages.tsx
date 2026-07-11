@@ -1778,11 +1778,11 @@ export const MerchantApprovalsPage = ({
                   <div className="flex gap-2">
                     <KPButton
                       className="flex-1 h-10 text-sm"
-                      disabled={
-                        busyId === m.id || (m.documentsUploaded ?? 0) < 4
-                      }
+                      disabled={busyId === m.id}
                       onClick={() => void review(m.id, 'approved')}>
-                      Approve
+                      {(m.documentsUploaded ?? 0) < 4
+                        ? 'Approve without all docs'
+                        : 'Approve'}
                     </KPButton>
                     <KPButton
                       variant="outline"
