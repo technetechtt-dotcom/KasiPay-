@@ -227,6 +227,13 @@ api.use((req, res, next) => {
 
 if (isPostgresMode()) {
   api.use(authRouterPg);
+  // Ops/admin must mount before routers that call router.use(requireAuth).
+  // Those stacks run for every request that enters them and would 401 /ops/login
+  // (and reject ops JWTs) before these routes are reached.
+  api.use(opsAuthRouterPg);
+  api.use(adminUsersRouterPg);
+  api.use(adminMonitoringRouterPg);
+  api.use(adminRouterPg);
   api.use(meRouterPg);
   api.use(walletsRouterPg);
   api.use(merchantsRouterPg);
@@ -243,10 +250,6 @@ if (isPostgresMode()) {
   api.use(extensionAccountRouterPg);
   api.use(cashSendRouterPg);
   api.use(commissionsRouterPg);
-  api.use(opsAuthRouterPg);
-  api.use(adminUsersRouterPg);
-  api.use(adminMonitoringRouterPg);
-  api.use(adminRouterPg);
   api.use(utilitiesRouterPg);
   api.use((_req, res) => {
     res.status(501).json({
