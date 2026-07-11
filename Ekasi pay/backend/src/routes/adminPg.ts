@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
@@ -6,13 +7,28 @@ import { toComplianceFlag, toLoan } from '../extraMappers.js';
 import { toMerchant } from '../mappers.js';
 import { requireAuth, requireRoles } from '../middleware/requireAuth.js';
 import { requireAdminOrOps } from '../opsAuth.js';
+import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
+import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
+import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 import {
   adminClaimListQuerySchema,
   adminClaimPatchBodySchema,
 } from '../validation.js';
 
 export const adminRouterPg = Router();
+
+const gate = [requireAdminOrOps] as const;
+
+/** App-admin user id when present; null for ops (FK to users). */
+function appActorUserId(req: Request): string | null {
+  return req.auth?.userId ?? null;
+}
+
+function actorLabel(req: Request): string {
+  if (req.opsAuth) return `ops:${req.opsAuth.username}`;
+  return req.auth?.userId ?? 'admin';
+}
 
 const loanListQuery = z.object({
   status: z
@@ -21,26 +37,94 @@ const loanListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 
-adminRouterPg.get(
-  '/admin/loans',
-  requireAuth,
-  requireRoles('admin'),
+adminRouterPg.get('/admin/loans', ...gate, async (req, res) => {
+  const parsed = loanListQuery.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const pool = getPgPool();
+  const r = parsed.data.status
+    ? await pool.query(
+        `SELECT * FROM loans WHERE status = $1 ORDER BY id DESC LIMIT $2`,
+        [parsed.data.status, parsed.data.limit],
+      )
+    : await pool.query(
+        `SELECT * FROM loans ORDER BY id DESC LIMIT $1`,
+        [parsed.data.limit],
+      );
+  return res.json({ loans: r.rows.map(toLoan) });
+});
+
+type LoanRow = {
+  id: string;
+  user_id: string;
+  amount: number;
+  interest_rate: number;
+  status: string;
+  disbursed_at: string | null;
+  due_date: string | null;
+  repaid_amount: number;
+};
+
+adminRouterPg.patch(
+  '/admin/loans/:id/disburse',
+  ...gate,
   async (req, res) => {
-    const parsed = loanListQuery.safeParse(req.query);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.flatten() });
-    }
     const pool = getPgPool();
-    const r = parsed.data.status
-      ? await pool.query(
-          `SELECT * FROM loans WHERE status = $1 ORDER BY id DESC LIMIT $2`,
-          [parsed.data.status, parsed.data.limit],
-        )
-      : await pool.query(
-          `SELECT * FROM loans ORDER BY id DESC LIMIT $1`,
-          [parsed.data.limit],
-        );
-    return res.json({ loans: r.rows.map(toLoan) });
+    const rowQ = await pool.query<LoanRow>(
+      `SELECT * FROM loans WHERE id = $1`,
+      [req.params.id],
+    );
+    const row = rowQ.rows[0];
+    if (!row) return res.status(404).json({ error: 'Loan not found' });
+    if (row.status !== 'pending') {
+      return res.status(409).json({ error: `Loan is already ${row.status}` });
+    }
+    const escrowId = await getEscrowWalletIdForPoolPg(pool, DEFAULT_POOL_ID);
+    if (!escrowId) {
+      return res.status(500).json({ error: 'Escrow wallet not configured' });
+    }
+    const userWalletQ = await pool.query<{ id: string }>(
+      `SELECT id FROM wallets WHERE user_id = $1`,
+      [row.user_id],
+    );
+    const userWallet = userWalletQ.rows[0];
+    if (!userWallet) {
+      return res.status(404).json({ error: 'User wallet missing' });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await postBetweenWalletsPg(client, {
+        fromWalletId: escrowId,
+        toWalletId: userWallet.id,
+        amount: row.amount,
+        type: 'loan_disbursement',
+        referencePrefix: 'LOAN',
+        description: `Loan disbursement (${(row.interest_rate * 100).toFixed(1)}% rate)`,
+      });
+      await client.query(
+        `UPDATE loans SET status = 'disbursed', disbursed_at = $1 WHERE id = $2`,
+        [new Date().toISOString(), row.id],
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      const msg = e instanceof Error ? e.message : 'Disbursement failed';
+      return res.status(500).json({ error: msg });
+    } finally {
+      client.release();
+    }
+    await recordAuditEventPg(pool, {
+      type: 'admin.loan_disburse',
+      message: `Loan ${row.id} disbursed R${row.amount.toFixed(2)} by ${actorLabel(req)}`,
+      actorUserId: appActorUserId(req),
+    });
+    const freshQ = await pool.query<LoanRow>(
+      `SELECT * FROM loans WHERE id = $1`,
+      [row.id],
+    );
+    return res.json({ loan: toLoan(freshQ.rows[0]) });
   },
 );
 
@@ -50,8 +134,7 @@ const flagPatchBody = z.object({
 
 adminRouterPg.patch(
   '/admin/compliance/flags/:id',
-  requireAuth,
-  requireRoles('admin'),
+  ...gate,
   async (req, res) => {
     const parsed = flagPatchBody.safeParse(req.body);
     if (!parsed.success) {
@@ -65,6 +148,11 @@ adminRouterPg.patch(
     if ((upd.rowCount ?? 0) === 0) {
       return res.status(404).json({ error: 'Flag not found' });
     }
+    await recordAuditEventPg(pool, {
+      type: 'admin.compliance_flag',
+      message: `Flag ${req.params.id} -> ${parsed.data.status} by ${actorLabel(req)}`,
+      actorUserId: appActorUserId(req),
+    });
     const rowQ = await pool.query(
       `SELECT * FROM compliance_flags WHERE id = $1`,
       [req.params.id],
@@ -150,8 +238,7 @@ const CLAIM_TRANSITIONS: Record<string, string[]> = {
 
 adminRouterPg.get(
   '/admin/insurance/claims',
-  requireAuth,
-  requireRoles('admin'),
+  ...gate,
   async (req, res) => {
     const parsed = adminClaimListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -182,8 +269,7 @@ adminRouterPg.get(
 
 adminRouterPg.patch(
   '/admin/insurance/claims/:id',
-  requireAuth,
-  requireRoles('admin'),
+  ...gate,
   async (req, res) => {
     const parsed = adminClaimPatchBodySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -205,20 +291,21 @@ adminRouterPg.patch(
       });
     }
     const now = new Date().toISOString();
+    const reviewer = appActorUserId(req);
+    const noteParts = [
+      parsed.data.adminNote?.trim() || null,
+      req.opsAuth ? `Reviewed by ${actorLabel(req)}` : null,
+    ].filter(Boolean);
+    const adminNote =
+      noteParts.length > 0 ? noteParts.join(' — ') : null;
     await pool.query(
       `UPDATE insurance_claims
           SET status = $1,
               reviewed_at = $2,
-              reviewed_by = $3,
+              reviewed_by = COALESCE($3, reviewed_by),
               admin_note = COALESCE($4, admin_note)
         WHERE id = $5`,
-      [
-        parsed.data.status,
-        now,
-        req.auth!.userId,
-        parsed.data.adminNote?.trim() ?? null,
-        req.params.id,
-      ],
+      [parsed.data.status, now, reviewer, adminNote, req.params.id],
     );
     const rowQ = await pool.query<AdminClaimRow>(
       `SELECT c.*, m.business_name, m.user_id AS merchant_user_id
@@ -230,8 +317,8 @@ adminRouterPg.patch(
     const row = rowQ.rows[0];
     await recordAuditEventPg(pool, {
       type: 'admin.claim_review',
-      message: `Claim ${row.id} (${row.type}, R${row.claimed_amount.toFixed(2)}) -> ${parsed.data.status}`,
-      actorUserId: req.auth!.userId,
+      message: `Claim ${row.id} (${row.type}, R${row.claimed_amount.toFixed(2)}) -> ${parsed.data.status} by ${actorLabel(req)}`,
+      actorUserId: reviewer,
     });
     return res.json({ claim: toAdminInsuranceClaim(row) });
   },
@@ -346,116 +433,105 @@ const merchantListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 
-adminRouterPg.get(
-  '/admin/merchants',
-  requireAuth,
-  requireRoles('admin'),
-  async (req, res) => {
-    const parsed = merchantListQuery.safeParse(req.query);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.flatten() });
-    }
-    const pool = getPgPool();
-    const r = parsed.data.status
-      ? await pool.query<AdminMerchantRow>(
-          `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
-             FROM merchants m
-             LEFT JOIN users u ON u.id = m.user_id
-            WHERE m.approval_status = $1
-            ORDER BY COALESCE(m.docs_submitted_at, m.reviewed_at) DESC NULLS LAST
-            LIMIT $2`,
-          [parsed.data.status, parsed.data.limit],
-        )
-      : await pool.query<AdminMerchantRow>(
-          `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
-             FROM merchants m
-             LEFT JOIN users u ON u.id = m.user_id
-            ORDER BY COALESCE(m.docs_submitted_at, m.reviewed_at) DESC NULLS LAST
-            LIMIT $1`,
-          [parsed.data.limit],
-        );
-
-    const merchantIds = r.rows.map((row) => row.id);
-    const docCounts = new Map<string, number>();
-    if (merchantIds.length > 0) {
-      const dq = await pool.query<{ merchant_id: string; c: string }>(
-        `SELECT merchant_id, COUNT(*)::text AS c
-           FROM merchant_documents
-          WHERE merchant_id = ANY($1::text[])
-          GROUP BY merchant_id`,
-        [merchantIds],
+adminRouterPg.get('/admin/merchants', ...gate, async (req, res) => {
+  const parsed = merchantListQuery.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const pool = getPgPool();
+  const r = parsed.data.status
+    ? await pool.query<AdminMerchantRow>(
+        `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+           FROM merchants m
+           LEFT JOIN users u ON u.id = m.user_id
+          WHERE m.approval_status = $1
+          ORDER BY COALESCE(m.docs_submitted_at, m.reviewed_at) DESC NULLS LAST
+          LIMIT $2`,
+        [parsed.data.status, parsed.data.limit],
+      )
+    : await pool.query<AdminMerchantRow>(
+        `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+           FROM merchants m
+           LEFT JOIN users u ON u.id = m.user_id
+          ORDER BY COALESCE(m.docs_submitted_at, m.reviewed_at) DESC NULLS LAST
+          LIMIT $1`,
+        [parsed.data.limit],
       );
-      for (const row of dq.rows) {
-        docCounts.set(row.merchant_id, Number(row.c));
-      }
-    }
 
-    return res.json({
-      merchants: r.rows.map((row) => ({
-        ...toMerchant(row),
-        ownerName: row.owner_name ?? undefined,
-        ownerPhone: row.owner_phone ?? undefined,
-        documentsUploaded: docCounts.get(row.id) ?? 0,
-        documentsRequired: 4,
-      })),
-    });
-  },
-);
-
-adminRouterPg.get(
-  '/admin/merchants/:id',
-  requireAuth,
-  requireRoles('admin'),
-  async (req, res) => {
-    const pool = getPgPool();
-    const r = await pool.query<AdminMerchantRow>(
-      `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
-         FROM merchants m
-         LEFT JOIN users u ON u.id = m.user_id
-        WHERE m.id = $1`,
-      [req.params.id],
-    );
-    const row = r.rows[0];
-    if (!row) return res.status(404).json({ error: 'Merchant not found' });
-
-    const docs = await pool.query<{
-      doc_type: string;
-      file_name: string;
-      content_type: string;
-      size_bytes: number;
-      uploaded_at: string | Date;
-    }>(
-      `SELECT doc_type, file_name, content_type, size_bytes, uploaded_at
+  const merchantIds = r.rows.map((row) => row.id);
+  const docCounts = new Map<string, number>();
+  if (merchantIds.length > 0) {
+    const dq = await pool.query<{ merchant_id: string; c: string }>(
+      `SELECT merchant_id, COUNT(*)::text AS c
          FROM merchant_documents
-        WHERE merchant_id = $1
-        ORDER BY doc_type`,
-      [row.id],
+        WHERE merchant_id = ANY($1::text[])
+        GROUP BY merchant_id`,
+      [merchantIds],
     );
+    for (const row of dq.rows) {
+      docCounts.set(row.merchant_id, Number(row.c));
+    }
+  }
 
-    return res.json({
-      merchant: {
-        ...toMerchant(row),
-        ownerName: row.owner_name ?? undefined,
-        ownerPhone: row.owner_phone ?? undefined,
-      },
-      documents: docs.rows.map((d) => ({
-        docType: d.doc_type,
-        fileName: d.file_name,
-        contentType: d.content_type,
-        sizeBytes: d.size_bytes,
-        uploadedAt:
-          typeof d.uploaded_at === 'string' ?
-            d.uploaded_at
-          : d.uploaded_at.toISOString(),
-      })),
-    });
-  },
-);
+  return res.json({
+    merchants: r.rows.map((row) => ({
+      ...toMerchant(row),
+      ownerName: row.owner_name ?? undefined,
+      ownerPhone: row.owner_phone ?? undefined,
+      documentsUploaded: docCounts.get(row.id) ?? 0,
+      documentsRequired: 4,
+    })),
+  });
+});
+
+adminRouterPg.get('/admin/merchants/:id', ...gate, async (req, res) => {
+  const pool = getPgPool();
+  const r = await pool.query<AdminMerchantRow>(
+    `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
+       FROM merchants m
+       LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.id = $1`,
+    [req.params.id],
+  );
+  const row = r.rows[0];
+  if (!row) return res.status(404).json({ error: 'Merchant not found' });
+
+  const docs = await pool.query<{
+    doc_type: string;
+    file_name: string;
+    content_type: string;
+    size_bytes: number;
+    uploaded_at: string | Date;
+  }>(
+    `SELECT doc_type, file_name, content_type, size_bytes, uploaded_at
+       FROM merchant_documents
+      WHERE merchant_id = $1
+      ORDER BY doc_type`,
+    [row.id],
+  );
+
+  return res.json({
+    merchant: {
+      ...toMerchant(row),
+      ownerName: row.owner_name ?? undefined,
+      ownerPhone: row.owner_phone ?? undefined,
+    },
+    documents: docs.rows.map((d) => ({
+      docType: d.doc_type,
+      fileName: d.file_name,
+      contentType: d.content_type,
+      sizeBytes: d.size_bytes,
+      uploadedAt:
+        typeof d.uploaded_at === 'string' ?
+          d.uploaded_at
+        : d.uploaded_at.toISOString(),
+    })),
+  });
+});
 
 adminRouterPg.get(
   '/admin/merchants/:id/documents/:docType',
-  requireAuth,
-  requireRoles('admin'),
+  ...gate,
   async (req, res) => {
     const pool = getPgPool();
     const r = await pool.query<{
@@ -486,8 +562,7 @@ const merchantApprovalBody = z.object({
 
 adminRouterPg.patch(
   '/admin/merchants/:id/approval',
-  requireAuth,
-  requireRoles('admin'),
+  ...gate,
   async (req, res) => {
     const parsed = merchantApprovalBody.safeParse(req.body);
     if (!parsed.success) {
@@ -523,7 +598,6 @@ adminRouterPg.patch(
       existing.approval_status !== 'pending_approval' &&
       existing.approval_status !== 'rejected'
     ) {
-      // Allow approve from pending_approval primarily; also allow if docs exist.
       const docsQ = await pool.query<{ c: string }>(
         `SELECT COUNT(*)::text AS c FROM merchant_documents WHERE merchant_id = $1`,
         [existing.id],
@@ -536,6 +610,9 @@ adminRouterPg.patch(
     }
 
     const now = new Date().toISOString();
+    const reviewer =
+      appActorUserId(req) ??
+      (req.opsAuth ? `ops:${req.opsAuth.operatorId}` : null);
     await pool.query(
       `UPDATE merchants
           SET approval_status = $1,
@@ -547,7 +624,7 @@ adminRouterPg.patch(
         parsed.data.status,
         parsed.data.status === 'rejected' ? parsed.data.reason!.trim() : null,
         now,
-        req.auth!.userId,
+        reviewer,
         existing.id,
       ],
     );
@@ -566,8 +643,8 @@ adminRouterPg.patch(
 
     await recordAuditEventPg(pool, {
       type: 'admin.merchant_approval',
-      message: `Merchant ${existing.business_name} (${existing.id}) -> ${parsed.data.status}`,
-      actorUserId: req.auth!.userId,
+      message: `Merchant ${existing.business_name} (${existing.id}) -> ${parsed.data.status} by ${actorLabel(req)}`,
+      actorUserId: appActorUserId(req),
     });
 
     const freshQ = await pool.query<AdminMerchantRow>(

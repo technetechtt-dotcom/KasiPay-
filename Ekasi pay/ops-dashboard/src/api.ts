@@ -325,6 +325,165 @@ export async function apiComplianceFlags(status?: string) {
   }>(`/api/admin/compliance/flags${q}`);
 }
 
+export async function apiUpdateComplianceFlag(
+  id: string,
+  status: 'resolved' | 'dismissed' | 'open',
+) {
+  return opsFetch<{
+    flag: {
+      id: string;
+      userId: string;
+      reason: string;
+      severity: string;
+      status: string;
+      createdAt: string;
+    };
+  }>(`/api/admin/compliance/flags/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export type OpsInsuranceClaim = {
+  id: string;
+  policyId: string;
+  merchantId: string;
+  merchantBusinessName?: string;
+  merchantUserId?: string;
+  type: string;
+  description: string;
+  claimedAmount: number;
+  status: 'submitted' | 'approved' | 'rejected' | 'paid' | string;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  adminNote?: string;
+};
+
+export async function apiInsuranceClaims(status?: string) {
+  const q = new URLSearchParams();
+  if (status) q.set('status', status);
+  const qs = q.toString();
+  return opsFetch<{ claims: OpsInsuranceClaim[] }>(
+    `/api/admin/insurance/claims${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export async function apiUpdateInsuranceClaim(
+  id: string,
+  body: { status: 'approved' | 'rejected' | 'paid'; adminNote?: string },
+) {
+  return opsFetch<{ claim: OpsInsuranceClaim }>(
+    `/api/admin/insurance/claims/${id}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export type OpsLoan = {
+  id: string;
+  userId: string;
+  amount: number;
+  interestRate: number;
+  status: string;
+  repaidAmount: number;
+  disbursedAt?: string;
+  dueDate?: string;
+};
+
+export async function apiLoans(status?: string) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  return opsFetch<{ loans: OpsLoan[] }>(`/api/admin/loans${q}`);
+}
+
+export async function apiDisburseLoan(id: string) {
+  return opsFetch<{ loan: OpsLoan }>(`/api/admin/loans/${id}/disburse`, {
+    method: 'PATCH',
+  });
+}
+
+export type OpsMerchant = {
+  id: string;
+  userId: string;
+  businessName: string;
+  location: string;
+  category: string;
+  approvalStatus?: string;
+  rejectionReason?: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  documentsUploaded?: number;
+  documentsRequired?: number;
+  docsSubmittedAt?: string;
+  reviewedAt?: string;
+};
+
+export type OpsMerchantDoc = {
+  docType: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
+export async function apiMerchants(status?: string) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  return opsFetch<{ merchants: OpsMerchant[] }>(`/api/admin/merchants${q}`);
+}
+
+export async function apiMerchantDetail(id: string) {
+  return opsFetch<{ merchant: OpsMerchant; documents: OpsMerchantDoc[] }>(
+    `/api/admin/merchants/${id}`,
+  );
+}
+
+export async function apiReviewMerchant(
+  id: string,
+  body: { status: 'approved' | 'rejected'; reason?: string },
+) {
+  return opsFetch<{ merchant: OpsMerchant }>(
+    `/api/admin/merchants/${id}/approval`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function apiFetchMerchantDocument(
+  merchantId: string,
+  docType: string,
+): Promise<{ blob: Blob; fileName: string }> {
+  const token = getToken();
+  if (!token) throw new Error('Not signed in. Please sign in again.');
+  const path = `/api/admin/merchants/${merchantId}/documents/${docType}`;
+  const base = apiBaseUrl();
+  const url = base ? `${base}${path}` : path;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: '*/*',
+    },
+  });
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (typeof body?.error === 'string') msg = body.error;
+    } catch {
+      /* ignore */
+    }
+    if (res.status === 401) clearToken();
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return { blob, fileName: match?.[1] ?? `${docType}.bin` };
+}
+
 export async function apiAuditEvents() {
   return opsFetch<{
     events: {

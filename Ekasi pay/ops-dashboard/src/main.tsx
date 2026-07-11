@@ -9,17 +9,30 @@ import {
   apiBaseUrl,
   apiCashSendVouchers,
   apiComplianceFlags,
+  apiDisburseLoan,
+  apiFetchMerchantDocument,
+  apiInsuranceClaims,
+  apiLoans,
   apiLogin,
   apiMe,
+  apiMerchantDetail,
+  apiMerchants,
   apiOverview,
   apiReconciliation,
+  apiReviewMerchant,
   apiTransactions,
+  apiUpdateComplianceFlag,
+  apiUpdateInsuranceClaim,
   apiUserDetail,
   apiUsers,
   clearToken,
   getToken,
   type OpsAdminUser,
   type OpsCashSendVoucher,
+  type OpsInsuranceClaim,
+  type OpsLoan,
+  type OpsMerchant,
+  type OpsMerchantDoc,
   type OpsUser,
   type Overview,
 } from './api';
@@ -27,10 +40,20 @@ import {
 type Tab =
   | 'overview'
   | 'users'
+  | 'merchants'
+  | 'claims'
+  | 'loans'
   | 'compliance'
   | 'audit'
   | 'transactions'
   | 'cashsend';
+
+const MERCHANT_DOC_LABELS: Record<string, string> = {
+  cipc_14_3: 'CIPC 14.3',
+  beee_certificate: 'B-BBEE certificate',
+  municipal_business_reg: 'Municipal business registration',
+  proof_of_bank: 'Proof of bank account',
+};
 
 function fmtMoney(n: number) {
   return `R${n.toFixed(2)}`;
@@ -312,18 +335,56 @@ function UsersTab() {
 }
 
 function ComplianceTab() {
-  const [flags, setFlags] = useState<Awaited<ReturnType<typeof apiComplianceFlags>>['flags']>([]);
+  const [status, setStatus] = useState('open');
+  const [flags, setFlags] = useState<
+    Awaited<ReturnType<typeof apiComplianceFlags>>['flags']
+  >([]);
   const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const r = await apiComplianceFlags(status || undefined);
+      setFlags(r.flags);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
+    }
+  }, [status]);
 
   useEffect(() => {
-    void apiComplianceFlags()
-      .then((r) => setFlags(r.flags))
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'));
-  }, []);
+    void load();
+  }, [load]);
+
+  const update = async (id: string, next: 'resolved' | 'dismissed') => {
+    setBusyId(id);
+    setError('');
+    try {
+      await apiUpdateComplianceFlag(id, next);
+      setFlags((prev) => prev.filter((f) => f.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="panel">
-      <h2>Compliance flags</h2>
+      <div className="panel-head">
+        <h2>Compliance &amp; AML</h2>
+        <button type="button" className="ghost" onClick={() => void load()}>
+          Refresh
+        </button>
+      </div>
+      <div className="filters">
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="open">Open</option>
+          <option value="resolved">Resolved</option>
+          <option value="dismissed">Dismissed</option>
+          <option value="">All</option>
+        </select>
+      </div>
       {error ? <p className="error">{error}</p> : null}
       <div className="table-wrap">
         <table>
@@ -334,6 +395,7 @@ function ComplianceTab() {
               <th>Reason</th>
               <th>Status</th>
               <th>When</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -347,11 +409,411 @@ function ComplianceTab() {
                 <td>{f.reason}</td>
                 <td>{f.status}</td>
                 <td>{fmtDate(f.createdAt)}</td>
+                <td>
+                  {f.status === 'open' ? (
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        disabled={busyId === f.id}
+                        onClick={() => void update(f.id, 'resolved')}
+                      >
+                        Resolve
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={busyId === f.id}
+                        onClick={() => void update(f.id, 'dismissed')}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {flags.length === 0 ? <p className="muted">No flags in this filter.</p> : null}
+    </div>
+  );
+}
+
+function MerchantsTab() {
+  const [status, setStatus] = useState('pending_approval');
+  const [merchants, setMerchants] = useState<OpsMerchant[]>([]);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [docsById, setDocsById] = useState<Record<string, OpsMerchantDoc[]>>({});
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const r = await apiMerchants(status || undefined);
+      setMerchants(r.merchants);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load merchants');
+    }
+  }, [status]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const openDocs = async (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (docsById[id]) return;
+    try {
+      const r = await apiMerchantDetail(id);
+      setDocsById((prev) => ({ ...prev, [id]: r.documents }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load documents');
+    }
+  };
+
+  const viewDoc = async (merchantId: string, docType: string) => {
+    try {
+      const { blob, fileName } = await apiFetchMerchantDocument(merchantId, docType);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      void fileName;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open document');
+    }
+  };
+
+  const review = async (id: string, next: 'approved' | 'rejected') => {
+    if (next === 'rejected' && !reasons[id]?.trim()) {
+      setError('Add a rejection reason first.');
+      return;
+    }
+    setBusyId(id);
+    setError('');
+    try {
+      const { merchant } = await apiReviewMerchant(id, {
+        status: next,
+        reason: reasons[id]?.trim() || undefined,
+      });
+      if (status && status !== next && status !== 'all') {
+        setMerchants((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        setMerchants((prev) => prev.map((m) => (m.id === id ? { ...m, ...merchant } : m)));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Review failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Merchant approvals</h2>
+        <button type="button" className="ghost" onClick={() => void load()}>
+          Refresh
+        </button>
+      </div>
+      <div className="filters">
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="pending_approval">Pending approval</option>
+          <option value="pending_docs">Pending docs</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="">All</option>
+        </select>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <div className="card-list">
+        {merchants.map((m) => (
+          <div key={m.id} className="action-card">
+            <div className="action-card-head">
+              <div>
+                <strong>{m.businessName}</strong>
+                <p className="muted">
+                  {m.ownerName ?? 'Owner'} · {m.ownerPhone ?? '—'} · {m.location}
+                </p>
+              </div>
+              <span className="badge">{(m.approvalStatus ?? '—').replace(/_/g, ' ')}</span>
+            </div>
+            <p className="muted">
+              Docs {m.documentsUploaded ?? 0}/{m.documentsRequired ?? 4}
+              {m.rejectionReason ? ` · Rejected: ${m.rejectionReason}` : ''}
+            </p>
+            <button type="button" className="ghost" onClick={() => void openDocs(m.id)}>
+              {expandedId === m.id ? 'Hide documents' : 'View documents'}
+            </button>
+            {expandedId === m.id ? (
+              <ul className="doc-list">
+                {(docsById[m.id] ?? []).length === 0 ? (
+                  <li className="muted">No documents uploaded.</li>
+                ) : (
+                  (docsById[m.id] ?? []).map((d) => (
+                    <li key={d.docType}>
+                      <button
+                        type="button"
+                        className="linkish"
+                        onClick={() => void viewDoc(m.id, d.docType)}
+                      >
+                        {MERCHANT_DOC_LABELS[d.docType] ?? d.docType}
+                      </button>
+                      <span className="muted"> {d.fileName}</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            ) : null}
+            {(m.approvalStatus === 'pending_approval' ||
+              m.approvalStatus === 'rejected' ||
+              m.approvalStatus === 'pending_docs') && (
+              <div className="review-box">
+                <input
+                  placeholder="Rejection reason (required to reject)"
+                  value={reasons[m.id] ?? ''}
+                  onChange={(e) =>
+                    setReasons((prev) => ({ ...prev, [m.id]: e.target.value }))
+                  }
+                />
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    disabled={busyId === m.id}
+                    onClick={() => void review(m.id, 'approved')}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={busyId === m.id}
+                    onClick={() => void review(m.id, 'rejected')}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {merchants.length === 0 ? <p className="muted">No merchants in this queue.</p> : null}
+    </div>
+  );
+}
+
+function ClaimsTab() {
+  const [status, setStatus] = useState('submitted');
+  const [claims, setClaims] = useState<OpsInsuranceClaim[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const r = await apiInsuranceClaims(status || undefined);
+      setClaims(r.claims);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load claims');
+    }
+  }, [status]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const update = async (id: string, next: 'approved' | 'rejected' | 'paid') => {
+    setBusyId(id);
+    setError('');
+    try {
+      const { claim } = await apiUpdateInsuranceClaim(id, {
+        status: next,
+        adminNote: notes[id]?.trim() || undefined,
+      });
+      if (status && status !== next) {
+        setClaims((prev) => prev.filter((c) => c.id !== id));
+      } else {
+        setClaims((prev) => prev.map((c) => (c.id === id ? claim : c)));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Insurance claims</h2>
+        <button type="button" className="ghost" onClick={() => void load()}>
+          Refresh
+        </button>
+      </div>
+      <div className="filters">
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="submitted">Submitted</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="paid">Paid</option>
+          <option value="">All</option>
+        </select>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <div className="card-list">
+        {claims.map((c) => (
+          <div key={c.id} className="action-card">
+            <div className="action-card-head">
+              <div>
+                <strong>
+                  {fmtMoney(c.claimedAmount)} · {c.type}
+                </strong>
+                <p className="muted">
+                  {c.merchantBusinessName ?? c.merchantId} · {fmtDate(c.createdAt)}
+                </p>
+              </div>
+              <span className="badge">{c.status}</span>
+            </div>
+            <p>{c.description}</p>
+            {c.adminNote ? <p className="muted">Note: {c.adminNote}</p> : null}
+            {(c.status === 'submitted' || c.status === 'approved') && (
+              <div className="review-box">
+                <input
+                  placeholder="Admin note (optional)"
+                  value={notes[c.id] ?? ''}
+                  onChange={(e) =>
+                    setNotes((prev) => ({ ...prev, [c.id]: e.target.value }))
+                  }
+                />
+                <div className="row-actions">
+                  {c.status === 'submitted' ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busyId === c.id}
+                        onClick={() => void update(c.id, 'approved')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={busyId === c.id}
+                        onClick={() => void update(c.id, 'rejected')}
+                      >
+                        Reject
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busyId === c.id}
+                      onClick={() => void update(c.id, 'paid')}
+                    >
+                      Mark paid
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {claims.length === 0 ? <p className="muted">No claims in this filter.</p> : null}
+    </div>
+  );
+}
+
+function LoansTab() {
+  const [loans, setLoans] = useState<OpsLoan[]>([]);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const r = await apiLoans('pending');
+      setLoans(r.loans);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load loans');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const disburse = async (loan: OpsLoan) => {
+    setBusyId(loan.id);
+    setError('');
+    try {
+      await apiDisburseLoan(loan.id);
+      setLoans((prev) => prev.filter((l) => l.id !== loan.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Disbursement failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Loan disbursement queue</h2>
+        <button type="button" className="ghost" onClick={() => void load()} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Amount</th>
+              <th>APR</th>
+              <th>Borrower</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loans.map((loan) => (
+              <tr key={loan.id}>
+                <td>{fmtMoney(loan.amount)}</td>
+                <td>{(loan.interestRate * 100).toFixed(1)}%</td>
+                <td className="mono">{loan.userId}</td>
+                <td>{loan.status}</td>
+                <td>
+                  <button
+                    type="button"
+                    disabled={busyId === loan.id}
+                    onClick={() => void disburse(loan)}
+                  >
+                    {busyId === loan.id ? 'Posting…' : 'Disburse'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {loans.length === 0 && !loading ? (
+        <p className="muted">No pending loan applications.</p>
+      ) : null}
     </div>
   );
 }
@@ -761,6 +1223,9 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'users', label: 'Users' },
+    { id: 'merchants', label: 'Merchants' },
+    { id: 'claims', label: 'Claims' },
+    { id: 'loans', label: 'Loans' },
     { id: 'cashsend', label: 'Cash Send' },
     { id: 'compliance', label: 'Compliance' },
     { id: 'audit', label: 'Audit' },
@@ -798,6 +1263,9 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {error && tab === 'overview' ? <p className="error">{error}</p> : null}
         {tab === 'overview' && overview ? <OverviewTab data={overview} /> : null}
         {tab === 'users' ? <UsersTab /> : null}
+        {tab === 'merchants' ? <MerchantsTab /> : null}
+        {tab === 'claims' ? <ClaimsTab /> : null}
+        {tab === 'loans' ? <LoansTab /> : null}
         {tab === 'cashsend' ? <CashSendTab /> : null}
         {tab === 'compliance' ? <ComplianceTab /> : null}
         {tab === 'audit' ? <AuditTab /> : null}
