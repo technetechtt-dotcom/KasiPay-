@@ -95,7 +95,7 @@ export const AppShell: FC<AppShellProps> = ({
   ];
 
   /** Wallet-mode subpages opened from More (community money tools). */
-  const walletOnlyMoreSubpages = ['stokvel', 'insurance'];
+  const walletOnlyMoreSubpages = ['stokvel', 'insurance', 'loadshedding'];
 
   /** Pages that highlight the "More" tab (includes shared tools like load shedding). */
   const moreHighlightPages = [

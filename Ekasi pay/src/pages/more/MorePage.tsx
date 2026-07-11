@@ -64,19 +64,9 @@ export const MorePage = ({
 }) => {
   const { t } = useTranslations(language);
   const showFullShopTools = showMerchantWorkspace;
-  const canUseMerchantTools =
-    user.role === 'merchant' || user.role === 'agent' || user.role === 'admin';
-  const showMerchantToolsPreview = canUseMerchantTools && !showMerchantWorkspace;
   const unreadCritical = alerts.filter(
     (a) => !a.isRead && a.severity === 'critical'
   ).length;
-
-  const openMerchantPage = (page: string) => {
-    if (!showMerchantWorkspace) {
-      setWorkspaceMode('merchant');
-    }
-    navigate(page);
-  };
 
   return (
     <PageTransition className="min-h-0 h-full bg-slate-50">
@@ -106,8 +96,8 @@ export const MorePage = ({
       <KPCard className="mb-8 p-4 border border-slate-200 bg-white">
         <p className="text-xs text-slate-600 mb-3 leading-relaxed">
           {workspaceMode === 'merchant' ?
-            'Merchant mode shows shop, stock, POS, and business tools in the app.'
-          : 'Wallet mode keeps money, history, and shared tools — shop dashboards are hidden.'}
+            'Merchant mode: shop, stock, POS, and business tools.'
+          : 'Wallet mode: Community & Services only. Switch to Merchant mode for shop tools.'}
         </p>
         <KPButton
           type="button"
@@ -167,20 +157,15 @@ export const MorePage = ({
         </>
       : null}
 
-      {/* Shop Management */}
-      {(showFullShopTools || showMerchantToolsPreview) && (
+      {/* Shop Management — merchant mode only */}
+      {showFullShopTools && (
         <>
       <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
         {t('more.shopManagement')}
       </h3>
-      {showMerchantToolsPreview ? (
-        <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-          Tap any shop tool below — we&apos;ll switch you to merchant mode and open it.
-        </p>
-      ) : null}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
         <button
-          onClick={() => openMerchantPage('shop')}
+          onClick={() => navigate('shop')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -192,7 +177,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('food-safety')}
+          onClick={() => navigate('food-safety')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50 relative">
           
           <div className="flex items-center gap-3">
@@ -214,7 +199,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('credit-book')}
+          onClick={() => navigate('credit-book')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -229,7 +214,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('voice-notes')}
+          onClick={() => navigate('voice-notes')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -242,7 +227,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('supplier-orders')}
+          onClick={() => navigate('supplier-orders')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -255,7 +240,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('inventory')}
+          onClick={() => navigate('inventory')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -270,7 +255,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('record-purchase-slip')}
+          onClick={() => navigate('record-purchase-slip')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center">
@@ -282,7 +267,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('expenses')}
+          onClick={() => navigate('expenses')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -297,7 +282,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('business-health')}
+          onClick={() => navigate('business-health')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -310,7 +295,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('analytics')}
+          onClick={() => navigate('analytics')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -325,7 +310,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('price-comparison')}
+          onClick={() => navigate('price-comparison')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -338,7 +323,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('reports')}
+          onClick={() => navigate('reports')}
           className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
           
           <div className="flex items-center gap-3">
@@ -353,7 +338,7 @@ export const MorePage = ({
         </button>
 
         <button
-          onClick={() => openMerchantPage('layby')}
+          onClick={() => navigate('layby')}
           className="w-full flex items-center justify-between p-4 active:bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
@@ -367,7 +352,7 @@ export const MorePage = ({
         </>
       )}
 
-      {!agentWithoutMerchantProfile ?
+      {showFullShopTools && !agentWithoutMerchantProfile ?
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
           <button
             onClick={() => navigate('commissions')}
@@ -385,70 +370,64 @@ export const MorePage = ({
         </div>
       : null}
 
-      {/* Community & Services */}
+      {/* Community & Services — wallet mode only */}
+      {!showMerchantWorkspace ? (
+        <>
       <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
         {t('more.communityServices')}
       </h3>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8 divide-y divide-slate-100">
-        {!showMerchantWorkspace && (
-          <button
-            onClick={() => navigate('send')}
-            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-                <Wallet className="w-4 h-4" />
-              </div>
-              <span className="font-medium text-slate-700">Cash Send</span>
+        <button
+          onClick={() => navigate('send')}
+          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+              <Wallet className="w-4 h-4" />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-300" />
-          </button>
-        )}
+            <span className="font-medium text-slate-700">Cash Send</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
 
-        {!showMerchantWorkspace && (
-          <button
-            onClick={() => navigate('receive')}
-            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Download className="w-4 h-4" />
-              </div>
-              <span className="font-medium text-slate-700">Collect Cash</span>
+        <button
+          onClick={() => navigate('receive')}
+          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Download className="w-4 h-4" />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-300" />
-          </button>
-        )}
+            <span className="font-medium text-slate-700">Collect Cash</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
 
-        {!showMerchantWorkspace && (
-          <button
-            onClick={() => navigate('stokvel')}
-            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
-                <Users className="w-4 h-4" />
-              </div>
-              <span className="font-medium text-slate-700">
-                Community Stokvel
-              </span>
+        <button
+          onClick={() => navigate('stokvel')}
+          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
+              <Users className="w-4 h-4" />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-300" />
-          </button>
-        )}
+            <span className="font-medium text-slate-700">
+              Community Stokvel
+            </span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
 
-        {!showMerchantWorkspace && (
-          <button
-            onClick={() => navigate('insurance')}
-            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <Shield className="w-4 h-4" />
-              </div>
-              <span className="font-medium text-slate-700">
-                Micro-Insurance
-              </span>
+        <button
+          onClick={() => navigate('insurance')}
+          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Shield className="w-4 h-4" />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-300" />
-          </button>
-        )}
+            <span className="font-medium text-slate-700">
+              Micro-Insurance
+            </span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
 
         <button
           onClick={() => navigate('loadshedding')}
@@ -462,6 +441,8 @@ export const MorePage = ({
           <ChevronRight className="w-5 h-5 text-slate-300" />
         </button>
       </div>
+        </>
+      ) : null}
 
       {/* Admin Tools (if admin) */}
       {user.role === 'admin' &&
