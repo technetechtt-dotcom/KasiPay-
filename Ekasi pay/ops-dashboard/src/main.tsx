@@ -986,12 +986,14 @@ function LedgerTab() {
 function OperatorsTab({ me }: { me: OpsAdminUser }) {
   const [users, setUsers] = useState<OpsAdminUser[]>([]);
   const [error, setError] = useState('');
+  const [okMsg, setOkMsg] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'operator' | 'super_admin'>('operator');
   const [busy, setBusy] = useState(false);
+  const [resetPw, setResetPw] = useState<Record<string, string>>({});
 
-  const canManage = me.role === 'super_admin';
+  const canManage = String(me.role).toLowerCase() === 'super_admin';
 
   const load = useCallback(async () => {
     if (!canManage) return;
@@ -1012,11 +1014,17 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
     e.preventDefault();
     setBusy(true);
     setError('');
+    setOkMsg('');
     try {
-      await apiCreateAdminUser({ username, password, role });
+      const { user } = await apiCreateAdminUser({
+        username: username.trim(),
+        password,
+        role,
+      });
       setUsername('');
       setPassword('');
       setRole('operator');
+      setOkMsg(`Created ${user.username} as ${user.role.replace(/_/g, ' ')}.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed');
@@ -1025,11 +1033,42 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
     }
   };
 
-  const toggleActive = async (u: OpsAdminUser) => {
+  const setUserRole = async (
+    u: OpsAdminUser,
+    nextRole: 'super_admin' | 'operator',
+  ) => {
+    if (u.id === me.id) {
+      setError('You cannot change your own role.');
+      return;
+    }
+    if (nextRole === u.role) return;
     setBusy(true);
     setError('');
+    setOkMsg('');
+    try {
+      await apiUpdateAdminUser(u.id, { role: nextRole });
+      setOkMsg(`Updated ${u.username} → ${nextRole.replace(/_/g, ' ')}.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Role update failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleActive = async (u: OpsAdminUser) => {
+    if (u.id === me.id) {
+      setError('You cannot deactivate your own account.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setOkMsg('');
     try {
       await apiUpdateAdminUser(u.id, { isActive: !u.isActive });
+      setOkMsg(
+        `${u.username} ${u.isActive ? 'deactivated' : 'activated'}.`,
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Update failed');
@@ -1038,12 +1077,38 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
     }
   };
 
+  const resetPassword = async (u: OpsAdminUser) => {
+    const pw = resetPw[u.id]?.trim() ?? '';
+    if (pw.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setOkMsg('');
+    try {
+      await apiUpdateAdminUser(u.id, { password: pw });
+      setResetPw((prev) => ({ ...prev, [u.id]: '' }));
+      setOkMsg(`Password updated for ${u.username}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Password reset failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async (u: OpsAdminUser) => {
+    if (u.id === me.id) {
+      setError('You cannot delete your own account.');
+      return;
+    }
     if (!window.confirm(`Delete ops user ${u.username}?`)) return;
     setBusy(true);
     setError('');
+    setOkMsg('');
     try {
       await apiDeleteAdminUser(u.id);
+      setOkMsg(`Deleted ${u.username}.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
@@ -1055,8 +1120,11 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
   if (!canManage) {
     return (
       <div className="panel">
-        <h2>Ops operators</h2>
-        <p className="muted">Only super admins can manage ops operator accounts.</p>
+        <h2>Ops users</h2>
+        <p className="muted">
+          Signed in as <strong>{me.username}</strong> ({me.role}). Only the
+          super admin (IvanIJ) can create ops accounts and assign roles.
+        </p>
       </div>
     );
   }
@@ -1064,40 +1132,64 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Ops operators</h2>
+        <h2>Ops users</h2>
         <button type="button" className="ghost" onClick={() => void load()}>
           Refresh
         </button>
       </div>
+      <p className="muted">
+        Super admin <strong>{me.username}</strong> can create ops logins and
+        assign <em>operator</em> or <em>super admin</em> roles.
+      </p>
       {error ? <p className="error">{error}</p> : null}
-      <form className="review-box" onSubmit={create} style={{ marginBottom: '1.25rem' }}>
-        <h3 style={{ margin: 0 }}>Create operator</h3>
-        <input
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          minLength={3}
-        />
-        <input
-          type="password"
-          placeholder="Password (min 8)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-        />
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value as 'operator' | 'super_admin')}
-        >
-          <option value="operator">Operator</option>
-          <option value="super_admin">Super admin</option>
-        </select>
+      {okMsg ? <p className="ok-banner">{okMsg}</p> : null}
+
+      <form
+        className="review-box"
+        onSubmit={create}
+        style={{ marginBottom: '1.25rem' }}
+      >
+        <h3 style={{ margin: 0 }}>Create ops account</h3>
+        <label className="muted">
+          Username
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+            minLength={3}
+            autoComplete="off"
+          />
+        </label>
+        <label className="muted">
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+            autoComplete="new-password"
+          />
+        </label>
+        <label className="muted">
+          Role
+          <select
+            value={role}
+            onChange={(e) =>
+              setRole(e.target.value as 'operator' | 'super_admin')
+            }
+          >
+            <option value="operator">Operator — monitoring &amp; reviews</option>
+            <option value="super_admin">
+              Super admin — can manage ops users
+            </option>
+          </select>
+        </label>
         <button type="submit" disabled={busy}>
-          {busy ? 'Saving…' : 'Create'}
+          {busy ? 'Saving…' : 'Create account'}
         </button>
       </form>
+
       <div className="table-wrap">
         <table>
           <thead>
@@ -1106,16 +1198,61 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
               <th>Role</th>
               <th>Active</th>
               <th>Last login</th>
+              <th>Reset password</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td>{u.username}</td>
-                <td>{u.role}</td>
+                <td>
+                  {u.username}
+                  {u.id === me.id ? (
+                    <span className="muted"> (you)</span>
+                  ) : null}
+                </td>
+                <td>
+                  <select
+                    value={u.role === 'super_admin' ? 'super_admin' : 'operator'}
+                    disabled={busy || u.id === me.id}
+                    onChange={(e) =>
+                      void setUserRole(
+                        u,
+                        e.target.value as 'super_admin' | 'operator',
+                      )
+                    }
+                  >
+                    <option value="operator">operator</option>
+                    <option value="super_admin">super_admin</option>
+                  </select>
+                </td>
                 <td>{u.isActive ? 'yes' : 'no'}</td>
                 <td>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : '—'}</td>
+                <td>
+                  <div className="row-actions">
+                    <input
+                      type="password"
+                      placeholder="New password"
+                      value={resetPw[u.id] ?? ''}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setResetPw((prev) => ({
+                          ...prev,
+                          [u.id]: e.target.value,
+                        }))
+                      }
+                      style={{ minWidth: 120 }}
+                    />
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={busy || !(resetPw[u.id]?.trim().length >= 8)}
+                      onClick={() => void resetPassword(u)}
+                    >
+                      Set
+                    </button>
+                  </div>
+                </td>
                 <td>
                   <div className="row-actions">
                     <button
@@ -1141,6 +1278,9 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
           </tbody>
         </table>
       </div>
+      {users.length === 0 ? (
+        <p className="muted">No ops users loaded yet.</p>
+      ) : null}
     </div>
   );
 }
@@ -1549,14 +1689,14 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'users', label: 'Users' },
+    { id: 'operators', label: 'Ops Users' },
+    { id: 'users', label: 'App Users' },
     { id: 'merchants', label: 'Merchants' },
     { id: 'claims', label: 'Claims' },
     { id: 'loans', label: 'Loans' },
     { id: 'ledger', label: 'Ledger' },
     { id: 'cashsend', label: 'Cash Send' },
     { id: 'compliance', label: 'Compliance' },
-    { id: 'operators', label: 'Operators' },
     { id: 'audit', label: 'Audit' },
     { id: 'transactions', label: 'Transactions' },
   ];
