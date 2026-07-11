@@ -33,9 +33,10 @@ export const OPS_TOKEN_TTL_SEC = Number(
 
 export const OPS_SUPER_ADMIN_USERNAME =
   process.env.OPS_SUPER_ADMIN_USERNAME?.trim() || 'superadmin';
+/** Password for the single env-managed ops account (`OPS_SUPER_ADMIN_USERNAME`). */
 export const OPS_SUPER_ADMIN_PASSWORD =
-  process.env.OPS_SUPER_ADMIN_PASSWORD?.trim() ||
   process.env.OPS_DASHBOARD_PASSWORD?.trim() ||
+  process.env.OPS_SUPER_ADMIN_PASSWORD?.trim() ||
   '';
 
 export type OpsAuth = {
@@ -71,8 +72,20 @@ function looksLikeBcrypt(value: string): boolean {
   return /^\$2[aby]\$\d{2}\$/.test(value);
 }
 
-/** Ensure ops_admin_users exists and bootstrap the first superadmin when configured. */
+async function hashOpsPassword(raw: string): Promise<string> {
+  return looksLikeBcrypt(raw) ? raw : bcrypt.hash(raw, 12);
+}
+
+/**
+ * One env-managed ops account:
+ *   username = OPS_SUPER_ADMIN_USERNAME
+ *   password = OPS_DASHBOARD_PASSWORD (or OPS_SUPER_ADMIN_PASSWORD)
+ * Creates the user if missing; updates password/role/active when password env is set.
+ */
 export async function ensureOpsAuthStore(): Promise<void> {
+  const username = OPS_SUPER_ADMIN_USERNAME.toLowerCase();
+  const password = OPS_SUPER_ADMIN_PASSWORD;
+
   if (isPostgresMode()) {
     const pool = getPgPool();
     await pool.query(`
@@ -87,28 +100,39 @@ export async function ensureOpsAuthStore(): Promise<void> {
         last_login_at TIMESTAMPTZ
       );
     `);
-    const countQ = await pool.query<{ c: string }>(
-      `SELECT COUNT(*)::text AS c FROM ops_admin_users`,
+
+    if (!password) {
+      console.warn(
+        '[ops-auth] OPS_DASHBOARD_PASSWORD not set — env superadmin account will not be synced.',
+      );
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const hash = await hashOpsPassword(password);
+    const existing = await pool.query<{ id: string }>(
+      `SELECT id FROM ops_admin_users WHERE lower(username) = lower($1)`,
+      [username],
     );
-    if (Number(countQ.rows[0]?.c ?? 0) === 0 && OPS_SUPER_ADMIN_PASSWORD) {
-      const now = new Date().toISOString();
-      const hash = looksLikeBcrypt(OPS_SUPER_ADMIN_PASSWORD)
-        ? OPS_SUPER_ADMIN_PASSWORD
-        : await bcrypt.hash(OPS_SUPER_ADMIN_PASSWORD, 12);
+    if (existing.rows[0]) {
+      await pool.query(
+        `UPDATE ops_admin_users
+            SET password_hash = $1,
+                role = 'super_admin',
+                is_active = TRUE,
+                updated_at = $2
+          WHERE id = $3`,
+        [hash, now, existing.rows[0].id],
+      );
+      console.info(`[ops-auth] Synced env superadmin "${username}"`);
+    } else {
       await pool.query(
         `INSERT INTO ops_admin_users
           (id, username, password_hash, role, is_active, created_at, updated_at)
          VALUES ($1, $2, $3, 'super_admin', TRUE, $4, $4)`,
-        [
-          randomUUID(),
-          OPS_SUPER_ADMIN_USERNAME.toLowerCase(),
-          hash,
-          now,
-        ],
+        [randomUUID(), username, hash, now],
       );
-      console.info(
-        `[ops-auth] Bootstrapped superadmin "${OPS_SUPER_ADMIN_USERNAME.toLowerCase()}"`,
-      );
+      console.info(`[ops-auth] Created env superadmin "${username}"`);
     }
     return;
   }
@@ -126,28 +150,35 @@ export async function ensureOpsAuthStore(): Promise<void> {
       last_login_at TEXT
     );
   `);
-  const count = (
-    db.prepare(`SELECT COUNT(*) AS c FROM ops_admin_users`).get() as { c: number }
-  ).c;
-  if (count === 0 && OPS_SUPER_ADMIN_PASSWORD) {
-    const now = new Date().toISOString();
-    const hash = looksLikeBcrypt(OPS_SUPER_ADMIN_PASSWORD)
-      ? OPS_SUPER_ADMIN_PASSWORD
-      : bcrypt.hashSync(OPS_SUPER_ADMIN_PASSWORD, 12);
+
+  if (!password) {
+    console.warn(
+      '[ops-auth] OPS_DASHBOARD_PASSWORD not set — env superadmin account will not be synced.',
+    );
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const hash = looksLikeBcrypt(password)
+    ? password
+    : bcrypt.hashSync(password, 12);
+  const existing = db
+    .prepare(`SELECT id FROM ops_admin_users WHERE lower(username) = lower(?)`)
+    .get(username) as { id: string } | undefined;
+  if (existing) {
+    db.prepare(
+      `UPDATE ops_admin_users
+          SET password_hash = ?, role = 'super_admin', is_active = 1, updated_at = ?
+        WHERE id = ?`,
+    ).run(hash, now, existing.id);
+    console.info(`[ops-auth] Synced env superadmin "${username}"`);
+  } else {
     db.prepare(
       `INSERT INTO ops_admin_users
         (id, username, password_hash, role, is_active, created_at, updated_at)
        VALUES (?, ?, ?, 'super_admin', 1, ?, ?)`,
-    ).run(
-      randomUUID(),
-      OPS_SUPER_ADMIN_USERNAME.toLowerCase(),
-      hash,
-      now,
-      now,
-    );
-    console.info(
-      `[ops-auth] Bootstrapped superadmin "${OPS_SUPER_ADMIN_USERNAME.toLowerCase()}"`,
-    );
+    ).run(randomUUID(), username, hash, now, now);
+    console.info(`[ops-auth] Created env superadmin "${username}"`);
   }
 }
 
