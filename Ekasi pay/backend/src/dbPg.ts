@@ -305,6 +305,20 @@ async function bootstrapSchema(p: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_stokvel_loans_group ON stokvel_loans(stokvel_id);
 
+    CREATE TABLE IF NOT EXISTS stokvel_contributions (
+      id TEXT PRIMARY KEY,
+      stokvel_id TEXT NOT NULL REFERENCES stokvel_groups(id) ON DELETE CASCADE,
+      member_name TEXT NOT NULL,
+      member_phone TEXT NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
+      period_month TEXT NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_stokvel_contrib_group ON stokvel_contributions(stokvel_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_stokvel_contrib_member_period
+      ON stokvel_contributions(stokvel_id, member_phone, period_month);
+
     CREATE TABLE IF NOT EXISTS layby_orders (
       id TEXT PRIMARY KEY,
       merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,

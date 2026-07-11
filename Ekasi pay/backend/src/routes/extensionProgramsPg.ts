@@ -14,6 +14,7 @@ import {
   toPriceComparison,
   toStockMovement,
   toStokvel,
+  toStokvelContribution,
   toStokvelLoan,
   toVoiceNote,
 } from '../extraMappers.js';
@@ -51,6 +52,10 @@ extensionProgramsRouterPg.get('/stokvel', requireAuth, async (req, res) => {
   const groups = r.rows.map(toStokvel);
   const ids = groups.map((g) => g.id);
   const loansByGroup = new Map<string, ReturnType<typeof toStokvelLoan>[]>();
+  const contribByGroup = new Map<
+    string,
+    ReturnType<typeof toStokvelContribution>[]
+  >();
   if (ids.length > 0) {
     const lq = await pool.query(
       `SELECT * FROM stokvel_loans
@@ -64,11 +69,24 @@ extensionProgramsRouterPg.get('/stokvel', requireAuth, async (req, res) => {
       list.push(loan);
       loansByGroup.set(loan.stokvelId, list);
     }
+    const cq = await pool.query(
+      `SELECT * FROM stokvel_contributions
+        WHERE stokvel_id = ANY($1::text[])
+        ORDER BY period_month DESC, created_at DESC`,
+      [ids],
+    );
+    for (const row of cq.rows) {
+      const c = toStokvelContribution(row);
+      const list = contribByGroup.get(c.stokvelId) ?? [];
+      list.push(c);
+      contribByGroup.set(c.stokvelId, list);
+    }
   }
   return res.json({
     groups: groups.map((g) => ({
       ...g,
       loans: loansByGroup.get(g.id) ?? [],
+      contributions: contribByGroup.get(g.id) ?? [],
     })),
   });
 });
@@ -363,6 +381,139 @@ extensionProgramsRouterPg.patch(
     );
     return res.json({
       loan: toStokvelLoan(freshLoan.rows[0]),
+      group: toStokvel(freshGroup.rows[0]),
+    });
+  },
+);
+
+const periodMonthSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use YYYY-MM for the contribution month');
+
+const stokvelContributionBody = z.object({
+  memberPhone: z
+    .string()
+    .min(9)
+    .max(20)
+    .transform((v) => v.replace(/\s+/g, '')),
+  amount: z.coerce.number().positive(),
+  periodMonth: periodMonthSchema,
+  notes: z.string().trim().max(500).optional(),
+});
+
+extensionProgramsRouterPg.post(
+  '/stokvel/:id/contributions',
+  requireAuth,
+  async (req, res) => {
+    const pool = getPgPool();
+    let merchantId: string;
+    try {
+      merchantId = await ensureMerchantIdPg(pool, req.auth!.userId);
+    } catch {
+      return res.status(403).json({ error: 'Merchant profile required' });
+    }
+    const parsed = stokvelContributionBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const groupQ = await pool.query<{
+      id: string;
+      members_json: string;
+      current_amount: number;
+    }>(
+      `SELECT id, members_json, current_amount FROM stokvel_groups
+        WHERE id = $1 AND merchant_id = $2`,
+      [req.params.id, merchantId],
+    );
+    const group = groupQ.rows[0];
+    if (!group) return res.status(404).json({ error: 'Stokvel not found' });
+
+    const members = JSON.parse(group.members_json) as {
+      name: string;
+      phone: string;
+      contributed: number;
+    }[];
+    const member = members.find((m) => m.phone === parsed.data.memberPhone);
+    if (!member) {
+      return res.status(400).json({
+        error: 'Member not found in this stokvel. Add them under Members first.',
+      });
+    }
+
+    const existingQ = await pool.query<{ id: string; amount: number }>(
+      `SELECT id, amount FROM stokvel_contributions
+        WHERE stokvel_id = $1 AND member_phone = $2 AND period_month = $3`,
+      [group.id, member.phone, parsed.data.periodMonth],
+    );
+    const existing = existingQ.rows[0];
+    const now = new Date().toISOString();
+    const newAmount = parsed.data.amount;
+    const delta = existing ? newAmount - Number(existing.amount) : newAmount;
+    const id = existing?.id ?? randomUUID();
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (existing) {
+        await client.query(
+          `UPDATE stokvel_contributions
+              SET amount = $1, notes = $2, member_name = $3
+            WHERE id = $4`,
+          [newAmount, parsed.data.notes ?? null, member.name, existing.id],
+        );
+      } else {
+        await client.query(
+          `INSERT INTO stokvel_contributions
+            (id, stokvel_id, member_name, member_phone, amount, period_month, notes, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            id,
+            group.id,
+            member.name,
+            member.phone,
+            newAmount,
+            parsed.data.periodMonth,
+            parsed.data.notes ?? null,
+            now,
+          ],
+        );
+      }
+
+      const nextMembers = members.map((m) =>
+        m.phone === member.phone
+          ? {
+              ...m,
+              contributed: Number(
+                (Number(m.contributed || 0) + delta).toFixed(2),
+              ),
+            }
+          : m,
+      );
+      await client.query(
+        `UPDATE stokvel_groups
+            SET members_json = $1,
+                current_amount = GREATEST(0, current_amount + $2)
+          WHERE id = $3`,
+        [JSON.stringify(nextMembers), delta, group.id],
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    const contribQ = await pool.query(
+      `SELECT * FROM stokvel_contributions WHERE id = $1`,
+      [id],
+    );
+    const freshGroup = await pool.query(
+      `SELECT * FROM stokvel_groups WHERE id = $1`,
+      [group.id],
+    );
+    return res.status(existing ? 200 : 201).json({
+      contribution: toStokvelContribution(contribQ.rows[0]),
       group: toStokvel(freshGroup.rows[0]),
     });
   },

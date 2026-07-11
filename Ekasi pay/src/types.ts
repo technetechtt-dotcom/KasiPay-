@@ -242,6 +242,18 @@ export interface StokvelLoan {
   repaidAt?: string;
 }
 
+export interface StokvelContribution {
+  id: string;
+  stokvelId: string;
+  memberName: string;
+  memberPhone: string;
+  amount: number;
+  /** YYYY-MM */
+  periodMonth: string;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface StokvelGroup {
   id: string;
   name: string;
@@ -252,6 +264,7 @@ export interface StokvelGroup {
   nextPayoutDate: string;
   createdAt: string;
   loans?: StokvelLoan[];
+  contributions?: StokvelContribution[];
 }
 
 // Layby

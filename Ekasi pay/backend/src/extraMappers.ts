@@ -135,6 +135,28 @@ export function calcStokvelLoanInterest(
   };
 }
 
+export function toStokvelContribution(row: {
+  id: string;
+  stokvel_id: string;
+  member_name: string;
+  member_phone: string;
+  amount: number;
+  period_month: string;
+  notes: string | null;
+  created_at: string;
+}) {
+  return {
+    id: row.id,
+    stokvelId: row.stokvel_id,
+    memberName: row.member_name,
+    memberPhone: row.member_phone,
+    amount: Number(row.amount),
+    periodMonth: row.period_month,
+    notes: row.notes ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
 export function toLayby(row: {
   id: string;
   merchant_id: string;

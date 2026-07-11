@@ -45,6 +45,7 @@ import {
   apiUpdateStokvelMembers,
   apiCreateStokvelLoan,
   apiRepayStokvelLoan,
+  apiRecordStokvelContribution,
   apiCreatePriceComparison,
   apiCreateStokvelGroup,
   apiCreateSupplier,
@@ -1556,6 +1557,26 @@ export function useAppState() {
     }
   };
 
+  const recordStokvelContribution = async (
+    stokvelId: string,
+    input: {
+      memberPhone: string;
+      amount: number;
+      periodMonth: string;
+      notes?: string;
+    },
+  ): Promise<boolean> => {
+    try {
+      await apiRecordStokvelContribution(stokvelId, input);
+      await refreshAfterMutation();
+      return true;
+    } catch (e) {
+      toastMutationError('Stokvel contribution', e);
+      await refreshAfterMutation();
+      return false;
+    }
+  };
+
   const fileInsuranceClaim = async (
     policyId: string,
     body: {
@@ -1833,6 +1854,7 @@ export function useAppState() {
     updateStokvelMembers,
     addStokvelLoan,
     repayStokvelLoan,
+    recordStokvelContribution,
     fileInsuranceClaim,
     recordLaybyInstallment,
     addLaybyOrderRecord,

@@ -868,6 +868,24 @@ export async function apiRepayStokvelLoan(stokvelId: string, loanId: string) {
   });
 }
 
+export async function apiRecordStokvelContribution(
+  stokvelId: string,
+  body: {
+    memberPhone: string;
+    amount: number;
+    periodMonth: string;
+    notes?: string;
+  },
+) {
+  return apiRequest<{
+    contribution: import('../types').StokvelContribution;
+    group: import('../types').StokvelGroup;
+  }>(`/api/stokvel/${stokvelId}/contributions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiGetLaybyOrders() {
   return apiRequest<{ orders: import('../types').LaybyOrder[] }>('/api/layby');
 }

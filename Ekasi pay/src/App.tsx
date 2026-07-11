@@ -632,6 +632,7 @@ export function App() {
             onUpdateMembers={state.updateStokvelMembers}
             onCreateLoan={state.addStokvelLoan}
             onRepayLoan={state.repayStokvelLoan}
+            onRecordContribution={state.recordStokvelContribution}
             navigate={state.navigate}
           />
         );

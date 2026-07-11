@@ -196,6 +196,19 @@ function migrate(database: Database.Database) {
       FOREIGN KEY (stokvel_id) REFERENCES stokvel_groups (id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS stokvel_contributions (
+      id TEXT PRIMARY KEY,
+      stokvel_id TEXT NOT NULL,
+      member_name TEXT NOT NULL,
+      member_phone TEXT NOT NULL,
+      amount REAL NOT NULL,
+      period_month TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (stokvel_id) REFERENCES stokvel_groups (id) ON DELETE CASCADE,
+      UNIQUE (stokvel_id, member_phone, period_month)
+    );
+
     CREATE TABLE IF NOT EXISTS layby_orders (
       id TEXT PRIMARY KEY,
       merchant_id TEXT NOT NULL,
