@@ -26,6 +26,7 @@
     "money:reconcile": "node scripts/reconcile-money.mjs",
     "ledger:reconcile": "node scripts/reconcile-ledger.mjs",
     "voucher:reconcile": "node scripts/reconcile-vouchers.mjs",
+    "money:drift-inventory": "node scripts/inventory-wallet-ledger-drift.mjs",
     "voucher:expire": "npm run build && node scripts/expire-vouchers.mjs",
     "phase7:stokvel-inventory": "npm run build && node scripts/inventory-phase7-stokvel.mjs",
     "production:ready": "node scripts/production-readiness.mjs",

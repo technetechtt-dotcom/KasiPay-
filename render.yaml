@@ -79,7 +79,29 @@ services:
         sync: false
       - key: MONITORING_DSN
         sync: false
+      - key: ALERT_ROUTING_MARKER
+        sync: false
+      - key: RATE_LIMIT_REDIS_URL
+        sync: false
+      - key: AUDIT_SINK_PROVIDER
+        sync: false
+      - key: AUDIT_SINK_ENDPOINT
+        sync: false
+      - key: AUDIT_SINK_API_KEY
+        sync: false
+      - key: SANCTIONS_PEP_PROVIDER
+        sync: false
+      - key: SANCTIONS_PEP_ENDPOINT
+        sync: false
+      - key: SANCTIONS_PEP_API_KEY
+        sync: false
       - key: BACKUP_PROVIDER
+        sync: false
+      - key: BACKUP_ENCRYPTION_MARKER
+        sync: false
+      - key: BACKUP_PITR_MARKER
+        sync: false
+      - key: BACKUP_VERIFICATION_MARKER
         sync: false
       - key: BACKUP_RETENTION_DAYS
         value: "30"

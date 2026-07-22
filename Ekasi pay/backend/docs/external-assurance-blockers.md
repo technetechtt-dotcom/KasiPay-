@@ -12,15 +12,15 @@ before enabling regulated products or live customer funds.
 | Centralized monitoring alert routing proof | Platform ops | Run `npm run alerts:verify` with real DSN; confirm on-call page |
 | Immutable audit sink live destination | Platform ops | HTTP sink + `npm run audit:deliver` wired; needs real `AUDIT_SINK_*` |
 | Settlement end-to-end with live provider statements | Finance ops | Synthetic proof: `npm run settlement:e2e-proof`; live bank files still blocked |
-| Production money contract sign-off | Finance + engineering | Staging branch expand shows pre-existing wallet↔legacy-ledger drift; contract only after written sign-off |
-| Host `pg_dump`/`pg_restore` restore drill | Platform ops | Local runners may lack client tools; use Neon branch fork + PITR evidence when `BACKUP_PROVIDER=neon` |
-| Shared Redis in production | Platform ops | `RATE_LIMIT_REDIS_URL` now required outside dev/test; provision managed Redis |
+| Production money contract sign-off | Finance + engineering | Run `npm run money:drift-inventory` on staging/prod-like DB; contract only after written sign-off |
+| Shared Redis in production | Platform ops | `RATE_LIMIT_REDIS_URL` required outside dev/test; key added to `render.yaml` (sync:false) |
 
 ## Engineering scaffolding added (2026-07-22)
 
 - Failure drills: `DRILL_ADAPTER=local npm run drill -- <type>`
 - Settlement fixture E2E: `fixtures/settlement/phase6-v1.sample.csv`
 - Audit outbox worker interval when `AUDIT_SINK_*` set at API boot
+- Wallet/ledger drift inventory: `npm run money:drift-inventory`
 
 ## Staging branch drill notes (2026-07-22)
 

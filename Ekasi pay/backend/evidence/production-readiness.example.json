@@ -104,6 +104,36 @@
       "notes": "Output of npm run restore:drill on an isolated clone."
     },
     {
+      "control": "accounting",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/accounting.txt",
+      "sha256": null,
+      "notes": "External accounting review + output of npm run money:drift-inventory / money:reconcile / ledger:reconcile."
+    },
+    {
+      "control": "settlement_e2e",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/settlement-e2e.txt",
+      "sha256": null,
+      "notes": "Synthetic: npm run settlement:e2e-proof. Live bank files require provider certification."
+    },
+    {
+      "control": "alert_routing",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/alert-routing.txt",
+      "sha256": null,
+      "notes": "npm run alerts:verify plus on-call acknowledgement of the synthetic page."
+    },
+    {
       "control": "failure_drill",
       "status": "pending",
       "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
