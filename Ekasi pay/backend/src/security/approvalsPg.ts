@@ -28,6 +28,7 @@ export const EXECUTABLE_CONTROLLED_ACTIONS: readonly ControlledAction[] = [
   'refund_reversal',
   'user_role_change',
   'insurance_claim_payout',
+  'balance_adjustment',
 ] as const;
 
 /**
@@ -164,6 +165,7 @@ const createBody = z.object({
     'refund_reversal',
     'user_role_change',
     'insurance_claim_payout',
+    'balance_adjustment',
   ]),
   resourceType: z.string().trim().min(1).max(100),
   resourceId: z.string().trim().min(1).max(200),
@@ -187,7 +189,9 @@ approvalsRouterPg.post(
           ? 'loans:request-disbursement'
           : parsed.data.actionType === 'insurance_claim_payout'
             ? 'finance:approve'
-            : 'refunds:request';
+            : parsed.data.actionType === 'balance_adjustment'
+              ? 'balance-adjustments:request'
+              : 'refunds:request';
     if (!roleHasCapability(req.opsAuth!.role, required)) {
       return res.status(403).json({ error: 'Required maker capability is not assigned.' });
     }

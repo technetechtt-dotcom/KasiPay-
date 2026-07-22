@@ -40,7 +40,8 @@ jobs:
             echo '- Required status checks matching this workflow'
             echo '- Staging (and production) Environments with required reviewers before deploy'
             echo ''
-            echo 'See `Ekasi pay/backend/docs/phase8-release.md`.'
+            echo 'Automate with: `cd "Ekasi pay/backend" && npm run github:configure-controls`'
+            echo 'See `Ekasi pay/backend/docs/phase8-release.md` and `external-assurance-blockers.md`.'
           } >> "$GITHUB_STEP_SUMMARY"
 
   secret-scan:
@@ -173,6 +174,8 @@ jobs:
           npm run money:reconcile
           npm run ledger:reconcile
           npm run voucher:reconcile
+          npm run money:drift-inventory
+          npm run money:prove-zero-drift
           npm run settlement:e2e-proof
           DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- duplicate_webhook
           DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- partial_settlement

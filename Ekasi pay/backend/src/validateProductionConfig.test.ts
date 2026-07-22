@@ -14,6 +14,8 @@ const deployedEnv: NodeJS.ProcessEnv = {
   OPS_REFRESH_TOKEN_PEPPER: 'q'.repeat(32),
   PRIVATE_STORAGE_SIGNING_SECRET: 's'.repeat(32),
   DATA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+  PII_HASH_PEPPER: Buffer.alloc(32, 9).toString('base64'),
+  PII_HASH_PEPPER_VERSION: '1',
   PRIVATE_STORAGE_PROVIDER: 'external',
   PRIVATE_STORAGE_SIGNING_ENDPOINT: 'https://storage.example.com/sign',
   PRIVATE_STORAGE_ENCRYPTION_KEY_REF: 'kms-key-1',
@@ -71,6 +73,19 @@ test('requires independent deployed secrets and provider credentials', () => {
   });
   assert(errors.some((error) => error.includes('must be distinct')));
   assert(errors.some((error) => error.includes('TWILIO_AUTH_TOKEN')));
+});
+
+test('requires a dedicated PII hash pepper distinct from encryption key', () => {
+  const missing = collectProductionConfigErrors({
+    ...deployedEnv,
+    PII_HASH_PEPPER: '',
+  });
+  assert(missing.some((error) => error.includes('PII_HASH_PEPPER')));
+  const reused = collectProductionConfigErrors({
+    ...deployedEnv,
+    PII_HASH_PEPPER: deployedEnv.DATA_ENCRYPTION_KEY,
+  });
+  assert(reused.some((error) => error.includes('must be distinct') || error.includes('must differ')));
 });
 
 test('local development does not require deployed markers', () => {

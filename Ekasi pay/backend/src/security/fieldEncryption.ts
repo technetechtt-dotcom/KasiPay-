@@ -70,19 +70,54 @@ function keyForVersion(version: number): Buffer {
   throw new Error(`No encryption key configured for version ${version}.`);
 }
 
-function resolveHashPepper(): string {
-  const pepper =
-    process.env.PII_HASH_PEPPER?.trim() ||
-    process.env.DATA_ENCRYPTION_KEY?.trim() ||
-    '';
-  if (pepper.length >= 32) return pepper;
-  const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
-  if (nodeEnv === 'development' || nodeEnv === 'test') {
-    return LOCAL_DEV_KEY.toString('hex');
+/** Active blind-index pepper version written into new hashes (`vN:<hex>`). */
+export const ACTIVE_PII_HASH_PEPPER_VERSION = Number(
+  process.env.PII_HASH_PEPPER_VERSION?.trim() || '1',
+);
+
+/**
+ * Previous peppers for verify-during-rotation.
+ * Format: `1:<pepper>,2:<pepper>` (pepper is the raw secret, not a hash).
+ */
+function previousPeppersByVersion(): Map<number, string> {
+  const map = new Map<number, string>();
+  const raw = process.env.PII_HASH_PEPPER_PREVIOUS?.trim() ?? '';
+  if (!raw) return map;
+  for (const part of raw.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const colon = trimmed.indexOf(':');
+    if (colon <= 0) {
+      throw new Error(
+        'PII_HASH_PEPPER_PREVIOUS entries must be version:pepper (e.g. 1:<secret>).',
+      );
+    }
+    const version = Number(trimmed.slice(0, colon));
+    if (!Number.isInteger(version) || version < 1) {
+      throw new Error('PII_HASH_PEPPER_PREVIOUS versions must be positive integers.');
+    }
+    const pepper = trimmed.slice(colon + 1);
+    if (pepper.length < 32) {
+      throw new Error('PII_HASH_PEPPER_PREVIOUS peppers must be at least 32 characters.');
+    }
+    map.set(version, pepper);
   }
-  throw new Error(
-    'PII_HASH_PEPPER (or DATA_ENCRYPTION_KEY) must be at least 32 characters.',
-  );
+  return map;
+}
+
+function resolveHashPepper(version = ACTIVE_PII_HASH_PEPPER_VERSION): string {
+  if (version === ACTIVE_PII_HASH_PEPPER_VERSION) {
+    const pepper = process.env.PII_HASH_PEPPER?.trim() ?? '';
+    if (pepper.length >= 32) return pepper;
+    const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
+    if (nodeEnv === 'development' || nodeEnv === 'test') {
+      return LOCAL_DEV_KEY.toString('hex');
+    }
+    throw new Error('PII_HASH_PEPPER must be at least 32 characters outside local development.');
+  }
+  const previous = previousPeppersByVersion().get(version);
+  if (previous) return previous;
+  throw new Error(`No PII hash pepper configured for version ${version}.`);
 }
 
 export function encryptField(plain: string): string {
@@ -127,19 +162,61 @@ export function decryptField(value: string): string {
   return decryptParts(1, parts[0], parts[1], parts[2]);
 }
 
-/** Blind-index hash for exact match of normalized sensitive identifiers. */
+/** Blind-index hash for exact match of normalized sensitive identifiers (`vN:<hex>`). */
 export function hashSensitiveIdentifier(normalized: string): string {
   if (!normalized) return '';
-  return createHmac('sha256', resolveHashPepper()).update(normalized).digest('hex');
+  const version = ACTIVE_PII_HASH_PEPPER_VERSION;
+  const digest = createHmac('sha256', resolveHashPepper(version))
+    .update(normalized)
+    .digest('hex');
+  return `v${version}:${digest}`;
+}
+
+function parseVersionedHash(value: string): { version: number; digest: string } | null {
+  const match = /^v(\d+):([a-f0-9]{64})$/iu.exec(value.trim());
+  if (!match) return null;
+  return { version: Number(match[1]), digest: match[2].toLowerCase() };
 }
 
 export function hashesEqual(a: string, b: string): boolean {
-  if (!a || !b || a.length !== b.length) return false;
+  if (!a || !b) return false;
+  const left = parseVersionedHash(a);
+  const right = parseVersionedHash(b);
+  // Legacy unversioned digests compare only when both unversioned.
+  if (!left && !right) {
+    if (a.length !== b.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+    } catch {
+      return false;
+    }
+  }
+  if (!left || !right || left.version !== right.version) return false;
   try {
-    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+    return timingSafeEqual(Buffer.from(left.digest), Buffer.from(right.digest));
   } catch {
     return false;
   }
+}
+
+/** True when `candidate` matches `stored` under the stored pepper version (or active). */
+export function sensitiveIdentifierMatches(
+  normalized: string,
+  storedHash: string,
+): boolean {
+  if (!normalized || !storedHash) return false;
+  const parsed = parseVersionedHash(storedHash);
+  if (!parsed) {
+    // Legacy rows: compare against active pepper digest without version prefix.
+    const legacy = createHmac('sha256', resolveHashPepper())
+      .update(normalized)
+      .digest('hex');
+    return hashesEqual(legacy, storedHash);
+  }
+  const digest = createHmac('sha256', resolveHashPepper(parsed.version))
+    .update(normalized)
+    .digest('hex');
+  return hashesEqual(`v${parsed.version}:${digest}`, storedHash);
 }
 
 /** Mask SA ID / similar values for ops UI and logs. */

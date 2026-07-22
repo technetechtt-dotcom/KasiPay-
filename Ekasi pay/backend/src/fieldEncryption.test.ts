@@ -41,6 +41,7 @@ test('decrypts legacy unversioned ciphertext with the active key', () => {
 test('blind hashes match for the same normalized identifier', () => {
   const a = hashSensitiveIdentifier('8001015009087');
   const b = hashSensitiveIdentifier('8001015009087');
+  assert.match(a, /^v1:[a-f0-9]{64}$/i);
   assert.ok(hashesEqual(a, b));
   assert.equal(hashesEqual(a, hashSensitiveIdentifier('8001015009080')), false);
 });

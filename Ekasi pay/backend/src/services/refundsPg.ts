@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 
 import { parseIntegerCents, type Cents } from '../money.js';
-import { lockApprovedRequest } from '../security/approvalsPg.js';
+import { lockApprovedRequest, markApprovalExecuted } from '../security/approvalsPg.js';
 import { reverseWalletPostingPg } from './walletPostingPg.js';
 
 export const REFUND_CHECKER_THRESHOLD_CENTS = 100_000n as Cents;
@@ -181,20 +181,11 @@ export async function postRefundPg(
     [refundId, reversal.transactionId],
   );
   if (input.approvalRequestId) {
-    await database.query(
-      `UPDATE approval_requests SET state = 'executed', executed_at = clock_timestamp()
-        WHERE id = $1 AND state = 'approved'`,
-      [input.approvalRequestId],
-    );
-    await database.query(
-      `INSERT INTO approval_request_events
-        (id, approval_request_id, from_state, to_state, actor_operator_id, reason)
-       VALUES ($1,$2,'approved','executed',$3,'Refund reversal executed')`,
-      [
-        randomUUID(),
-        input.approvalRequestId,
-        input.requestedById,
-      ],
+    await markApprovalExecuted(
+      database,
+      input.approvalRequestId,
+      input.requestedById,
+      'Refund reversal executed',
     );
   }
   return { refundId, ...reversal };

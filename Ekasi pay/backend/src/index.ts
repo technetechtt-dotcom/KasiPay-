@@ -11,6 +11,7 @@ import {
   NODE_ENV,
   IS_LOCAL_ENV,
   PORT,
+  RATE_LIMIT_REDIS_URL,
 } from './config.js';
 import { getDb } from './db.js';
 import { getPgPool } from './dbPg.js';
@@ -19,6 +20,8 @@ import { validateProductionConfig } from './validateProductionConfig.js';
 import { initMonitoring } from './monitoring.js';
 import { deliverAuditOutboxPg } from './services/auditSinkPg.js';
 import { createHttpAuditSink } from './services/httpAuditSink.js';
+import { getRedisHealth, pingRateLimitRedis } from './middleware/sharedRateLimit.js';
+import { disablePostingOnLedgerDriftPg } from './services/driftPostingGuardPg.js';
 import { activityRouter } from './routes/activity.js';
 import { activityRouterPg } from './routes/activityPg.js';
 import { adminRouter } from './routes/admin.js';
@@ -195,8 +198,24 @@ app.get('/health/ready', async (_req, res) => {
       if (!backup.rows[0]) {
         return res.status(503).json({ ok: false, database: 'ready', backupFreshness: 'stale_or_unverified' });
       }
+      if (RATE_LIMIT_REDIS_URL) {
+        const redisOk = await pingRateLimitRedis().catch(() => false);
+        if (!redisOk) {
+          return res.status(503).json({
+            ok: false,
+            database: 'ready',
+            redis: getRedisHealth(),
+            code: 'RATE_LIMIT_REDIS_UNAVAILABLE',
+          });
+        }
+      }
     }
-    return res.json({ ok: true, database: 'ready', backupFreshness: IS_LOCAL_ENV ? 'not_required_local' : 'verified' });
+    return res.json({
+      ok: true,
+      database: 'ready',
+      backupFreshness: IS_LOCAL_ENV ? 'not_required_local' : 'verified',
+      redis: IS_LOCAL_ENV ? 'not_required_local' : getRedisHealth(),
+    });
   } catch {
     return res.status(503).json({ ok: false, database: 'unavailable' });
   }
@@ -435,6 +454,18 @@ app.use(
 const server = app.listen(PORT, () => {
   console.log(`KasiPay API listening on http://localhost:${PORT}`);
 });
+
+if (isPostgresMode() && NODE_ENV !== 'test') {
+  const driftTimer = setInterval(() => {
+    void disablePostingOnLedgerDriftPg(getPgPool()).catch((error) => {
+      structuredLog('error', 'ledger.drift_guard_failed', {
+        message: error instanceof Error ? error.message : 'drift guard failed',
+        alert: true,
+      });
+    });
+  }, 60_000);
+  driftTimer.unref?.();
+}
 
 const auditEndpoint = process.env.AUDIT_SINK_ENDPOINT?.trim() ?? '';
 const auditKey = process.env.AUDIT_SINK_API_KEY?.trim() ?? '';

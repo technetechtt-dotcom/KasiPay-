@@ -185,3 +185,42 @@ riskOpsRouterPg.post(
     }
   },
 );
+
+riskOpsRouterPg.post(
+  '/admin/controls/ledger-drift-check',
+  ...requireCapability('posting-control:manage'),
+  async (req, res) => {
+    const { disablePostingOnLedgerDriftPg } = await import('../services/driftPostingGuardPg.js');
+    const { inventoryWalletLedgerDriftPg } = await import('../services/walletLedgerAlignmentPg.js');
+    const pool = getPgPool();
+    const client = await pool.connect();
+    try {
+      const drifted = await inventoryWalletLedgerDriftPg(client);
+      const guard = await disablePostingOnLedgerDriftPg(client);
+      await recordAuditEventPg(pool, {
+        type: 'operational.ledger_drift_check',
+        message: guard.drifted
+          ? `Ledger drift detected (${guard.drifted} wallets); posting disabled`
+          : 'Ledger drift check clear',
+        actorType: 'operator',
+        actorId: req.opsAuth!.operatorId,
+        targetType: 'operational_control',
+        targetId: 'financial_posting',
+        afterHash: safeAuditHash({ drifted: guard.drifted }),
+        requestId: req.requestId,
+      });
+      return res.json({
+        ok: drifted.length === 0,
+        driftedWallets: drifted.length,
+        postingDisabled: guard.disabled,
+        sample: drifted.slice(0, 20).map((row) => ({
+          walletId: row.walletId,
+          deltaCents: row.deltaCents.toString(),
+          origin: row.origin,
+        })),
+      });
+    } finally {
+      client.release();
+    }
+  },
+);

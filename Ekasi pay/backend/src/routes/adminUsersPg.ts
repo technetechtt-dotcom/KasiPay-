@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { getPgPool } from '../dbPg.js';
 import { toPublicUser } from '../mappers.js';
 import { requireCapability } from '../security/authorization.js';
-import { createApprovalRequest, requireRecentStepUp } from '../security/approvalsPg.js';
+import { createApprovalRequest, lockApprovedRequest, markApprovalExecuted, requireRecentStepUp } from '../security/approvalsPg.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
 import { revokeAllUserSessionsPg } from '../sessionAuthPg.js';
 import type { RowUser } from '../types.js';
@@ -131,14 +131,13 @@ adminUsersRouterPg.patch(
   try {
     await client.query('BEGIN');
     if (approvalRequestId) {
-      const locked = await client.query(
-        `SELECT 1 FROM approval_requests
-          WHERE id = $1 AND state = 'approved' AND expires_at > NOW() FOR UPDATE`,
-        [approvalRequestId],
-      );
-      if (!locked.rowCount) {
-        throw Object.assign(new Error('Approval was already used or expired.'), { status: 409 });
-      }
+      await lockApprovedRequest(client, {
+        approvalRequestId,
+        actionType: 'user_role_change',
+        resourceType: 'user',
+        resourceId: targetId,
+        executorOperatorId: req.opsAuth!.operatorId,
+      });
     }
 
     if (role !== undefined && role !== target.role) {
@@ -182,15 +181,11 @@ adminUsersRouterPg.patch(
     }
 
     if (approvalRequestId) {
-      await client.query(
-        `UPDATE approval_requests SET state = 'executed', executed_at = NOW() WHERE id = $1`,
-        [approvalRequestId],
-      );
-      await client.query(
-        `INSERT INTO approval_request_events
-          (id, approval_request_id, from_state, to_state, actor_operator_id, reason)
-         VALUES ($1,$2,'approved','executed',$3,'Approved user role change executed')`,
-        [randomUUID(), approvalRequestId, req.opsAuth!.operatorId],
+      await markApprovalExecuted(
+        client,
+        approvalRequestId,
+        req.opsAuth!.operatorId,
+        'Approved user role change executed',
       );
     }
 

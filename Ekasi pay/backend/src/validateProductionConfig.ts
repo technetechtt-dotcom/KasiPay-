@@ -66,14 +66,22 @@ export function collectProductionConfigErrors(
   const opsRefreshPepper = required('OPS_REFRESH_TOKEN_PEPPER', 32);
   const storageSigningSecret = required('PRIVATE_STORAGE_SIGNING_SECRET', 32);
   const dataEncryptionKey = required('DATA_ENCRYPTION_KEY', 43);
+  const piiHashPepper = required('PII_HASH_PEPPER', 32);
   const secrets = [
     jwtSecret, refreshPepper, pinResetPepper, opsJwtSecret,
-    opsRefreshPepper, storageSigningSecret,
+    opsRefreshPepper, storageSigningSecret, dataEncryptionKey, piiHashPepper,
   ].filter(Boolean);
   if (new Set(secrets).size !== secrets.length) {
     errors.push(
-      'JWT, refresh, recovery, operator, and storage signing secrets must be distinct.',
+      'JWT, refresh, recovery, operator, storage, encryption, and PII hash secrets must be distinct.',
     );
+  }
+  if (piiHashPepper && dataEncryptionKey && piiHashPepper === dataEncryptionKey) {
+    errors.push('PII_HASH_PEPPER must differ from DATA_ENCRYPTION_KEY.');
+  }
+  const pepperVersion = Number(env.PII_HASH_PEPPER_VERSION?.trim() || '1');
+  if (!Number.isInteger(pepperVersion) || pepperVersion < 1) {
+    errors.push('PII_HASH_PEPPER_VERSION must be a positive integer when set.');
   }
 
   for (const [name, fallback] of [

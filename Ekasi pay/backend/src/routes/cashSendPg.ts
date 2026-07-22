@@ -17,7 +17,7 @@ import { idempotentPg } from '../middleware/idempotencyPg.js';
 import {
   encryptField,
   hashSensitiveIdentifier,
-  hashesEqual,
+  sensitiveIdentifierMatches,
 } from '../security/fieldEncryption.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -605,7 +605,7 @@ cashSendRouterPg.post(
     const scannedHash = hashSensitiveIdentifier(scannedNorm);
     if (
       storedSenderHash &&
-      hashesEqual(storedSenderHash, scannedHash)
+      sensitiveIdentifierMatches(scannedNorm, storedSenderHash)
     ) {
       return res.status(400).json({
         error:
@@ -614,7 +614,7 @@ cashSendRouterPg.post(
     }
     if (
       storedRecipientHash &&
-      !hashesEqual(storedRecipientHash, scannedHash)
+      !sensitiveIdentifierMatches(scannedNorm, storedRecipientHash)
     ) {
       return res.status(400).json({
         error:

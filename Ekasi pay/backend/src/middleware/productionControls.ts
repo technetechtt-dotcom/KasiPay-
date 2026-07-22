@@ -4,6 +4,7 @@ import {
   CASH_SEND_ENABLED,
   FINANCIAL_POSTING_ENABLED,
   INSURANCE_ENABLED,
+  IS_LOCAL_ENV,
   LENDING_DISBURSEMENT_ENABLED,
   LENDING_ENABLED,
   LIVE_UTILITIES_ENABLED,
@@ -12,6 +13,7 @@ import {
 import { getPgPool } from '../dbPg.js';
 import { isPostgresMode } from '../dbRuntime.js';
 import { evaluateMutationPolicy, isFinancialPostingMutation } from '../productionPolicy.js';
+import { disablePostingOnLedgerDriftPg } from '../services/driftPostingGuardPg.js';
 
 const flags = {
   financialPosting: FINANCIAL_POSTING_ENABLED,
@@ -22,6 +24,9 @@ const flags = {
   cashSend: CASH_SEND_ENABLED,
   liveUtilities: LIVE_UTILITIES_ENABLED,
 };
+
+const driftKillSwitchEnabled =
+  !IS_LOCAL_ENV && process.env.LEDGER_DRIFT_KILL_SWITCH?.trim() !== '0';
 
 export async function enforceProductionControls(
   req: Request,
@@ -41,6 +46,17 @@ export async function enforceProductionControls(
     });
   }
   if (isPostgresMode() && isFinancialPostingMutation(req.method, req.path)) {
+    if (driftKillSwitchEnabled) {
+      const drift = await disablePostingOnLedgerDriftPg(getPgPool());
+      if (drift.drifted > 0) {
+        return res.status(503).json({
+          error:
+            'Financial posting is paused because wallet/ledger drift was detected. Operations has been alerted.',
+          code: 'LEDGER_DRIFT_KILL_SWITCH',
+          driftedWallets: drift.drifted,
+        });
+      }
+    }
     const control = await getPgPool().query<{ enabled: boolean }>(
       `SELECT enabled FROM operational_controls WHERE control_key = 'financial_posting'`,
     );

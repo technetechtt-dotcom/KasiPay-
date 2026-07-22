@@ -827,8 +827,14 @@ adminRouterPg.patch(
     }
 
     if (parsed.data.status === 'approved') {
-      const docsQ = await pool.query<{ doc_type: string; scan_state: string }>(
-        `SELECT doc_type, scan_state
+      const docsQ = await pool.query<{
+        doc_type: string;
+        scan_state: string;
+        document_expires_at: Date | null;
+        subject_full_name: string | null;
+        subject_id_hash: string | null;
+      }>(
+        `SELECT doc_type, scan_state, document_expires_at, subject_full_name, subject_id_hash
            FROM merchant_documents
           WHERE merchant_id = $1 AND deleted_at IS NULL`,
         [existing.id],
@@ -849,6 +855,142 @@ adminRouterPg.patch(
           missingDocuments: missing,
           uncleanDocuments: presentButNotClean,
           code: 'KYC_DOCS_NOT_CLEAN',
+        });
+      }
+
+      const expired = docsQ.rows.filter(
+        (r) =>
+          MERCHANT_DOC_TYPES.includes(r.doc_type as (typeof MERCHANT_DOC_TYPES)[number]) &&
+          r.document_expires_at &&
+          r.document_expires_at.getTime() <= Date.now(),
+      );
+      if (expired.length > 0) {
+        return res.status(400).json({
+          error: 'One or more KYC documents are expired.',
+          expiredDocuments: expired.map((r) => r.doc_type),
+          code: 'KYC_DOCS_EXPIRED',
+        });
+      }
+
+      const kycCase = await pool.query<{
+        assigned_operator_id: string | null;
+        state: string;
+        risk_score: number | null;
+        sanctions_screening_id: string | null;
+        review_checklist: Record<string, unknown>;
+      }>(
+        `SELECT assigned_operator_id, state, risk_score, sanctions_screening_id, review_checklist
+           FROM kyc_cases WHERE merchant_id = $1`,
+        [existing.id],
+      );
+      const caseRow = kycCase.rows[0];
+      if (!caseRow?.assigned_operator_id || !['assigned', 'in_review'].includes(caseRow.state)) {
+        return res.status(400).json({
+          error: 'KYC case must be assigned to a reviewer before approval.',
+          code: 'KYC_CASE_UNASSIGNED',
+        });
+      }
+      if (
+        req.opsAuth &&
+        caseRow.assigned_operator_id === req.opsAuth.operatorId &&
+        req.opsAuth.role !== 'admin'
+      ) {
+        return res.status(403).json({
+          error: 'Assigned case reviewer cannot approve their own KYC case.',
+          code: 'KYC_REVIEWER_NOT_INDEPENDENT',
+        });
+      }
+
+      const ownerName = (existing.owner_name ?? '').trim().toLowerCase();
+      const namedDocs = docsQ.rows.filter((r) => r.subject_full_name?.trim());
+      if (ownerName && namedDocs.length > 0) {
+        const mismatch = namedDocs.filter(
+          (r) => !r.subject_full_name!.trim().toLowerCase().includes(ownerName.split(/\s+/)[0]!),
+        );
+        if (mismatch.length === namedDocs.length) {
+          return res.status(400).json({
+            error: 'Document subject name is inconsistent with the merchant owner.',
+            code: 'KYC_IDENTITY_MISMATCH',
+          });
+        }
+      }
+
+      if (!existing.user_id) {
+        return res.status(400).json({
+          error: 'Merchant has no linked owner user.',
+          code: 'KYC_OWNER_MISSING',
+        });
+      }
+
+      const idHashes = docsQ.rows
+        .map((r) => r.subject_id_hash)
+        .filter((h): h is string => Boolean(h));
+      if (idHashes.length > 0) {
+        const dup = await pool.query<{ merchant_id: string }>(
+          `SELECT DISTINCT merchant_id FROM merchant_documents
+            WHERE subject_id_hash = ANY($1::text[])
+              AND merchant_id <> $2
+              AND deleted_at IS NULL
+            LIMIT 5`,
+          [idHashes, existing.id],
+        );
+        if (dup.rowCount) {
+          return res.status(409).json({
+            error: 'Duplicate identity document detected on another merchant.',
+            code: 'KYC_DUPLICATE_IDENTITY',
+            otherMerchants: dup.rows.map((r) => r.merchant_id),
+          });
+        }
+      }
+
+      const screening = caseRow.sanctions_screening_id
+        ? await pool.query<{ decision: string; expires_at: Date | null }>(
+            `SELECT decision, expires_at FROM sanctions_screenings WHERE id = $1`,
+            [caseRow.sanctions_screening_id],
+          )
+        : { rows: [] as { decision: string; expires_at: Date | null }[], rowCount: 0 };
+      const screenRow = screening.rows[0];
+      if (
+        !screenRow ||
+        screenRow.decision !== 'clear' ||
+        (screenRow.expires_at && screenRow.expires_at.getTime() <= Date.now())
+      ) {
+        return res.status(400).json({
+          error: 'Attach a clear, unexpired sanctions/PEP screening to the KYC case before approval.',
+          code: 'KYC_SANCTIONS_REQUIRED',
+          decision: screenRow?.decision ?? null,
+        });
+      }
+
+      const riskScore = caseRow.risk_score ?? null;
+      if (riskScore !== null && riskScore >= 700) {
+        if (req.opsAuth?.role !== 'admin') {
+          return res.status(403).json({
+            error: 'High-risk merchants require an admin approver independent of the case assignee.',
+            code: 'KYC_HIGH_RISK_ADMIN_REQUIRED',
+            riskScore,
+          });
+        }
+        if (caseRow.assigned_operator_id === req.opsAuth.operatorId) {
+          return res.status(403).json({
+            error: 'High-risk KYC approval requires reviewer independence.',
+            code: 'KYC_REVIEWER_NOT_INDEPENDENT',
+          });
+        }
+      }
+
+      const checklist = caseRow.review_checklist ?? {};
+      const requiredEvidence = [
+        'docs_reviewed',
+        'owner_relationship_confirmed',
+        'sanctions_checked',
+      ];
+      const missingEvidence = requiredEvidence.filter((key) => checklist[key] !== true);
+      if (missingEvidence.length > 0) {
+        return res.status(400).json({
+          error: 'KYC review checklist is incomplete.',
+          code: 'KYC_AUDIT_EVIDENCE_INCOMPLETE',
+          missingEvidence,
         });
       }
     }

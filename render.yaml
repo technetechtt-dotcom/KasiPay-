@@ -12,15 +12,17 @@ services:
     runtime: node
     rootDir: Ekasi pay/backend
     buildCommand: npm ci && npm run migrate:validate && npm run build
-    preDeployCommand: npm run migrate:up
+    preDeployCommand: npm run migrate:deploy
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
     plan: starter
     envVars:
       - key: NODE_ENV
         value: production
       - key: FINANCIAL_POSTING_ENABLED
         value: "false"
+      - key: LEDGER_DRIFT_KILL_SWITCH
+        value: "1"
       - key: CASH_SEND_ENABLED
         value: "false"
       - key: LENDING_ENABLED
@@ -59,6 +61,12 @@ services:
         generateValue: true
       - key: DATA_ENCRYPTION_KEY
         sync: false
+      - key: DATA_ENCRYPTION_KEY_VERSION
+        value: "1"
+      - key: PII_HASH_PEPPER
+        sync: false
+      - key: PII_HASH_PEPPER_VERSION
+        value: "1"
       - key: PRIVATE_STORAGE_PROVIDER
         sync: false
       - key: PRIVATE_STORAGE_SIGNING_ENDPOINT
