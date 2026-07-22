@@ -33,6 +33,10 @@ before enabling regulated products or live customer funds.
 - Safe PII deploy sequence: `npm run migrate:deploy` (Render `preDeployCommand`)
 - Dedicated versioned `PII_HASH_PEPPER` (no encryption-key fallback in deployed envs)
 - Regional foundations: `src/i18n/regionConfig.ts`
+- Scheduled reconciliation + exception queue (migration `014`): `npm run reconcile:scheduled`
+- Maker-checker wallet align API: `POST /ops/ledger/align-wallet`
+- CODEOWNERS + 2-reviewer branch protection + staging/production environments
+- Accounting sign-off + encryption key management docs
 
 ## Staging branch drill notes (2026-07-22)
 
