@@ -411,6 +411,11 @@ analyticsRouterPg.get('/reports/inventory', requireAuth, async (req, res) => {
     totalRetailValue: formatCents(totalRetailValueCents),
     lowStockCount,
     outOfStockCount,
-    items: items.map(({ costValueCents: _cost, retailValueCents: _retail, ...item }) => item),
+    items: items.map((item) => {
+      const publicItem = { ...item } as Record<string, unknown>;
+      delete publicItem.costValueCents;
+      delete publicItem.retailValueCents;
+      return publicItem;
+    }),
   });
 });

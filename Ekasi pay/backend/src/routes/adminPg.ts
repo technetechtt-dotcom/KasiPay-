@@ -352,7 +352,7 @@ adminRouterPg.patch(
       });
     }
 
-    let approvalRequestId: string | null =
+    const approvalRequestId: string | null =
       typeof req.body?.approvalRequestId === 'string'
         ? req.body.approvalRequestId
         : null;
