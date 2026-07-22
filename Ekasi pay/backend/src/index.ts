@@ -17,6 +17,8 @@ import { getPgPool } from './dbPg.js';
 import { closeDataStore, initDataStore, isPostgresMode } from './dbRuntime.js';
 import { validateProductionConfig } from './validateProductionConfig.js';
 import { initMonitoring } from './monitoring.js';
+import { deliverAuditOutboxPg } from './services/auditSinkPg.js';
+import { createHttpAuditSink } from './services/httpAuditSink.js';
 import { activityRouter } from './routes/activity.js';
 import { activityRouterPg } from './routes/activityPg.js';
 import { adminRouter } from './routes/admin.js';
@@ -433,6 +435,26 @@ app.use(
 const server = app.listen(PORT, () => {
   console.log(`KasiPay API listening on http://localhost:${PORT}`);
 });
+
+const auditEndpoint = process.env.AUDIT_SINK_ENDPOINT?.trim() ?? '';
+const auditKey = process.env.AUDIT_SINK_API_KEY?.trim() ?? '';
+if (auditEndpoint && auditKey && NODE_ENV !== 'test') {
+  const sink = createHttpAuditSink({ endpoint: auditEndpoint, apiKey: auditKey });
+  const timer = setInterval(() => {
+    void deliverAuditOutboxPg(getPgPool(), sink, 50)
+      .then((result) => {
+        if (result.delivered || result.failed) {
+          structuredLog('info', 'audit_sink.delivered', result);
+        }
+      })
+      .catch((error) => {
+        structuredLog('error', 'audit_sink.delivery_failed', {
+          message: error instanceof Error ? error.message : 'unknown',
+        });
+      });
+  }, 30_000);
+  timer.unref();
+}
 
 /** Graceful shutdown so SQLite has a chance to flush + checkpoint. */
 function shutdown(signal: string) {

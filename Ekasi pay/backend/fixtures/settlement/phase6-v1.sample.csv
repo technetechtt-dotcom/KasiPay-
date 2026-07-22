@@ -1,0 +1,4 @@
+provider_reference,bank_reference,amount_cents,currency,value_date,direction
+SETTLE-REF-001,BANK-001,150000,ZAR,2026-07-20,credit
+SETTLE-REF-002,BANK-002,27500,ZAR,2026-07-20,credit
+SETTLE-REF-003,BANK-003,5000,ZAR,2026-07-21,debit

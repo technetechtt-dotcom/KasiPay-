@@ -28,6 +28,7 @@ const deployedEnv: NodeJS.ProcessEnv = {
   MONITORING_PROVIDER: 'sentry',
   MONITORING_DSN: 'https://public@sentry.example.com/1',
   ALERT_ROUTING_MARKER: 'configured-in-monitoring-provider',
+  RATE_LIMIT_REDIS_URL: 'redis://127.0.0.1:6379/0',
   SANCTIONS_PEP_PROVIDER: 'external',
   SANCTIONS_PEP_ENDPOINT: 'https://screening.example.com/v1/check',
   SANCTIONS_PEP_API_KEY: 'screening-key',

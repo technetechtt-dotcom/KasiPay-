@@ -173,6 +173,9 @@ jobs:
           npm run money:reconcile
           npm run ledger:reconcile
           npm run voucher:reconcile
+          npm run settlement:e2e-proof
+          DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- duplicate_webhook
+          DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- partial_settlement
           npm run test:postgres
         env:
           DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test

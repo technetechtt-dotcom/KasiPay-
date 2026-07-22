@@ -149,6 +149,7 @@ export function collectProductionConfigErrors(
   }
   required('MONITORING_DSN');
   required('ALERT_ROUTING_MARKER');
+  required('RATE_LIMIT_REDIS_URL');
 
   const sanctionsProvider = required('SANCTIONS_PEP_PROVIDER').toLowerCase();
   if (!['http', 'external'].includes(sanctionsProvider)) {
