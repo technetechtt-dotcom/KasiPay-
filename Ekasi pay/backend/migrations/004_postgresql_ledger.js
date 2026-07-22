@@ -199,11 +199,16 @@ export const up = (pgm) => {
     DECLARE debit_total numeric;
     DECLARE credit_total numeric;
     DECLARE invalid_entries bigint;
+    DECLARE payload jsonb;
     BEGIN
-      transaction_uuid := CASE
-        WHEN TG_TABLE_NAME = 'journal_transactions' THEN COALESCE(NEW.id, OLD.id)
-        ELSE COALESCE(NEW.transaction_id, OLD.transaction_id)
-      END;
+      -- Shared across journal_transactions and journal_entries: never touch
+      -- NEW.column directly for table-specific fields (PL/pgSQL plans them).
+      payload := to_jsonb(COALESCE(NEW, OLD));
+      IF TG_TABLE_NAME = 'journal_transactions' THEN
+        transaction_uuid := (payload->>'id')::uuid;
+      ELSE
+        transaction_uuid := (payload->>'transaction_id')::uuid;
+      END IF;
       SELECT state INTO transaction_state FROM journal_transactions
         WHERE id = transaction_uuid;
       IF transaction_state IN ('posted','settled','reversed') THEN

@@ -250,10 +250,10 @@ test(
       await pool.query(
         `INSERT INTO cash_send_vouchers
           (id,sender_user_id,sender_phone,sender_first_name,sender_last_name,
-           sender_id_document,sender_address,recipient_phone,recipient_first_name,
-           recipient_last_name,recipient_id_document,amount_cents,fee_cents,pin_hash,
+           sender_id_document_encrypted,sender_address_encrypted,recipient_phone,recipient_first_name,
+           recipient_last_name,recipient_id_document_encrypted,amount_cents,fee_cents,pin_hash,
            reference_number,status,created_at,expires_at,collected_with_id_verified)
-         VALUES ($1,$2,'1','A','B','1','x','2','C','D','2',100,0,'x',$3,
+         VALUES ($1,$2,'1','A','B','enc-id','enc-addr','2','C','D','enc-rid',100,0,'x',$3,
                  'active',clock_timestamp(),clock_timestamp()+interval '1 day',0)`,
         [voucherId, owner.rows[0].user_id, `CS${randomUUID().replaceAll('-', '').slice(0, 14)}`],
       );
