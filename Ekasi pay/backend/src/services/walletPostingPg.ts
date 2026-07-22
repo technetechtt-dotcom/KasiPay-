@@ -300,7 +300,7 @@ export async function reverseWalletPostingPg(
     amount_cents: string;
   }>(
     `SELECT j.id, j.state, t.from_wallet_id, t.to_wallet_id, t.amount_cents
-       FROM journal_transactions j JOIN transactions t ON t.id = j.id
+       FROM journal_transactions j JOIN transactions t ON t.id = j.id::text
       WHERE j.id = $1 FOR UPDATE`,
     [opts.originalTransactionId],
   );

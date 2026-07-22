@@ -37,7 +37,7 @@ refundsRouterPg.post('/refunds', requireAuth, async (req, res) => {
     const original = await client.query<{ owner_id: string | null }>(
       `SELECT w.user_id AS owner_id
          FROM journal_transactions j
-         LEFT JOIN transactions t ON t.id = j.id
+         LEFT JOIN transactions t ON t.id = j.id::text
          LEFT JOIN wallets w ON w.id = t.from_wallet_id
         WHERE j.id = $1 AND j.state IN ('posted','settled') FOR UPDATE OF j`,
       [parsed.data.originalTransactionId],

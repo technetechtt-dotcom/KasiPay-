@@ -52,7 +52,7 @@ export async function postRefundPg(
   }>(
     `SELECT j.transaction_type, t.from_wallet_id, t.to_wallet_id
        FROM journal_transactions j
-       LEFT JOIN transactions t ON t.id = j.id
+       LEFT JOIN transactions t ON t.id = j.id::text
       WHERE j.id = $1 AND j.state IN ('posted','settled')`,
     [input.originalTransactionId],
   );
