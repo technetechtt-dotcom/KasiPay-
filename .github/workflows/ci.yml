@@ -72,6 +72,9 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Soft-fail until Dependency graph is enabled (Settings → Code security).
+    # Without that GitHub feature the official action exits non-zero on every PR.
+    continue-on-error: true
     permissions:
       contents: read
       pull-requests: write
