@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
+import { formatCents, parseZarToCents } from '../money.js';
 import {
   toSupplier,
   toSupplierOrder,
@@ -88,11 +89,11 @@ const orderBody = z.object({
       z.object({
         name: z.string().min(1),
         quantity: z.coerce.number().int().positive(),
-        unitCost: z.coerce.number().nonnegative(),
+        unitCost: z.union([z.string(), z.number()]),
       }),
     )
     .min(1),
-  total: z.coerce.number().nonnegative(),
+  total: z.union([z.string(), z.number()]),
   expectedDelivery: z.string().optional(),
 });
 
@@ -122,14 +123,21 @@ extensionSuppliersRouterPg.post(
     const now = new Date().toISOString();
     await pool.query(
       `INSERT INTO supplier_orders
-        (id, merchant_id, supplier_id, items_json, total, status, order_date, expected_delivery)
+        (id, merchant_id, supplier_id, items_json, total_cents, status, order_date, expected_delivery)
        VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)`,
       [
         id,
         merchantId,
         parsed.data.supplierId,
-        JSON.stringify(parsed.data.items),
-        parsed.data.total,
+        JSON.stringify(
+          parsed.data.items.map((item) => ({
+            ...item,
+            unitCost: formatCents(
+              parseZarToCents(item.unitCost, { allowZero: true }),
+            ),
+          })),
+        ),
+        parseZarToCents(parsed.data.total, { allowZero: true }).toString(),
         now,
         parsed.data.expectedDelivery ?? null,
       ],

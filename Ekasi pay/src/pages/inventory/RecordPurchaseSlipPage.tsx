@@ -15,6 +15,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Product } from '../../types';
+import {
+  addMoney,
+  canonicalMoney,
+  compareMoney,
+  formatMoney,
+  multiplyMoney,
+  type MoneyInput,
+} from '../../money';
 
 type SlipLine = {
   key: string;
@@ -51,14 +59,14 @@ export const RecordPurchaseSlipPage = ({
   onRecordPurchase: (input: {
     supplierName?: string;
     slipReference?: string;
-    slipTotal: number;
+    slipTotal: MoneyInput;
     notes?: string;
     lines: {
       productId?: string;
       name?: string;
       quantity: number;
-      costPrice: number;
-      sellingPrice?: number;
+      costPrice: MoneyInput;
+      sellingPrice?: MoneyInput;
       category?: string;
     }[];
   }) => Promise<boolean>;
@@ -74,15 +82,19 @@ export const RecordPurchaseSlipPage = ({
   const computedTotal = useMemo(() => {
     return lines.reduce((sum, line) => {
       const qty = parseInt(line.quantity, 10) || 0;
-      const cost = parseFloat(line.costPrice) || 0;
-      return sum + qty * cost;
-    }, 0);
+      const cost = line.costPrice || '0.00';
+      return addMoney(sum, multiplyMoney(cost, qty));
+    }, '0.00');
   }, [lines]);
 
-  const parsedSlipTotal = parseFloat(slipTotal) || 0;
-  const slipTotalValue = parsedSlipTotal > 0 ? parsedSlipTotal : computedTotal;
+  const parsedSlipTotal = slipTotal || '0.00';
+  const slipTotalValue =
+    compareMoney(parsedSlipTotal, 0) > 0
+      ? canonicalMoney(parsedSlipTotal)
+      : computedTotal;
   const totalsMatch =
-    parsedSlipTotal <= 0 || Math.abs(parsedSlipTotal - computedTotal) <= 0.05;
+    compareMoney(parsedSlipTotal, 0) <= 0 ||
+    compareMoney(parsedSlipTotal, computedTotal) === 0;
 
   const updateLine = (key: string, patch: Partial<SlipLine>) => {
     setLines((prev) =>
@@ -107,12 +119,14 @@ export const RecordPurchaseSlipPage = ({
     const payloadLines = lines
       .map((line) => {
         const quantity = parseInt(line.quantity, 10);
-        const costPrice = parseFloat(line.costPrice);
-        if (!(quantity > 0) || !(costPrice >= 0)) return null;
+        const costPrice = line.costPrice;
+        if (!(quantity > 0) || compareMoney(costPrice || '0.00', 0) < 0)
+          return null;
         if (line.isNew) {
           const name = line.name.trim();
-          const sellingPrice = parseFloat(line.sellingPrice);
-          if (!name || !(sellingPrice > 0)) return null;
+          const sellingPrice = line.sellingPrice;
+          if (!name || compareMoney(sellingPrice || '0.00', 0) <= 0)
+            return null;
           return {
             name,
             quantity,
@@ -128,8 +142,8 @@ export const RecordPurchaseSlipPage = ({
       productId?: string;
       name?: string;
       quantity: number;
-      costPrice: number;
-      sellingPrice?: number;
+      costPrice: MoneyInput;
+      sellingPrice?: MoneyInput;
       category?: string;
     }[];
 
@@ -139,7 +153,7 @@ export const RecordPurchaseSlipPage = ({
     }
     if (!totalsMatch) {
       toast.error(
-        `Slip total R${parsedSlipTotal.toFixed(2)} must match line items R${computedTotal.toFixed(2)}.`,
+        `Slip total R${formatMoney(parsedSlipTotal)} must match line items R${formatMoney(computedTotal)}.`,
       );
       return;
     }
@@ -208,14 +222,16 @@ export const RecordPurchaseSlipPage = ({
             value={slipTotal}
             onChange={(e) => setSlipTotal(e.target.value)}
           />
-          {!totalsMatch && parsedSlipTotal > 0 ? (
+          {!totalsMatch && compareMoney(parsedSlipTotal, 0) > 0 ? (
             <p className="text-xs text-red-600">
-              Slip total differs from line items (R{computedTotal.toFixed(2)}).
+              Slip total differs from line items (R{formatMoney(computedTotal)}).
             </p>
           ) : (
             <p className="text-xs text-slate-500">
-              Line items total: R{computedTotal.toFixed(2)}
-              {parsedSlipTotal <= 0 ? ' — leave blank to use this total' : ''}
+              Line items total: R{formatMoney(computedTotal)}
+              {compareMoney(parsedSlipTotal, 0) <= 0
+                ? ' — leave blank to use this total'
+                : ''}
             </p>
           )}
           <KPInput
@@ -351,13 +367,15 @@ export const RecordPurchaseSlipPage = ({
                 </div>
 
                 {(parseInt(line.quantity, 10) || 0) > 0 &&
-                (parseFloat(line.costPrice) || 0) >= 0 ? (
+                compareMoney(line.costPrice || '0.00', 0) >= 0 ? (
                   <p className="text-xs text-emerald-700 font-medium">
                     Line total: R
-                    {(
-                      (parseInt(line.quantity, 10) || 0) *
-                      (parseFloat(line.costPrice) || 0)
-                    ).toFixed(2)}
+                    {formatMoney(
+                      multiplyMoney(
+                        line.costPrice || '0.00',
+                        parseInt(line.quantity, 10) || 0,
+                      ),
+                    )}
                   </p>
                 ) : null}
               </KPCard>
@@ -373,7 +391,7 @@ export const RecordPurchaseSlipPage = ({
                 Books impact
               </p>
               <p className="font-bold text-lg">
-                R{slipTotalValue.toFixed(2)} supplier expense
+                R{formatMoney(slipTotalValue)} supplier expense
               </p>
               <p className="text-xs text-slate-400 mt-1">
                 Stock levels update and appear on your expense statement.

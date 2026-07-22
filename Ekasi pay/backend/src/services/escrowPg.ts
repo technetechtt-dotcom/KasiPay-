@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { hashPin } from '../password.js';
 import {
@@ -11,7 +11,7 @@ import {
 } from '../poolConstants.js';
 
 export async function getEscrowWalletIdForPoolPg(
-  pool: Pool,
+  pool: Pool | PoolClient,
   poolId: string,
 ): Promise<string | undefined> {
   const r = await pool.query<{ id: string }>(
@@ -56,7 +56,7 @@ export async function seedEscrowPoolZaPg(pool: Pool): Promise<void> {
     }
 
     await client.query(
-      `INSERT INTO wallets (id, user_id, balance, currency, status, pool_id, wallet_kind)
+      `INSERT INTO wallets (id, user_id, balance_cents, currency, status, pool_id, wallet_kind)
        VALUES ($1, $2, 0, $3, 'active', $4, 'system_escrow')`,
       [walletId, ESCROW_SYSTEM_USER_ID_ZA, currencyForPool(poolId), poolId],
     );

@@ -5,7 +5,6 @@ import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
 import {
-  calcStokvelLoanInterest,
   toExpiryItem,
   toFoodSafetyAlert,
   toInsurance,
@@ -18,6 +17,17 @@ import {
   toStokvelLoan,
   toVoiceNote,
 } from '../extraMappers.js';
+import {
+  formatCents,
+  multiplyCentsByRate,
+  nonnegativeMoneyNumber,
+  parseIntegerCents,
+  parseZarToCents,
+  positiveMoneyNumber,
+  type Cents,
+} from '../money.js';
+import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getLoadSheddingSlotsPg } from '../services/loadSheddingPg.js';
 import {
@@ -26,6 +36,7 @@ import {
 } from '../services/merchantPg.js';
 
 export const extensionProgramsRouterPg = Router();
+extensionProgramsRouterPg.use(requireAuth, requireApprovedMerchant);
 
 extensionProgramsRouterPg.get(
   '/loadshedding',
@@ -98,17 +109,21 @@ const stokvelBody = z.object({
       z.object({
         name: z.string(),
         phone: z.string(),
-        contributed: z.coerce.number().nonnegative(),
+        contributed: nonnegativeMoneyNumber,
       }),
     )
     .default([]),
-  targetAmount: z.coerce.number().positive(),
-  currentAmount: z.coerce.number().nonnegative(),
+  targetAmount: positiveMoneyNumber,
+  currentAmount: nonnegativeMoneyNumber,
   frequency: z.enum(['weekly', 'monthly']),
   nextPayoutDate: z.string().min(1),
 });
 
-extensionProgramsRouterPg.post('/stokvel', requireAuth, async (req, res) => {
+extensionProgramsRouterPg.post(
+  '/stokvel',
+  requireAuth,
+  idempotentPg('POST /stokvel'),
+  async (req, res) => {
   const pool = getPgPool();
   let merchantId: string;
   try {
@@ -125,15 +140,22 @@ extensionProgramsRouterPg.post('/stokvel', requireAuth, async (req, res) => {
   const b = parsed.data;
   await pool.query(
     `INSERT INTO stokvel_groups
-      (id, merchant_id, name, members_json, target_amount, current_amount, frequency, next_payout_date, created_at)
+      (id, merchant_id, name, members_json, target_amount_cents, current_amount_cents, frequency, next_payout_date, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       id,
       merchantId,
       b.name,
-      JSON.stringify(b.members),
-      b.targetAmount,
-      b.currentAmount,
+      JSON.stringify(
+        b.members.map((member) => ({
+          ...member,
+          contributed: formatCents(
+            parseZarToCents(member.contributed, { allowZero: true }),
+          ),
+        })),
+      ),
+      parseZarToCents(b.targetAmount).toString(),
+      parseZarToCents(b.currentAmount, { allowZero: true }).toString(),
       b.frequency,
       b.nextPayoutDate,
       now,
@@ -144,7 +166,8 @@ extensionProgramsRouterPg.post('/stokvel', requireAuth, async (req, res) => {
     [id],
   );
   return res.status(201).json({ group: toStokvel(rowQ.rows[0]) });
-});
+  },
+);
 
 const stokvelMembersBody = z.object({
   members: z.array(
@@ -155,7 +178,7 @@ const stokvelMembersBody = z.object({
         .min(9)
         .max(20)
         .transform((v) => v.replace(/\s+/g, '')),
-      contributed: z.coerce.number().nonnegative().default(0),
+      contributed: nonnegativeMoneyNumber.default(0),
     }),
   ),
 });
@@ -181,15 +204,27 @@ extensionProgramsRouterPg.patch(
     );
     const row = rowQ.rows[0];
     if (!row) return res.status(404).json({ error: 'Stokvel not found' });
-    const total = parsed.data.members.reduce(
-      (s, m) => s + Number(m.contributed || 0),
-      0,
+    const totalCents = parsed.data.members.reduce(
+      (sum, member) =>
+        (sum +
+          parseZarToCents(member.contributed, { allowZero: true })) as Cents,
+      0n as Cents,
     );
+    const currentCents = parseIntegerCents(row.current_amount_cents, {
+      allowZero: true,
+    });
     await pool.query(
-      `UPDATE stokvel_groups SET members_json = $1, current_amount = $2 WHERE id = $3`,
+      `UPDATE stokvel_groups SET members_json = $1, current_amount_cents = $2 WHERE id = $3`,
       [
-        JSON.stringify(parsed.data.members),
-        Math.max(total, row.current_amount),
+        JSON.stringify(
+          parsed.data.members.map((member) => ({
+            ...member,
+            contributed: formatCents(
+              parseZarToCents(member.contributed, { allowZero: true }),
+            ),
+          })),
+        ),
+        (totalCents > currentCents ? totalCents : currentCents).toString(),
         row.id,
       ],
     );
@@ -216,7 +251,7 @@ const stokvelLoanBody = z.object({
     .min(9)
     .max(20)
     .transform((v) => v.replace(/\s+/g, '')),
-  amount: z.coerce.number().positive(),
+  amount: positiveMoneyNumber,
   /** Percent charged on every R100 loaned (10 → R10 interest per R100). */
   interestRatePercent: z.coerce
     .number()
@@ -230,6 +265,7 @@ const stokvelLoanBody = z.object({
 extensionProgramsRouterPg.post(
   '/stokvel/:id/loans',
   requireAuth,
+  idempotentPg('POST /stokvel/:id/loans'),
   async (req, res) => {
     const pool = getPgPool();
     let merchantId: string;
@@ -244,25 +280,30 @@ extensionProgramsRouterPg.post(
     }
     const groupQ = await pool.query<{
       id: string;
-      current_amount: number;
+      current_amount_cents: string;
     }>(
-      `SELECT id, current_amount FROM stokvel_groups WHERE id = $1 AND merchant_id = $2`,
+      `SELECT id, current_amount_cents FROM stokvel_groups WHERE id = $1 AND merchant_id = $2`,
       [req.params.id, merchantId],
     );
     const group = groupQ.rows[0];
     if (!group) return res.status(404).json({ error: 'Stokvel not found' });
 
     const b = parsed.data;
-    if (b.fromPool && group.current_amount < b.amount) {
+    const amountCents = parseZarToCents(b.amount);
+    const poolCents = parseIntegerCents(group.current_amount_cents, {
+      allowZero: true,
+    });
+    if (b.fromPool && poolCents < amountCents) {
       return res.status(400).json({
-        error: `Pool only has R${Number(group.current_amount).toFixed(2)} — not enough to loan R${b.amount.toFixed(2)}.`,
+        error: `Pool only has R${formatCents(poolCents)} — not enough to loan R${formatCents(amountCents)}.`,
       });
     }
 
-    const { interestAmount, totalDue } = calcStokvelLoanInterest(
-      b.amount,
-      b.interestRatePercent,
-    );
+    const interestCents = multiplyCentsByRate(amountCents, {
+      units: BigInt(b.interestRatePercent),
+      scale: 100n,
+    });
+    const totalDueCents = (amountCents + interestCents) as Cents;
     const id = randomUUID();
     const now = new Date().toISOString();
     const client = await pool.connect();
@@ -271,7 +312,7 @@ extensionProgramsRouterPg.post(
       await client.query(
         `INSERT INTO stokvel_loans
           (id, stokvel_id, lender_name, lender_phone, borrower_name, borrower_phone,
-           amount, interest_rate_percent, interest_amount, total_due, from_pool,
+           amount_cents, interest_rate_percent, interest_amount_cents, total_due_cents, from_pool,
            status, notes, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active',$12,$13)`,
         [
@@ -281,10 +322,10 @@ extensionProgramsRouterPg.post(
           b.lenderPhone,
           b.borrowerName,
           b.borrowerPhone,
-          b.amount,
+          amountCents.toString(),
           b.interestRatePercent,
-          interestAmount,
-          totalDue,
+          interestCents.toString(),
+          totalDueCents.toString(),
           b.fromPool,
           b.notes ?? null,
           now,
@@ -293,9 +334,9 @@ extensionProgramsRouterPg.post(
       if (b.fromPool) {
         await client.query(
           `UPDATE stokvel_groups
-              SET current_amount = current_amount - $1
+              SET current_amount_cents = current_amount_cents - $1
             WHERE id = $2`,
-          [b.amount, group.id],
+          [amountCents.toString(), group.id],
         );
       }
       await client.query('COMMIT');
@@ -323,6 +364,7 @@ extensionProgramsRouterPg.post(
 extensionProgramsRouterPg.patch(
   '/stokvel/:id/loans/:loanId/repay',
   requireAuth,
+  idempotentPg('PATCH /stokvel/:id/loans/:loanId/repay'),
   async (req, res) => {
     const pool = getPgPool();
     let merchantId: string;
@@ -359,9 +401,9 @@ extensionProgramsRouterPg.patch(
         // Principal returns to the pool; interest stays with the lender track record.
         await client.query(
           `UPDATE stokvel_groups
-              SET current_amount = current_amount + $1
+              SET current_amount_cents = current_amount_cents + $1
             WHERE id = $2`,
-          [loan.amount, req.params.id],
+          [loan.amount_cents, req.params.id],
         );
       }
       await client.query('COMMIT');
@@ -396,7 +438,7 @@ const stokvelContributionBody = z.object({
     .min(9)
     .max(20)
     .transform((v) => v.replace(/\s+/g, '')),
-  amount: z.coerce.number().positive(),
+  amount: positiveMoneyNumber,
   periodMonth: periodMonthSchema,
   notes: z.string().trim().max(500).optional(),
 });
@@ -404,6 +446,7 @@ const stokvelContributionBody = z.object({
 extensionProgramsRouterPg.post(
   '/stokvel/:id/contributions',
   requireAuth,
+  idempotentPg('POST /stokvel/:id/contributions'),
   async (req, res) => {
     const pool = getPgPool();
     let merchantId: string;
@@ -419,9 +462,9 @@ extensionProgramsRouterPg.post(
     const groupQ = await pool.query<{
       id: string;
       members_json: string;
-      current_amount: number;
+      current_amount_cents: string;
     }>(
-      `SELECT id, members_json, current_amount FROM stokvel_groups
+      `SELECT id, members_json, current_amount_cents FROM stokvel_groups
         WHERE id = $1 AND merchant_id = $2`,
       [req.params.id, merchantId],
     );
@@ -431,7 +474,7 @@ extensionProgramsRouterPg.post(
     const members = JSON.parse(group.members_json) as {
       name: string;
       phone: string;
-      contributed: number;
+      contributed: string | number;
     }[];
     const member = members.find((m) => m.phone === parsed.data.memberPhone);
     if (!member) {
@@ -440,15 +483,16 @@ extensionProgramsRouterPg.post(
       });
     }
 
-    const existingQ = await pool.query<{ id: string; amount: number }>(
-      `SELECT id, amount FROM stokvel_contributions
+    const existingQ = await pool.query<{ id: string; amount_cents: string }>(
+      `SELECT id, amount_cents FROM stokvel_contributions
         WHERE stokvel_id = $1 AND member_phone = $2 AND period_month = $3`,
       [group.id, member.phone, parsed.data.periodMonth],
     );
     const existing = existingQ.rows[0];
     const now = new Date().toISOString();
-    const newAmount = parsed.data.amount;
-    const delta = existing ? newAmount - Number(existing.amount) : newAmount;
+    const newAmountCents = parseZarToCents(parsed.data.amount);
+    const deltaCents = (newAmountCents -
+      (existing ? parseIntegerCents(existing.amount_cents) : 0n)) as Cents;
     const id = existing?.id ?? randomUUID();
 
     const client = await pool.connect();
@@ -457,21 +501,26 @@ extensionProgramsRouterPg.post(
       if (existing) {
         await client.query(
           `UPDATE stokvel_contributions
-              SET amount = $1, notes = $2, member_name = $3
+              SET amount_cents = $1, notes = $2, member_name = $3
             WHERE id = $4`,
-          [newAmount, parsed.data.notes ?? null, member.name, existing.id],
+          [
+            newAmountCents.toString(),
+            parsed.data.notes ?? null,
+            member.name,
+            existing.id,
+          ],
         );
       } else {
         await client.query(
           `INSERT INTO stokvel_contributions
-            (id, stokvel_id, member_name, member_phone, amount, period_month, notes, created_at)
+            (id, stokvel_id, member_name, member_phone, amount_cents, period_month, notes, created_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [
             id,
             group.id,
             member.name,
             member.phone,
-            newAmount,
+            newAmountCents.toString(),
             parsed.data.periodMonth,
             parsed.data.notes ?? null,
             now,
@@ -483,8 +532,9 @@ extensionProgramsRouterPg.post(
         m.phone === member.phone
           ? {
               ...m,
-              contributed: Number(
-                (Number(m.contributed || 0) + delta).toFixed(2),
+              contributed: formatCents(
+                (parseZarToCents(m.contributed, { allowZero: true }) +
+                  deltaCents) as Cents,
               ),
             }
           : m,
@@ -492,9 +542,9 @@ extensionProgramsRouterPg.post(
       await client.query(
         `UPDATE stokvel_groups
             SET members_json = $1,
-                current_amount = GREATEST(0, current_amount + $2)
+                current_amount_cents = GREATEST(0, current_amount_cents + $2)
           WHERE id = $3`,
-        [JSON.stringify(nextMembers), delta, group.id],
+        [JSON.stringify(nextMembers), deltaCents.toString(), group.id],
       );
       await client.query('COMMIT');
     } catch (e) {
@@ -538,12 +588,12 @@ const laybyBody = z.object({
   customerName: z.string().min(1),
   customerPhone: z.string().min(9).max(20),
   itemName: z.string().min(1),
-  totalPrice: z.coerce.number().positive(),
-  amountPaid: z.coerce.number().nonnegative(),
+  totalPrice: positiveMoneyNumber,
+  amountPaid: nonnegativeMoneyNumber,
   installments: z
     .array(
       z.object({
-        amount: z.coerce.number().nonnegative(),
+        amount: nonnegativeMoneyNumber,
         date: z.string(),
       }),
     )
@@ -551,7 +601,11 @@ const laybyBody = z.object({
   status: z.enum(['active', 'completed', 'cancelled']).default('active'),
 });
 
-extensionProgramsRouterPg.post('/layby', requireAuth, async (req, res) => {
+extensionProgramsRouterPg.post(
+  '/layby',
+  requireAuth,
+  idempotentPg('POST /layby'),
+  async (req, res) => {
   const pool = getPgPool();
   let merchantId: string;
   try {
@@ -568,7 +622,7 @@ extensionProgramsRouterPg.post('/layby', requireAuth, async (req, res) => {
   const b = parsed.data;
   await pool.query(
     `INSERT INTO layby_orders
-      (id, merchant_id, customer_name, customer_phone, item_name, total_price, amount_paid, installments_json, status, created_at)
+      (id, merchant_id, customer_name, customer_phone, item_name, total_price_cents, amount_paid_cents, installments_json, status, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       id,
@@ -576,9 +630,16 @@ extensionProgramsRouterPg.post('/layby', requireAuth, async (req, res) => {
       b.customerName,
       b.customerPhone.replace(/\s+/g, ''),
       b.itemName,
-      b.totalPrice,
-      b.amountPaid,
-      JSON.stringify(b.installments),
+      parseZarToCents(b.totalPrice).toString(),
+      parseZarToCents(b.amountPaid, { allowZero: true }).toString(),
+      JSON.stringify(
+        b.installments.map((installment) => ({
+          ...installment,
+          amount: formatCents(
+            parseZarToCents(installment.amount, { allowZero: true }),
+          ),
+        })),
+      ),
       b.status,
       now,
     ],
@@ -587,10 +648,11 @@ extensionProgramsRouterPg.post('/layby', requireAuth, async (req, res) => {
     id,
   ]);
   return res.status(201).json({ order: toLayby(rowQ.rows[0]) });
-});
+  },
+);
 
 const laybyPaymentBody = z.object({
-  amount: z.coerce.number().positive(),
+  amount: positiveMoneyNumber,
   date: z.string().min(1).optional(),
 });
 
@@ -600,8 +662,8 @@ type LaybyRow = {
   customer_name: string;
   customer_phone: string;
   item_name: string;
-  total_price: number;
-  amount_paid: number;
+  total_price_cents: string;
+  amount_paid_cents: string;
   installments_json: string;
   status: string;
   created_at: string;
@@ -610,6 +672,7 @@ type LaybyRow = {
 extensionProgramsRouterPg.post(
   '/layby/:id/payments',
   requireAuth,
+  idempotentPg('POST /layby/:id/payments'),
   async (req, res) => {
     const pool = getPgPool();
     let merchantId: string;
@@ -633,27 +696,37 @@ extensionProgramsRouterPg.post(
         .status(409)
         .json({ error: `Layby is ${row.status} — payments closed.` });
     }
-    const outstanding = Number((row.total_price - row.amount_paid).toFixed(2));
-    if (outstanding <= 0) {
+    const totalCents = parseIntegerCents(row.total_price_cents);
+    const paidCents = parseIntegerCents(row.amount_paid_cents, {
+      allowZero: true,
+    });
+    const outstandingCents = (totalCents - paidCents) as Cents;
+    if (outstandingCents <= 0n) {
       return res.status(409).json({ error: 'Layby already paid in full.' });
     }
-    const applied = Math.min(parsed.data.amount, outstanding);
-    let installments: { amount: number; date: string }[] = [];
+    const requestedCents = parseZarToCents(parsed.data.amount);
+    const appliedCents =
+      requestedCents < outstandingCents ? requestedCents : outstandingCents;
+    let installments: { amount: string; date: string }[] = [];
     try {
       installments = JSON.parse(row.installments_json || '[]');
     } catch {
       installments = [];
     }
     installments.push({
-      amount: applied,
+      amount: formatCents(appliedCents),
       date: parsed.data.date ?? new Date().toISOString(),
     });
-    const newPaid = Number((row.amount_paid + applied).toFixed(2));
-    const newStatus =
-      newPaid >= row.total_price - 0.005 ? 'completed' : 'active';
+    const newPaidCents = (paidCents + appliedCents) as Cents;
+    const newStatus = newPaidCents >= totalCents ? 'completed' : 'active';
     await pool.query(
-      `UPDATE layby_orders SET amount_paid = $1, installments_json = $2, status = $3 WHERE id = $4`,
-      [newPaid, JSON.stringify(installments), newStatus, row.id],
+      `UPDATE layby_orders SET amount_paid_cents = $1, installments_json = $2, status = $3 WHERE id = $4`,
+      [
+        newPaidCents.toString(),
+        JSON.stringify(installments),
+        newStatus,
+        row.id,
+      ],
     );
     const freshQ = await pool.query<LaybyRow>(
       `SELECT * FROM layby_orders WHERE id = $1`,
@@ -662,8 +735,13 @@ extensionProgramsRouterPg.post(
     const fresh = freshQ.rows[0];
     return res.json({
       order: toLayby(fresh),
-      applied,
-      outstanding: Number((fresh.total_price - fresh.amount_paid).toFixed(2)),
+      applied: formatCents(appliedCents),
+      outstanding: formatCents(
+        (parseIntegerCents(fresh.total_price_cents) -
+          parseIntegerCents(fresh.amount_paid_cents, {
+            allowZero: true,
+          })) as Cents,
+      ),
     });
   },
 );
@@ -694,10 +772,10 @@ extensionProgramsRouterPg.get(
 
 const priceBody = z.object({
   productName: z.string().min(1),
-  myPrice: z.coerce.number().nonnegative(),
-  avgAreaPrice: z.coerce.number().nonnegative(),
-  lowestAreaPrice: z.coerce.number().nonnegative(),
-  highestAreaPrice: z.coerce.number().nonnegative(),
+  myPrice: nonnegativeMoneyNumber,
+  avgAreaPrice: nonnegativeMoneyNumber,
+  lowestAreaPrice: nonnegativeMoneyNumber,
+  highestAreaPrice: nonnegativeMoneyNumber,
   competitors: z.coerce.number().int().nonnegative(),
 });
 
@@ -721,16 +799,16 @@ extensionProgramsRouterPg.post(
     const b = parsed.data;
     await pool.query(
       `INSERT INTO price_comparisons
-        (id, merchant_id, product_name, my_price, avg_area_price, lowest_area_price, highest_area_price, competitors, last_updated)
+        (id, merchant_id, product_name, my_price_cents, avg_area_price_cents, lowest_area_price_cents, highest_area_price_cents, competitors, last_updated)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         id,
         merchantId,
         b.productName,
-        b.myPrice,
-        b.avgAreaPrice,
-        b.lowestAreaPrice,
-        b.highestAreaPrice,
+        parseZarToCents(b.myPrice, { allowZero: true }).toString(),
+        parseZarToCents(b.avgAreaPrice, { allowZero: true }).toString(),
+        parseZarToCents(b.lowestAreaPrice, { allowZero: true }).toString(),
+        parseZarToCents(b.highestAreaPrice, { allowZero: true }).toString(),
         b.competitors,
         now,
       ],
@@ -761,13 +839,17 @@ extensionProgramsRouterPg.get('/insurance', requireAuth, async (req, res) => {
 const insBody = z.object({
   provider: z.string().min(1),
   type: z.enum(['stock', 'fire', 'theft']),
-  coverageAmount: z.coerce.number().positive(),
-  monthlyPremium: z.coerce.number().positive(),
+  coverageAmount: positiveMoneyNumber,
+  monthlyPremium: positiveMoneyNumber,
   status: z.enum(['active', 'pending', 'cancelled']).default('pending'),
   nextPaymentDate: z.string().min(1),
 });
 
-extensionProgramsRouterPg.post('/insurance', requireAuth, async (req, res) => {
+extensionProgramsRouterPg.post(
+  '/insurance',
+  requireAuth,
+  idempotentPg('POST /insurance'),
+  async (req, res) => {
   const pool = getPgPool();
   let merchantId: string;
   try {
@@ -783,15 +865,15 @@ extensionProgramsRouterPg.post('/insurance', requireAuth, async (req, res) => {
   const b = parsed.data;
   await pool.query(
     `INSERT INTO insurance_policies
-      (id, merchant_id, provider, type, coverage_amount, monthly_premium, status, next_payment_date)
+      (id, merchant_id, provider, type, coverage_amount_cents, monthly_premium_cents, status, next_payment_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       id,
       merchantId,
       b.provider,
       b.type,
-      b.coverageAmount,
-      b.monthlyPremium,
+      parseZarToCents(b.coverageAmount).toString(),
+      parseZarToCents(b.monthlyPremium).toString(),
       b.status,
       b.nextPaymentDate,
     ],
@@ -801,12 +883,13 @@ extensionProgramsRouterPg.post('/insurance', requireAuth, async (req, res) => {
     [id],
   );
   return res.status(201).json({ policy: toInsurance(rowQ.rows[0]) });
-});
+  },
+);
 
 const claimBody = z.object({
   type: z.enum(['stock', 'fire', 'theft']),
   description: z.string().min(3).max(2000),
-  claimedAmount: z.coerce.number().positive(),
+  claimedAmount: positiveMoneyNumber,
 });
 
 type ClaimRow = {
@@ -815,7 +898,7 @@ type ClaimRow = {
   merchant_id: string;
   type: string;
   description: string;
-  claimed_amount: number;
+  claimed_amount_cents: string;
   status: string;
   created_at: string;
   reviewed_at?: string | null;
@@ -830,7 +913,7 @@ function toInsuranceClaim(row: ClaimRow) {
     merchantId: row.merchant_id,
     type: row.type,
     description: row.description,
-    claimedAmount: row.claimed_amount,
+    claimedAmount: formatCents(parseIntegerCents(row.claimed_amount_cents)),
     status: row.status,
     createdAt: row.created_at,
     reviewedAt: row.reviewed_at ?? undefined,
@@ -841,6 +924,7 @@ function toInsuranceClaim(row: ClaimRow) {
 extensionProgramsRouterPg.get(
   '/insurance/:id/claims',
   requireAuth,
+  idempotentPg('POST /insurance/:id/claims'),
   async (req, res) => {
     const pool = getPgPool();
     let merchantId: string;
@@ -882,9 +966,9 @@ extensionProgramsRouterPg.post(
     const policyQ = await pool.query<{
       id: string;
       status: string;
-      coverage_amount: number;
+      coverage_amount_cents: string;
     }>(
-      `SELECT id, status, coverage_amount FROM insurance_policies
+      `SELECT id, status, coverage_amount_cents FROM insurance_policies
        WHERE id = $1 AND merchant_id = $2`,
       [req.params.id, merchantId],
     );
@@ -895,16 +979,18 @@ extensionProgramsRouterPg.post(
         .status(409)
         .json({ error: `Policy is ${policy.status} — claims paused.` });
     }
-    if (parsed.data.claimedAmount > policy.coverage_amount) {
+    const claimedCents = parseZarToCents(parsed.data.claimedAmount);
+    const coverageCents = parseIntegerCents(policy.coverage_amount_cents);
+    if (claimedCents > coverageCents) {
       return res.status(400).json({
-        error: `Claimed amount exceeds coverage (R${policy.coverage_amount.toFixed(2)}).`,
+        error: `Claimed amount exceeds coverage (R${formatCents(coverageCents)}).`,
       });
     }
     const id = randomUUID();
     const now = new Date().toISOString();
     await pool.query(
       `INSERT INTO insurance_claims
-         (id, policy_id, merchant_id, type, description, claimed_amount, status, created_at)
+         (id, policy_id, merchant_id, type, description, claimed_amount_cents, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, 'submitted', $7)`,
       [
         id,
@@ -912,7 +998,7 @@ extensionProgramsRouterPg.post(
         merchantId,
         parsed.data.type,
         parsed.data.description.trim(),
-        parsed.data.claimedAmount,
+        claimedCents.toString(),
         now,
       ],
     );
@@ -1176,7 +1262,7 @@ const stockMoveBody = z.object({
     'manual',
     'initial',
   ]),
-  costPriceAtTime: z.coerce.number().optional(),
+  costPriceAtTime: nonnegativeMoneyNumber.optional(),
   reference: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -1201,7 +1287,7 @@ extensionProgramsRouterPg.post(
     const b = parsed.data;
     await pool.query(
       `INSERT INTO stock_movements
-        (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time, reference, notes, created_at)
+        (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time_cents, reference, notes, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         id,
@@ -1211,7 +1297,9 @@ extensionProgramsRouterPg.post(
         b.type,
         b.quantity,
         b.reason,
-        b.costPriceAtTime ?? null,
+        b.costPriceAtTime === undefined
+          ? null
+          : parseZarToCents(b.costPriceAtTime, { allowZero: true }).toString(),
         b.reference ?? null,
         b.notes ?? null,
         now,

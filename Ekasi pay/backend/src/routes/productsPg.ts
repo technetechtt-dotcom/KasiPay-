@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
 import { toProduct } from '../mappers.js';
+import { parseZarToCents } from '../money.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
@@ -38,8 +39,8 @@ productsRouterPg.get('/products', requireAuth, async (req, res) => {
     id: string;
     merchant_id: string;
     name: string;
-    cost_price: number;
-    price: number;
+    cost_price_cents: string;
+    price_cents: string;
     stock: number;
     category: string;
     barcode: string | null;
@@ -61,14 +62,14 @@ productsRouterPg.post('/products', requireAuth, async (req, res) => {
     const id = randomUUID();
     const p = parsed.data;
     await pool.query(
-      `INSERT INTO products (id, merchant_id, name, cost_price, price, stock, category, barcode)
+      `INSERT INTO products (id, merchant_id, name, cost_price_cents, price_cents, stock, category, barcode)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         id,
         merchantId,
         p.name,
-        p.costPrice,
-        p.price,
+        parseZarToCents(p.costPrice, { allowZero: true }).toString(),
+        parseZarToCents(p.price, { allowZero: true }).toString(),
         p.stock,
         p.category,
         p.barcode ?? null,
@@ -78,8 +79,8 @@ productsRouterPg.post('/products', requireAuth, async (req, res) => {
       id: string;
       merchant_id: string;
       name: string;
-      cost_price: number;
-      price: number;
+      cost_price_cents: string;
+      price_cents: string;
       stock: number;
       category: string;
       barcode: string | null;
@@ -117,8 +118,8 @@ productsRouterPg.patch('/products/:id', requireAuth, async (req, res) => {
     id: string;
     merchant_id: string;
     name: string;
-    cost_price: number;
-    price: number;
+    cost_price_cents: string;
+    price_cents: string;
     stock: number;
     category: string;
     barcode: string | null;
@@ -133,8 +134,14 @@ productsRouterPg.patch('/products/:id', requireAuth, async (req, res) => {
 
   const next = {
     name: parsed.data.name ?? existing.name,
-    cost_price: parsed.data.costPrice ?? existing.cost_price,
-    price: parsed.data.price ?? existing.price,
+    cost_price_cents:
+      parsed.data.costPrice === undefined
+        ? existing.cost_price_cents
+        : parseZarToCents(parsed.data.costPrice, { allowZero: true }).toString(),
+    price_cents:
+      parsed.data.price === undefined
+        ? existing.price_cents
+        : parseZarToCents(parsed.data.price, { allowZero: true }).toString(),
     stock: parsed.data.stock ?? existing.stock,
     category: parsed.data.category ?? existing.category,
     barcode: parsed.data.barcode !== undefined ? parsed.data.barcode : existing.barcode,
@@ -142,12 +149,12 @@ productsRouterPg.patch('/products/:id', requireAuth, async (req, res) => {
 
   await pool.query(
     `UPDATE products
-        SET name = $1, cost_price = $2, price = $3, stock = $4, category = $5, barcode = $6
+        SET name = $1, cost_price_cents = $2, price_cents = $3, stock = $4, category = $5, barcode = $6
       WHERE id = $7`,
     [
       next.name,
-      next.cost_price,
-      next.price,
+      next.cost_price_cents,
+      next.price_cents,
       next.stock,
       next.category,
       next.barcode ?? null,
@@ -159,8 +166,8 @@ productsRouterPg.patch('/products/:id', requireAuth, async (req, res) => {
     id: string;
     merchant_id: string;
     name: string;
-    cost_price: number;
-    price: number;
+    cost_price_cents: string;
+    price_cents: string;
     stock: number;
     category: string;
     barcode: string | null;

@@ -7,6 +7,7 @@ import {
 '../../components/shared/UIComponents';
 import { ArrowDownLeft, ArrowUpRight, ShoppingCart, Plus } from 'lucide-react';
 import type { Transaction, Sale, Wallet, TransactionType } from '../../types';
+import { subtractMoney } from '../../money';
 
 function extractCashSendVoucherNumber(description: string | undefined): string | null {
   const match = (description ?? '').toUpperCase().match(/CS[0-9A-F]{8,}/);
@@ -183,7 +184,7 @@ export const HistoryPage = ({
                     </div>
                     <div className="text-right shrink-0">
                       <KPAmount
-                      amount={isOutgoing ? -Math.abs(tx.amount) : Math.abs(tx.amount)}
+                      amount={isOutgoing ? subtractMoney('0.00', tx.amount) : tx.amount}
                       showSign
                       className={
                       isOutgoing ?

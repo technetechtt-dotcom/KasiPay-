@@ -6,13 +6,9 @@ import type {
 } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
+import { absMoney, compareMoney, formatMoney, type MoneyInput } from '../../money';
 // --- Typography & Formatting ---
-const formatZAR = (amount: number) => {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR'
-  }).format(amount);
-};
+const formatZAR = (amount: MoneyInput) => `R ${formatMoney(amount)}`;
 export const KPAmount = ({
   amount,
   className = '',
@@ -21,9 +17,9 @@ export const KPAmount = ({
 
 
 
-}: {amount: number;className?: string;showSign?: boolean;}) => {
-  const isNegative = amount < 0;
-  const displayAmount = Math.abs(amount);
+}: {amount: MoneyInput;className?: string;showSign?: boolean;}) => {
+  const isNegative = compareMoney(amount, 0) < 0;
+  const displayAmount = absMoney(amount);
   const prefix = showSign ? isNegative ? '- ' : '+ ' : '';
   return (
     <span className={`font-semibold tracking-tight ${className}`}>

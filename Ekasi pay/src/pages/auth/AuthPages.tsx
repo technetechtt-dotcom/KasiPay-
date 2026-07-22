@@ -98,26 +98,19 @@ export const PinPage = ({
   const [resetOpen, setResetOpen] = useState(false);
   const handlePadClick = (num: string) => {
     if (lockedForSeconds > 0 || submitting) return;
-    if (pin.length < 4) {
-      const newPin = pin + num;
-      setPin(newPin);
-      if (newPin.length === 4) {
-        void (async () => {
-          setSubmitting(true);
-          try {
-            const success = await Promise.resolve(onLogin(newPin));
-            if (!success) {
-              setError(true);
-              setTimeout(() => {
-                setPin('');
-                setError(false);
-              }, 500);
-            }
-          } finally {
-            setSubmitting(false);
-          }
-        })();
+    if (pin.length < 12) setPin(pin + num);
+  };
+  const submitPin = async () => {
+    if (pin.length < 4 || submitting) return;
+    setSubmitting(true);
+    try {
+      const success = await Promise.resolve(onLogin(pin));
+      if (!success) {
+        setError(true);
+        setTimeout(() => { setPin(''); setError(false); }, 500);
       }
+    } finally {
+      setSubmitting(false);
     }
   };
   const handleBackspace = () => {
@@ -137,7 +130,7 @@ export const PinPage = ({
           `Too many attempts. Try again in ${lockedForSeconds}s` :
           submitting ?
           'Signing you in…' :
-          'Enter your 4-digit PIN'}
+          'Enter your PIN'}
         </p>
 
         {submitting &&
@@ -160,7 +153,7 @@ export const PinPage = ({
           }}
           className="flex justify-center gap-4 my-12">
           
-          {[0, 1, 2, 3].map((i) =>
+          {Array.from({ length: Math.max(6, pin.length) }, (_, i) => i).map((i) =>
           <div
             key={i}
             className={`w-5 h-5 rounded-full transition-all duration-200 ${pin.length > i ? 'bg-emerald-600 scale-110' : 'bg-slate-200'} ${error ? 'bg-red-500' : ''}`} />
@@ -168,6 +161,12 @@ export const PinPage = ({
           )}
         </motion.div>
       </div>
+      <KPButton
+        className="w-full"
+        disabled={pin.length < 4 || submitting || lockedForSeconds > 0}
+        onClick={() => void submitPin()}>
+        Sign in
+      </KPButton>
 
       {/* Number Pad */}
       <div className="w-full grid grid-cols-3 gap-3 my-8">
@@ -273,7 +272,7 @@ const ForgotPinModal = ({
         <p className="text-sm text-slate-500 mb-4">
           {step === 'request' ?
             <>We’ll send a 6-digit code to <strong>{phone}</strong>.</>
-          : <>Enter the 6-digit code we sent and pick a new 4-digit PIN.</>}
+          : <>Enter the 6-digit code we sent and pick a new 6–12 digit PIN.</>}
         </p>
         {step === 'confirm' ?
           <>
@@ -287,13 +286,13 @@ const ForgotPinModal = ({
               }
             />
             <KPInput
-              label="New 4-digit PIN"
+              label="New PIN (6–12 digits)"
               type="password"
               inputMode="numeric"
-              maxLength={4}
+              maxLength={12}
               value={newPin}
               onChange={(e) =>
-                setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))
+                setNewPin(e.target.value.replace(/\D/g, '').slice(0, 12))
               }
             />
           </>
@@ -309,7 +308,7 @@ const ForgotPinModal = ({
             className="flex-1"
             disabled={
               busy ||
-              (step === 'confirm' && (code.length !== 6 || newPin.length !== 4))
+              (step === 'confirm' && (code.length !== 6 || newPin.length < 6))
             }
             onClick={step === 'request' ? requestCode : confirm}>
             {busy ? 'Working…' :
@@ -338,16 +337,16 @@ export const RegisterPage = ({
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const phoneDigits = phone.replace(/\D/g, '');
-  const pinDigits = pin.replace(/\D/g, '').slice(0, 4);
+  const pinDigits = pin.replace(/\D/g, '').slice(0, 12);
   const nameOk = name.trim().length >= 2;
   const canSubmit =
-    nameOk && phoneDigits.length >= 10 && pinDigits.length === 4 && !submitting;
+    nameOk && phoneDigits.length >= 10 && pinDigits.length >= 6 && !submitting;
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError('');
-    if (!nameOk || phoneDigits.length < 10 || pinDigits.length !== 4) {
+    if (!nameOk || phoneDigits.length < 10 || pinDigits.length < 6) {
       setFormError(
-        'Enter your full name, a mobile number with at least 10 digits, and a 4-digit PIN.'
+        'Enter your full name, a mobile number with at least 10 digits, and a 6–12 digit PIN.'
       );
       return;
     }
@@ -395,14 +394,14 @@ export const RegisterPage = ({
           required />
         
         <KPInput
-          label="Create 4-Digit PIN"
+          label="Create PIN (6–12 digits)"
           type="password"
           inputMode="numeric"
-          maxLength={4}
-          placeholder="••••"
+          maxLength={12}
+          placeholder="••••••"
           value={pin}
           onChange={(e) => {
-            setPin(e.target.value.replace(/\D/g, '').slice(0, 4));
+            setPin(e.target.value.replace(/\D/g, '').slice(0, 12));
             setFormError('');
           }}
           required />

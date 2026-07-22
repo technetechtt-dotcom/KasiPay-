@@ -9,6 +9,13 @@ import {
   Award } from
 'lucide-react';
 import type { Sale, Expense } from '../../types';
+import {
+  addMoney,
+  compareMoney,
+  moneyFromRate,
+  moneyRatioPercent,
+  subtractMoney,
+} from '../../money';
 export const BusinessHealthPage = ({
   sales,
   expenses,
@@ -19,10 +26,17 @@ export const BusinessHealthPage = ({
 
 }: {sales: Sale[];expenses: Expense[];navigate: (p: string) => void;}) => {
   // Calculate some basic metrics for the score
-  const totalSales = sales.reduce((sum, s) => sum + s.total, 0);
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const profitMargin =
-  totalSales > 0 ? (totalSales - totalExpenses) / totalSales * 100 : 0;
+  const totalSales = sales.reduce((sum, s) => addMoney(sum, s.total), '0.00');
+  const totalExpenses = expenses.reduce(
+    (sum, e) => addMoney(sum, e.amount),
+    '0.00',
+  );
+  const profitMargin = moneyRatioPercent(
+    subtractMoney(totalSales, totalExpenses),
+    totalSales,
+  );
+  const expensesHigh =
+    compareMoney(totalExpenses, moneyFromRate(totalSales, 1n, 2n)) > 0;
   // Fake a score based on profit margin (just for prototype)
   let score = 65;
   if (profitMargin > 30) score = 92;else
@@ -167,7 +181,7 @@ export const BusinessHealthPage = ({
           <KPCard className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${totalExpenses > totalSales * 0.5 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${expensesHigh ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
                 
                 <TrendingDown className="w-5 h-5" />
               </div>
@@ -177,9 +191,9 @@ export const BusinessHealthPage = ({
               </div>
             </div>
             <span
-              className={`font-bold ${totalExpenses > totalSales * 0.5 ? 'text-red-600' : 'text-emerald-600'}`}>
+              className={`font-bold ${expensesHigh ? 'text-red-600' : 'text-emerald-600'}`}>
               
-              {totalExpenses > totalSales * 0.5 ? 'High' : 'Low'}
+              {expensesHigh ? 'High' : 'Low'}
             </span>
           </KPCard>
         </div>

@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  addMoney,
+  compareMoney,
+  moneyToCents,
+  type MoneyInput,
+} from '../money';
 import type {
   User,
   Wallet,
@@ -446,8 +452,13 @@ export function useAppState() {
 
   const isPinLocked = () =>
     pinLockedUntil !== null && Date.now() < pinLockedUntil;
-  const isPositiveAmount = (amount: number) =>
-    Number.isFinite(amount) && amount > 0;
+  const isPositiveAmount = (amount: MoneyInput) => {
+    try {
+      return moneyToCents(amount) > 0n;
+    } catch {
+      return false;
+    }
+  };
   const isWalletUsable = (wallet: Wallet | undefined): wallet is Wallet =>
     Boolean(wallet && wallet.status === 'active');
 
@@ -632,7 +643,7 @@ export function useAppState() {
       return false;
     }
     const cleanedPin = normalizePin(pin);
-    if (cleanedPin.length !== 4) return false;
+    if (cleanedPin.length < 4 || cleanedPin.length > 12) return false;
 
     try {
       const { token, refreshToken, user } = await apiLogin(tempPhone, cleanedPin);
@@ -679,9 +690,9 @@ export function useAppState() {
   ): Promise<boolean> => {
     const cleanedPhone = normalizePhone(phone);
     const cleanedPin = normalizePin(pin);
-    if (cleanedPhone.length < 10 || cleanedPin.length !== 4) {
+    if (cleanedPhone.length < 10 || cleanedPin.length < 6 || cleanedPin.length > 12) {
       toast.error(
-        'Enter at least 10 digits for your mobile number and a 4-digit PIN.'
+        'Enter at least 10 digits for your mobile number and a 6–12 digit PIN.'
       );
       return false;
     }
@@ -725,7 +736,11 @@ export function useAppState() {
     currentPin: string,
     newPin: string
   ): Promise<boolean> => {
-    if (!currentUser || normalizePin(newPin).length !== 4) return false;
+    if (
+      !currentUser ||
+      normalizePin(newPin).length < 6 ||
+      normalizePin(newPin).length > 12
+    ) return false;
     try {
       await apiUpdatePin(normalizePin(currentPin), normalizePin(newPin));
       pushAudit('auth.pin.updated', 'PIN updated', currentUser.id);
@@ -757,7 +772,7 @@ export function useAppState() {
 
   const sendMoney = async (
     toPhone: string,
-    amount: number,
+    amount: MoneyInput,
     description: string
   ): Promise<boolean> => {
     const cleanedPhone = normalizePhone(toPhone);
@@ -810,8 +825,8 @@ export function useAppState() {
 
   const addProduct = async (productData: {
     name: string;
-    costPrice: number;
-    price: number;
+    costPrice: MoneyInput;
+    price: MoneyInput;
     stock: number;
     category: string;
     barcode?: string;
@@ -833,7 +848,9 @@ export function useAppState() {
             barcode: productData.barcode,
           },
         ],
-        recordExpense: productData.stock > 0 && productData.costPrice > 0,
+        recordExpense:
+          productData.stock > 0 &&
+          compareMoney(productData.costPrice, 0) > 0,
       });
       setProducts((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
@@ -851,10 +868,10 @@ export function useAppState() {
     productId: string,
     quantity: number,
     options?: {
-      costPrice?: number;
+      costPrice?: MoneyInput;
       supplierName?: string;
       slipReference?: string;
-      slipTotal?: number;
+      slipTotal?: MoneyInput;
       notes?: string;
       recordExpense?: boolean;
     },
@@ -914,14 +931,14 @@ export function useAppState() {
   const recordStockPurchase = async (input: {
     supplierName?: string;
     slipReference?: string;
-    slipTotal: number;
+    slipTotal: MoneyInput;
     notes?: string;
     lines: {
       productId?: string;
       name?: string;
       quantity: number;
-      costPrice: number;
-      sellingPrice?: number;
+      costPrice: MoneyInput;
+      sellingPrice?: MoneyInput;
       category?: string;
       barcode?: string;
     }[];
@@ -952,7 +969,7 @@ export function useAppState() {
 
   const makeSale = async (
     rawItems:
-      | {productId: string;quantity: number;price: number;}[]
+      | {productId: string;quantity: number;price: MoneyInput;}[]
       | {product: Product;quantity: number;}[],
     paymentMethod: 'cash' | 'wallet',
     customerPhone?: string
@@ -1037,7 +1054,7 @@ export function useAppState() {
     recipientLastName: string;
     recipientPhone: string;
     recipientIdDocument?: string;
-    amount: number;
+    amount: MoneyInput;
     pin: string;
   }): Promise<CashSendVoucher | null> => {
     if (!currentUser) {
@@ -1094,8 +1111,8 @@ export function useAppState() {
       toast.error('Wallet unavailable — try again after refreshing.');
       return null;
     }
-    const total = input.amount + 10;
-    if (fromWallet.balance < total) {
+    const total = addMoney(input.amount, '10.00');
+    if (compareMoney(fromWallet.balance, total) < 0) {
       toast.error('Insufficient wallet balance (including R10 fee).');
       return null;
     }
@@ -1244,7 +1261,7 @@ export function useAppState() {
   const addCreditTransaction = async (
     customerId: string,
     type: 'purchase' | 'payment',
-    amount: number,
+    amount: MoneyInput,
     description: string,
     verificationToken?: string,
   ): Promise<boolean> => {
@@ -1357,7 +1374,7 @@ export function useAppState() {
   const createCreditCustomerRecord = async (
     name: string,
     phone: string,
-    creditLimit: number,
+    creditLimit: MoneyInput,
     saIdDocument: string,
     verificationToken: string,
   ): Promise<boolean> => {
@@ -1371,7 +1388,7 @@ export function useAppState() {
       toast.error('Enter a phone number with at least 9 digits.');
       return false;
     }
-    if (!Number.isFinite(creditLimit) || creditLimit <= 0) {
+    if (!isPositiveAmount(creditLimit)) {
       toast.error('Set a credit limit greater than R0.');
       return false;
     }
@@ -1425,8 +1442,8 @@ export function useAppState() {
 
   const createSupplierOrderRecord = async (input: {
     supplierId: string;
-    items: { name: string; quantity: number; unitCost: number }[];
-    total: number;
+    items: { name: string; quantity: number; unitCost: MoneyInput }[];
+    total: MoneyInput;
     expectedDelivery?: string;
   }): Promise<boolean> => {
     if (!merchantProfile) return false;
@@ -1484,9 +1501,9 @@ export function useAppState() {
 
   const addStokvelGroupRecord = async (input: {
     name: string;
-    members: { name: string; phone: string; contributed: number }[];
-    targetAmount: number;
-    currentAmount: number;
+    members: { name: string; phone: string; contributed: MoneyInput }[];
+    targetAmount: MoneyInput;
+    currentAmount: MoneyInput;
     frequency: 'weekly' | 'monthly';
     nextPayoutDate: string;
   }): Promise<boolean> => {
@@ -1505,7 +1522,7 @@ export function useAppState() {
 
   const updateStokvelMembers = async (
     id: string,
-    members: { name: string; phone: string; contributed: number }[],
+    members: { name: string; phone: string; contributed: MoneyInput }[],
   ): Promise<boolean> => {
     try {
       await apiUpdateStokvelMembers(id, members);
@@ -1525,7 +1542,7 @@ export function useAppState() {
       lenderPhone: string;
       borrowerName: string;
       borrowerPhone: string;
-      amount: number;
+      amount: MoneyInput;
       interestRatePercent: number;
       fromPool?: boolean;
       notes?: string;
@@ -1561,7 +1578,7 @@ export function useAppState() {
     stokvelId: string,
     input: {
       memberPhone: string;
-      amount: number;
+      amount: MoneyInput;
       periodMonth: string;
       notes?: string;
     },
@@ -1582,7 +1599,7 @@ export function useAppState() {
     body: {
       type: 'stock' | 'fire' | 'theft';
       description: string;
-      claimedAmount: number;
+      claimedAmount: MoneyInput;
     },
   ): Promise<boolean> => {
     try {
@@ -1600,9 +1617,9 @@ export function useAppState() {
     customerName: string;
     customerPhone: string;
     itemName: string;
-    totalPrice: number;
-    amountPaid: number;
-    installments?: { amount: number; date: string }[];
+    totalPrice: MoneyInput;
+    amountPaid: MoneyInput;
+    installments?: { amount: MoneyInput; date: string }[];
     status?: 'active' | 'completed' | 'cancelled';
   }): Promise<boolean> => {
     if (!merchantProfile) return false;
@@ -1619,7 +1636,7 @@ export function useAppState() {
 
   const recordLaybyInstallment = async (
     id: string,
-    amount: number,
+    amount: MoneyInput,
   ): Promise<boolean> => {
     try {
       await apiAddLaybyPayment(id, amount);
@@ -1634,10 +1651,10 @@ export function useAppState() {
 
   const addTrackedPriceComparison = async (input: {
     productName: string;
-    myPrice: number;
-    avgAreaPrice: number;
-    lowestAreaPrice: number;
-    highestAreaPrice: number;
+    myPrice: MoneyInput;
+    avgAreaPrice: MoneyInput;
+    lowestAreaPrice: MoneyInput;
+    highestAreaPrice: MoneyInput;
     competitors: number;
   }): Promise<boolean> => {
     if (!merchantProfile) return false;
@@ -1740,10 +1757,10 @@ export function useAppState() {
   /** Default APR for new working-capital loans until pricing is per-user. */
   const DEFAULT_LOAN_APR = 0.12;
   const requestWorkingCapitalLoan = async (
-    amount: number,
+    amount: MoneyInput,
     interestRate: number = DEFAULT_LOAN_APR,
   ): Promise<boolean> => {
-    if (!Number.isFinite(amount) || amount <= 0) return false;
+    if (!isPositiveAmount(amount)) return false;
     if (!Number.isFinite(interestRate) || interestRate < 0) return false;
     try {
       await apiApplyLoan({ amount, interestRate });
@@ -1758,9 +1775,9 @@ export function useAppState() {
 
   const repayLoan = async (
     loanId: string,
-    amount: number,
+    amount: MoneyInput,
   ): Promise<boolean> => {
-    if (!Number.isFinite(amount) || amount <= 0) return false;
+    if (!isPositiveAmount(amount)) return false;
     try {
       await apiRepayLoan(loanId, amount);
       await refreshAfterMutation();

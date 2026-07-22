@@ -26,6 +26,8 @@ dist-ssr
 # API
 backend/data/
 backend/backups/
+backend/artifacts/
+backend/evidence/production-readiness.json
 backend/.env
 backend/dist/
 

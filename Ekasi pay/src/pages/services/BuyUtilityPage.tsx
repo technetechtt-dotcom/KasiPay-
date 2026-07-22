@@ -4,11 +4,16 @@ import {
   Smartphone,
   Wifi,
   Zap,
-  Tv,
+  Droplets,
   CheckCircle2,
   Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  compareMoney,
+  formatMoney,
+  tryCanonicalMoney,
+} from '../../money';
 
 import {
   KPCard,
@@ -18,8 +23,11 @@ import {
 } from '../../components/shared/UIComponents';
 import {
   apiBuyUtility,
+  apiGetProductReadiness,
+  apiGetUtilityCatalogue,
   apiGetUtilityPurchaseStatus,
   apiListUtilityPurchases,
+  type UtilityCatalogueItem,
   type UtilityCategory,
   type UtilityPurchase,
   type UtilityProviderStatus,
@@ -74,15 +82,15 @@ const CATEGORIES: CategoryDef[] = [
     receiptLabel: 'STS token',
   },
   {
-    id: 'dstv',
-    label: 'DSTV',
-    hint: 'Top-up smartcard balance',
-    icon: Tv,
-    beneficiaryLabel: 'Smartcard number',
+    id: 'water',
+    label: 'Water',
+    hint: 'Certified municipal prepaid water products',
+    icon: Droplets,
+    beneficiaryLabel: 'Meter number',
     beneficiaryPattern: /^\d{8,12}$/,
-    providers: ['MultiChoice DSTV'],
-    presets: [99, 199, 299, 399, 499],
-    receiptLabel: 'DSTV reference',
+    providers: [],
+    presets: [50, 100, 200, 300, 500],
+    receiptLabel: 'Water token',
   },
 ];
 
@@ -105,6 +113,8 @@ export const BuyUtilityPage = ({
   const [busy, setBusy] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<UtilityPurchase | null>(null);
   const [history, setHistory] = useState<UtilityPurchase[]>([]);
+  const [catalogue, setCatalogue] = useState<UtilityCatalogueItem[]>([]);
+  const [readinessEnabled, setReadinessEnabled] = useState(false);
   const [providerStatus, setProviderStatus] = useState<UtilityProviderStatus | null>(
     null,
   );
@@ -115,10 +125,11 @@ export const BuyUtilityPage = ({
   );
 
   useEffect(() => {
-    setProvider(def.providers[0]);
+    const first = catalogue.find((item) => item.category === def.id);
+    setProvider(first?.id ?? '');
     setBeneficiary('');
     setAmount('');
-  }, [def]);
+  }, [catalogue, def]);
 
   useEffect(() => {
     let active = true;
@@ -131,7 +142,7 @@ export const BuyUtilityPage = ({
           setProviderStatus({
             available: false,
             mode: 'disabled',
-            maxAmount: 500,
+            maxAmount: '500.00',
             mocked: false,
           });
         }
@@ -146,29 +157,52 @@ export const BuyUtilityPage = ({
       .catch(() => {
         /* ignore — page still works without history */
       });
+    apiGetUtilityCatalogue()
+      .then((result) => {
+        if (active) setCatalogue(result.products);
+      })
+      .catch(() => {
+        if (active) setCatalogue([]);
+      });
+    apiGetProductReadiness()
+      .then((result) => {
+        if (active) {
+          setReadinessEnabled(
+            result.products.find((item) => item.product === 'utilities')?.enabled ?? false,
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setReadinessEnabled(false);
+      });
     return () => {
       active = false;
     };
   }, []);
 
-  const maxAmount = providerStatus?.maxAmount ?? 500;
-  const purchasesAvailable = providerStatus?.available ?? false;
+  const categoryCatalogue = catalogue.filter((item) => item.category === activeId);
+  const selectedCatalogue = categoryCatalogue.find((item) => item.id === provider);
+  const maxAmount = selectedCatalogue
+    ? (Number(selectedCatalogue.max_cents) / 100).toFixed(2)
+    : (providerStatus?.maxAmount ?? '500.00');
+  const purchasesAvailable =
+    Boolean(providerStatus?.available) && readinessEnabled && categoryCatalogue.length > 0;
 
   const submit = async () => {
     if (!purchasesAvailable) {
       toast.error('Utility purchases are not available on this deployment.');
       return;
     }
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
+    const amt = tryCanonicalMoney(amount);
+    if (amt === null || compareMoney(amt, 0) <= 0) {
       toast.error('Enter a valid amount');
       return;
     }
-    if (amt > maxAmount) {
-      toast.error(`Maximum purchase amount is R${maxAmount}.`);
+    if (compareMoney(amt, maxAmount) > 0) {
+      toast.error(`Maximum purchase amount is R${formatMoney(maxAmount)}.`);
       return;
     }
-    if (amt > wallet.balance) {
+    if (compareMoney(amt, wallet.balance) > 0) {
       toast.error('Insufficient wallet balance');
       return;
     }
@@ -182,9 +216,12 @@ export const BuyUtilityPage = ({
     }
     setBusy(true);
     try {
+      if (!selectedCatalogue) {
+        toast.error('Choose a published provider catalogue item.');
+        return;
+      }
       const { purchase } = await apiBuyUtility({
-        category: activeId,
-        provider,
+        catalogueVersionId: selectedCatalogue.id,
         beneficiary: benef,
         amount: amt,
       });
@@ -250,9 +287,8 @@ export const BuyUtilityPage = ({
               Utilities unavailable
             </p>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Airtime, data, electricity, and DSTV purchases are not enabled on
-              this server. Contact your pilot coordinator if you expected this
-              feature to be live.
+              Airtime, data, electricity, and water remain disabled until all
+              readiness evidence and sandbox configuration gates are complete.
             </p>
           </KPCard>
         )}
@@ -263,8 +299,8 @@ export const BuyUtilityPage = ({
               Development / pilot mode
             </p>
             <p className="text-[11px] text-amber-800/80 leading-relaxed">
-              Purchases debit your wallet and issue a test voucher for field
-              trials. Production uses a live vendor integration.
+              Simulator purchases are restricted to controlled sandbox use.
+              Production remains blocked pending provider certification.
             </p>
           </KPCard>
         )}
@@ -276,21 +312,27 @@ export const BuyUtilityPage = ({
               Provider
             </p>
             <div className="flex flex-wrap gap-2">
-              {def.providers.map((p) => (
+              {categoryCatalogue.map((p) => (
                 <button
-                  key={p}
+                  key={p.id}
                   type="button"
-                  onClick={() => setProvider(p)}
+                  onClick={() => setProvider(p.id)}
                   className={`text-xs font-medium px-3 py-1.5 rounded-full border ${
-                    provider === p
+                    provider === p.id
                       ? 'bg-slate-900 text-white border-slate-900'
                       : 'bg-white text-slate-600 border-slate-200'
                   }`}>
-                  {p}
+                  {p.provider} · {p.name}
                 </button>
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-2">{def.hint}</p>
+            {selectedCatalogue && (
+              <p className="text-[11px] text-slate-500 mt-2">
+                Fee: R{(Number(selectedCatalogue.fee_cents) / 100).toFixed(2)} ·{' '}
+                {selectedCatalogue.finality_disclosure}
+              </p>
+            )}
           </div>
 
           <div>
@@ -328,7 +370,7 @@ export const BuyUtilityPage = ({
                   type="button"
                   onClick={() => setAmount(p.toString())}
                   className={`text-sm font-bold py-2 rounded-xl border ${
-                    Number(amount) === p
+                    compareMoney(amount || '0.00', p) === 0
                       ? 'bg-emerald-600 text-white border-emerald-600'
                       : 'bg-white text-slate-700 border-slate-200'
                   }`}>
@@ -359,7 +401,7 @@ export const BuyUtilityPage = ({
               </p>
             </div>
             <p className="text-xs text-emerald-900/80 mb-3">
-              R{lastReceipt.amount.toFixed(2)} to {lastReceipt.beneficiary} ·{' '}
+              R{formatMoney(lastReceipt.amount)} to {lastReceipt.beneficiary} ·{' '}
               ref {lastReceipt.reference}
             </p>
             {lastReceipt.voucherCode ?
@@ -399,7 +441,7 @@ export const BuyUtilityPage = ({
                   </p>
                 </div>
                 <p className="text-sm font-bold text-slate-900">
-                  R{p.amount.toFixed(2)}
+                  R{formatMoney(p.amount)}
                 </p>
               </KPCard>
             ))}

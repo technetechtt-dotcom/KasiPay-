@@ -6,11 +6,13 @@ import { z } from 'zod';
 import { getDb } from '../db.js';
 import { toProduct } from '../mappers.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireMerchantId } from '../services/merchant.js';
 import { lookupBarcodeInCatalog } from '../services/barcodeCatalog.js';
 import { productCreateSchema, productUpdateSchema } from '../validation.js';
 
 export const productsRouter = Router();
+productsRouter.use(requireAuth, requireApprovedMerchant);
 
 const barcodeQuery = z.object({
   code: z.string().min(4).max(32),

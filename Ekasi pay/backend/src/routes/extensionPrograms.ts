@@ -18,11 +18,13 @@ import {
   toStokvelLoan,
   toVoiceNote,
 } from '../extraMappers.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { ensureMerchantId, requireMerchantId } from '../services/merchant.js';
 import { getLoadSheddingSlots } from '../services/loadShedding.js';
 
 export const extensionProgramsRouter = Router();
+extensionProgramsRouter.use(requireAuth, requireApprovedMerchant);
 
 /* --- Load shedding (shared read) --- */
 extensionProgramsRouter.get('/loadshedding', requireAuth, async (_req, res) => {

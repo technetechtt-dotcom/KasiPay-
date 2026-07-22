@@ -14,6 +14,13 @@ import {
   Search } from
 'lucide-react';
 import type { Product, StockMovement } from '../../types';
+import {
+  addMoney,
+  compareMoney,
+  formatMoney,
+  multiplyMoney,
+  subtractMoney,
+} from '../../money';
 export const StockValuePage = ({
   products,
   stockMovements,
@@ -38,18 +45,26 @@ export const StockValuePage = ({
   ];
   // Calculations
   const totalCostValue = products.reduce(
-    (sum, p) => sum + (p.costPrice || 0) * p.stock,
-    0
+    (sum, p) => addMoney(sum, multiplyMoney(p.costPrice, p.stock)),
+    '0.00',
   );
   const totalPotentialRevenue = products.reduce(
-    (sum, p) => sum + p.price * p.stock,
-    0
+    (sum, p) => addMoney(sum, multiplyMoney(p.price, p.stock)),
+    '0.00',
   );
-  const potentialProfit = totalPotentialRevenue - totalCostValue;
+  const potentialProfit = subtractMoney(
+    totalPotentialRevenue,
+    totalCostValue,
+  );
   // Filter and sort products by value
   const filteredProducts = products.
   filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase())).
-  sort((a, b) => (b.costPrice || 0) * b.stock - (a.costPrice || 0) * a.stock);
+  sort((a, b) =>
+    compareMoney(
+      multiplyMoney(b.costPrice, b.stock),
+      multiplyMoney(a.costPrice, a.stock),
+    ),
+  );
   // Filter movements
   const filteredMovements = stockMovements.filter(
     (m) => movementFilter === 'all' || m.type === movementFilter
@@ -146,8 +161,8 @@ export const StockValuePage = ({
             </div>
 
             {filteredProducts.map((p) => {
-            const costValue = (p.costPrice || 0) * p.stock;
-            const revValue = p.price * p.stock;
+            const costValue = multiplyMoney(p.costPrice, p.stock);
+            const revValue = multiplyMoney(p.price, p.stock);
             return (
               <KPCard key={p.id} className="p-4">
                   <div className="flex justify-between items-start mb-3">
@@ -172,21 +187,21 @@ export const StockValuePage = ({
                         Cost Price
                       </span>
                       <span className="font-medium">
-                        R{(p.costPrice || 0).toFixed(2)}
+                        R{formatMoney(p.costPrice)}
                       </span>
                     </div>
                     <div>
                       <span className="text-slate-500 block text-xs">
                         Sell Price
                       </span>
-                      <span className="font-medium">R{p.price.toFixed(2)}</span>
+                      <span className="font-medium">R{formatMoney(p.price)}</span>
                     </div>
                     <div className="col-span-2 pt-2 border-t border-slate-200 mt-1 flex justify-between">
                       <span className="text-slate-500 text-xs">
                         Potential Revenue
                       </span>
                       <span className="font-bold text-emerald-600">
-                        R{revValue.toFixed(2)}
+                        R{formatMoney(revValue)}
                       </span>
                     </div>
                   </div>

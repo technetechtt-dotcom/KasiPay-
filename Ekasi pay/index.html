@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://ekasi-pay-api.onrender.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+    />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -16,36 +20,7 @@
     <meta name="apple-mobile-web-app-title" content="Ekasi Pay" />
     <title>Ekasi Pay</title>
     <script src="./runtime-config.js"></script>
-    <script>
-      // Rewrite bare Render service slugs (ekasi-pay-api) to the public hostname.
-      (function () {
-        var RENDER_API = 'https://ekasi-pay-api.onrender.com';
-        function fixUrl(url) {
-          if (typeof url !== 'string') return url;
-          return url.replace(
-            /^https:\/\/ekasi-pay-api(?=\/|$)/,
-            RENDER_API,
-          );
-        }
-        var runtime = window.__KASIPAY_API_URL__;
-        if (!runtime || !String(runtime).includes('.')) {
-          window.__KASIPAY_API_URL__ = RENDER_API;
-        }
-        var origFetch = window.fetch;
-        window.fetch = function (input, init) {
-          if (typeof input === 'string') {
-            return origFetch.call(this, fixUrl(input), init);
-          }
-          if (input && typeof input.url === 'string') {
-            var patched = fixUrl(input.url);
-            if (patched !== input.url) {
-              input = new Request(patched, input);
-            }
-          }
-          return origFetch.call(this, input, init);
-        };
-      })();
-    </script>
+    <script src="./security-bootstrap.js"></script>
   </head>
   <body>
     <div id="root"></div>

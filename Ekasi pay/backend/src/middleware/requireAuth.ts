@@ -31,10 +31,15 @@ function assertUserAccountActive(userId: string): { ok: true } | { ok: false; st
 
 async function assertUserAccountActivePg(
   userId: string,
+  tokenVersion?: number,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const pool = getPgPool();
-  const r = await pool.query<{ deleted_at: string | null; suspended_at: string | null }>(
-    `SELECT deleted_at, suspended_at FROM users WHERE id = $1`,
+  const r = await pool.query<{
+    deleted_at: string | null;
+    suspended_at: string | null;
+    token_version: number;
+  }>(
+    `SELECT deleted_at, suspended_at, token_version FROM users WHERE id = $1`,
     [userId],
   );
   const row = r.rows[0];
@@ -43,6 +48,9 @@ async function assertUserAccountActivePg(
   }
   if (row.suspended_at) {
     return { ok: false, status: 403, error: 'Account suspended. Contact support.' };
+  }
+  if (tokenVersion === undefined || row.token_version !== tokenVersion) {
+    return { ok: false, status: 401, error: 'Session security state changed. Sign in again.' };
   }
   return { ok: true };
 }
@@ -64,7 +72,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         .json({ error: 'Session ended or expired. Sign in again.' });
     }
     const account = isPostgresMode()
-      ? await assertUserAccountActivePg(payload.sub)
+      ? await assertUserAccountActivePg(payload.sub, payload.tv)
       : assertUserAccountActive(payload.sub);
     if (!account.ok) {
       return res.status(account.status).json({ error: account.error });

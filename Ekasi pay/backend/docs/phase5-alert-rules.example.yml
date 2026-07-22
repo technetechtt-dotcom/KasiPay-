@@ -1,0 +1,32 @@
+groups:
+  - name: ekasi-phase5
+    rules:
+      - alert: ApiErrorBudgetBurn
+        expr: rate(http_errors_5xx_total[5m]) / rate(http_requests_total[5m]) > 0.02
+        for: 10m
+        labels: { severity: sev2 }
+      - alert: PostingFailure
+        expr: increase(posting_failures_total[5m]) > 0
+        labels: { severity: sev1 }
+      - alert: LedgerReconciliationMismatch
+        expr: reconciliation_discrepancies > 0
+        labels: { severity: sev1 }
+      - alert: VoucherBruteForce
+        expr: increase(voucher_pin_failures_total[10m]) > 20
+        labels: { severity: sev2 }
+      - alert: IdempotencyConflictSpike
+        expr: increase(idempotency_conflicts_total[10m]) > 10
+        labels: { severity: sev2 }
+      - alert: AuthenticationAttack
+        expr: increase(auth_failures_total[10m]) > 100
+        labels: { severity: sev2 }
+      - alert: DatabasePoolSaturation
+        expr: db_pool_waiting / db_pool_max > 0.5
+        for: 5m
+        labels: { severity: sev2 }
+      - alert: BackupFreshnessExpired
+        expr: backup_age_hours > rpo_target_hours
+        labels: { severity: sev2 }
+      - alert: AuditSinkDeadLetter
+        expr: audit_sink_dead_letters > 0
+        labels: { severity: sev1 }

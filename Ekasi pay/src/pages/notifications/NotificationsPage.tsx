@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { formatMoney } from '../../money';
 import {
   ArrowLeft,
   Bell,
@@ -133,7 +134,7 @@ function buildNotifications({
       body:
         p.stock === 0
           ? 'Out of stock. Reorder before the next sale.'
-          : `Only ${p.stock} left at R${p.price.toFixed(2)}.`,
+          : `Only ${p.stock} left at R${formatMoney(p.price)}.`,
       createdAt: new Date().toISOString(),
       severity: p.stock === 0 ? 'critical' : 'warning',
       unread: true,

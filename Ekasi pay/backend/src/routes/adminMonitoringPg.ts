@@ -4,16 +4,23 @@ import { z } from 'zod';
 import { getPgPool } from '../dbPg.js';
 import { toComplianceFlag } from '../extraMappers.js';
 import { toPublicUser } from '../mappers.js';
-import { requireAdminOrOps } from '../opsAuth.js';
+import { formatCents, parseIntegerCents } from '../money.js';
+import { getRuntimeProductControls } from '../middleware/productionControls.js';
+import { requireCapability } from '../security/authorization.js';
+import { maskIdentifier } from '../security/fieldEncryption.js';
 import type { RowUser } from '../types.js';
 
 /**
  * Ops-style monitoring reads on the main API.
- * Accepts app admin JWT or ops username/password JWT.
+ * Deny-by-default operator monitoring reads.
  */
 export const adminMonitoringRouterPg = Router();
 
-const gate = [requireAdminOrOps] as const;
+const gate = requireCapability('monitoring:read');
+
+adminMonitoringRouterPg.get('/admin/runtime-controls', ...gate, (_req, res) => {
+  return res.json({ controls: getRuntimeProductControls() });
+});
 
 function extractCashSendVoucherNumber(
   description: string | null | undefined,
@@ -38,8 +45,8 @@ type RowCashSendVoucher = {
   id: string;
   reference_number: string;
   status: string;
-  amount: number;
-  fee: number;
+  amount_cents: string;
+  fee_cents: string;
   created_at: string;
   expires_at: string;
   collected_at: string | null;
@@ -97,35 +104,38 @@ function toOpsCashSendVoucher(row: RowCashSendVoucher) {
     id: row.id,
     referenceNumber: row.reference_number,
     status: row.status,
-    amount: Number(row.amount),
-    fee: Number(row.fee),
+    amount: formatCents(parseIntegerCents(row.amount_cents)),
+    fee: formatCents(
+      parseIntegerCents(row.fee_cents, { allowZero: true }),
+    ),
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     collectedAt: row.collected_at,
     withdrawnAt: row.collected_at,
     cancelReason: row.cancel_reason ?? null,
     senderUserId: row.sender_user_id ?? null,
-    senderAddress: (row.sender_address ?? '').trim() || null,
+    // Address and SA IDs are encrypted at rest; ops lists never expose cleartext.
+    senderAddress: row.sender_address ? '•••• (encrypted)' : null,
     sender: {
       firstName: senderFirstName,
       lastName: senderLastName,
       phone: row.sender_phone,
-      idDocument: senderId,
+      idDocument: senderId ? maskIdentifier(senderId) : null,
     },
     withdrawer: {
       firstName: withdrawerFirstName,
       lastName: withdrawerLastName,
       phone: row.recipient_phone,
-      idDocument: scanned ?? onFile,
+      idDocument: scanned || onFile ? maskIdentifier(scanned ?? onFile!) : null,
     },
-    recipientIdOnFile: onFile,
-    collectorScannedId: scanned,
+    recipientIdOnFile: onFile ? maskIdentifier(onFile) : null,
+    collectorScannedId: scanned ? maskIdentifier(scanned) : null,
     idVerifiedAtWithdrawal: verified,
   };
 }
 
 const VOUCHER_SELECT = `
-  id, reference_number, status, amount, fee,
+  id, reference_number, status, amount_cents, fee_cents,
   created_at, expires_at, collected_at, cancel_reason,
   sender_user_id, sender_address,
   recipient_first_name, recipient_last_name, recipient_name,
@@ -147,7 +157,7 @@ adminMonitoringRouterPg.get('/admin/overview', ...gate, async (_req, res) => {
     ),
     pool.query<{ total_balance: string; active_wallets: string }>(
       `SELECT
-         COALESCE(SUM(balance), 0)::text AS total_balance,
+         COALESCE(SUM(balance_cents), 0)::text AS total_balance,
          COUNT(*) FILTER (WHERE status = 'active' AND wallet_kind = 'user')::text AS active_wallets
        FROM wallets WHERE wallet_kind = 'user'`,
     ),
@@ -155,7 +165,7 @@ adminMonitoringRouterPg.get('/admin/overview', ...gate, async (_req, res) => {
       `SELECT COUNT(*)::text AS open_flags FROM compliance_flags WHERE status = 'open'`,
     ),
     pool.query<{ count: string; volume: string }>(
-      `SELECT COUNT(*)::text AS count, COALESCE(SUM(amount), 0)::text AS volume
+      `SELECT COUNT(*)::text AS count, COALESCE(SUM(amount_cents), 0)::text AS volume
        FROM transactions
        WHERE created_at >= NOW() - INTERVAL '24 hours'`,
     ),
@@ -174,12 +184,16 @@ adminMonitoringRouterPg.get('/admin/overview', ...gate, async (_req, res) => {
     },
     wallets: {
       activeCount: Number(w?.active_wallets ?? 0),
-      totalUserBalance: Number(Number(w?.total_balance ?? 0).toFixed(2)),
+      totalUserBalance: formatCents(
+        parseIntegerCents(w?.total_balance ?? '0', { allowZero: true }),
+      ),
     },
     compliance: { openFlags: Number(flagsQ.rows[0]?.open_flags ?? 0) },
     transactions24h: {
       count: Number(txnsQ.rows[0]?.count ?? 0),
-      volume: Number(Number(txnsQ.rows[0]?.volume ?? 0).toFixed(2)),
+      volume: formatCents(
+        parseIntegerCents(txnsQ.rows[0]?.volume ?? '0', { allowZero: true }),
+      ),
     },
     merchants: Number(merchantsQ.rows[0]?.count ?? 0),
   });
@@ -268,7 +282,7 @@ adminMonitoringRouterPg.get(
 
     const [walletQ, merchantQ, flagsQ, txnsQ] = await Promise.all([
       pool.query(
-        `SELECT id, user_id, balance, currency, status, pool_id, wallet_kind
+        `SELECT id, user_id, balance_cents, currency, status, pool_id, wallet_kind
            FROM wallets WHERE user_id = $1`,
         [userId],
       ),
@@ -282,7 +296,7 @@ adminMonitoringRouterPg.get(
         [userId],
       ),
       pool.query(
-        `SELECT t.id, t.type, t.amount, t.status, t.reference, t.description, t.created_at
+        `SELECT t.id, t.type, t.amount_cents, t.status, t.reference, t.description, t.created_at
            FROM transactions t
            INNER JOIN wallets w ON w.id = t.from_wallet_id OR w.id = t.to_wallet_id
           WHERE w.user_id = $1
@@ -294,10 +308,27 @@ adminMonitoringRouterPg.get(
 
     return res.json({
       user: toPublicUser(user),
-      wallet: walletQ.rows[0] ?? null,
+      wallet: walletQ.rows[0]
+        ? {
+            ...walletQ.rows[0],
+            balance: formatCents(
+              parseIntegerCents(
+                (walletQ.rows[0] as { balance_cents: string }).balance_cents,
+                { allowZero: true },
+              ),
+            ),
+            balance_cents: undefined,
+          }
+        : null,
       merchant: merchantQ.rows[0] ?? null,
       complianceFlags: flagsQ.rows.map(toComplianceFlag),
-      recentTransactions: txnsQ.rows,
+      recentTransactions: txnsQ.rows.map((row) => ({
+        ...row,
+        amount: formatCents(
+          parseIntegerCents((row as { amount_cents: string }).amount_cents),
+        ),
+        amount_cents: undefined,
+      })),
     });
   },
 );
@@ -349,7 +380,7 @@ adminMonitoringRouterPg.get(
 
     const [listQ, countQ, filteredQ, periodQ, typesQ] = await Promise.all([
       pool.query(
-        `SELECT id, type, amount, status, reference, description, created_at,
+        `SELECT id, type, amount_cents, status, reference, description, created_at,
                 from_wallet_id, to_wallet_id
            FROM transactions
            ${where}
@@ -362,7 +393,7 @@ adminMonitoringRouterPg.get(
         params.slice(0, params.length - 2),
       ),
       pool.query<{ count: string; volume: string }>(
-        `SELECT COUNT(*)::text AS count, COALESCE(SUM(amount), 0)::text AS volume
+        `SELECT COUNT(*)::text AS count, COALESCE(SUM(amount_cents), 0)::text AS volume
            FROM transactions ${where}`,
         params.slice(0, params.length - 2),
       ),
@@ -378,13 +409,13 @@ adminMonitoringRouterPg.get(
       }>(`
         SELECT
           COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW()))::text AS day_count,
-          COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0)::text AS day_volume,
+          COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0)::text AS day_volume,
           COUNT(*) FILTER (WHERE created_at >= date_trunc('week', NOW()))::text AS week_count,
-          COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('week', NOW())), 0)::text AS week_volume,
+          COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= date_trunc('week', NOW())), 0)::text AS week_volume,
           COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW()))::text AS month_count,
-          COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0)::text AS month_volume,
+          COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= date_trunc('month', NOW())), 0)::text AS month_volume,
           COUNT(*) FILTER (WHERE created_at >= date_trunc('year', NOW()))::text AS year_count,
-          COALESCE(SUM(amount) FILTER (WHERE created_at >= date_trunc('year', NOW())), 0)::text AS year_volume
+          COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= date_trunc('year', NOW())), 0)::text AS year_volume
         FROM transactions
       `),
       pool.query<{ type: string }>(
@@ -394,7 +425,15 @@ adminMonitoringRouterPg.get(
 
     const p = periodQ.rows[0];
     return res.json({
-      transactions: listQ.rows.map(withVoucherNumber),
+      transactions: listQ.rows.map((row) =>
+        withVoucherNumber({
+          ...row,
+          amount: formatCents(
+            parseIntegerCents((row as { amount_cents: string }).amount_cents),
+          ),
+          amount_cents: undefined,
+        }),
+      ),
       total: Number(countQ.rows[0]?.total ?? 0),
       limit,
       offset,
@@ -402,23 +441,35 @@ adminMonitoringRouterPg.get(
       totals: {
         day: {
           count: Number(p?.day_count ?? 0),
-          volume: Number(p?.day_volume ?? 0),
+          volume: formatCents(
+            parseIntegerCents(p?.day_volume ?? '0', { allowZero: true }),
+          ),
         },
         week: {
           count: Number(p?.week_count ?? 0),
-          volume: Number(p?.week_volume ?? 0),
+          volume: formatCents(
+            parseIntegerCents(p?.week_volume ?? '0', { allowZero: true }),
+          ),
         },
         month: {
           count: Number(p?.month_count ?? 0),
-          volume: Number(p?.month_volume ?? 0),
+          volume: formatCents(
+            parseIntegerCents(p?.month_volume ?? '0', { allowZero: true }),
+          ),
         },
         year: {
           count: Number(p?.year_count ?? 0),
-          volume: Number(p?.year_volume ?? 0),
+          volume: formatCents(
+            parseIntegerCents(p?.year_volume ?? '0', { allowZero: true }),
+          ),
         },
         filtered: {
           count: Number(filteredQ.rows[0]?.count ?? 0),
-          volume: Number(filteredQ.rows[0]?.volume ?? 0),
+          volume: formatCents(
+            parseIntegerCents(filteredQ.rows[0]?.volume ?? '0', {
+              allowZero: true,
+            }),
+          ),
         },
       },
     });
@@ -430,39 +481,52 @@ adminMonitoringRouterPg.get(
   ...gate,
   async (_req, res) => {
     const pool = getPgPool();
-    const tolerance = 0.01;
     const r = await pool.query<{
       wallet_id: string;
       user_id: string;
       pool_id: string;
       wallet_kind: string;
-      balance: number;
-      ledger_balance: number;
+      balance_cents: string;
+      ledger_balance_cents: string;
     }>(`
       WITH ledger AS (
         SELECT account_id AS wallet_id,
-               SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END) -
-               SUM(CASE WHEN entry_type = 'debit'  THEN amount ELSE 0 END) AS ledger_balance
+               SUM(CASE WHEN entry_type = 'credit' THEN amount_cents ELSE 0 END) -
+               SUM(CASE WHEN entry_type = 'debit'  THEN amount_cents ELSE 0 END) AS ledger_balance_cents
         FROM ledger_entries
         GROUP BY account_id
       )
       SELECT w.id AS wallet_id, w.user_id, w.pool_id, w.wallet_kind,
-             w.balance,
-             COALESCE(l.ledger_balance, 0) AS ledger_balance
+             w.balance_cents,
+             COALESCE(l.ledger_balance_cents, 0) AS ledger_balance_cents
         FROM wallets w
         LEFT JOIN ledger l ON l.wallet_id = w.id
     `);
     const discrepancies = r.rows
-      .filter((row) => Math.abs(row.balance - row.ledger_balance) > tolerance)
-      .map((row) => ({
-        walletId: row.wallet_id,
-        userId: row.user_id,
-        poolId: row.pool_id,
-        kind: row.wallet_kind,
-        walletBalance: Number(row.balance.toFixed(2)),
-        ledgerBalance: Number(row.ledger_balance.toFixed(2)),
-        delta: Number((row.balance - row.ledger_balance).toFixed(2)),
-      }));
+      .filter(
+        (row) =>
+          parseIntegerCents(row.balance_cents, { allowZero: true }) !==
+          parseIntegerCents(row.ledger_balance_cents, {
+            allowZero: true,
+            allowNegative: true,
+          }),
+      )
+      .map((row) => {
+        const wallet = parseIntegerCents(row.balance_cents, { allowZero: true });
+        const ledger = parseIntegerCents(row.ledger_balance_cents, {
+          allowZero: true,
+          allowNegative: true,
+        });
+        return {
+          walletId: row.wallet_id,
+          userId: row.user_id,
+          poolId: row.pool_id,
+          kind: row.wallet_kind,
+          walletBalance: formatCents(wallet),
+          ledgerBalance: formatCents(ledger),
+          delta: formatCents(wallet - ledger),
+        };
+      });
     return res.json({
       ranAt: new Date().toISOString(),
       walletsChecked: r.rows.length,
@@ -506,10 +570,8 @@ adminMonitoringRouterPg.get(
       clauses.push(
         `(reference_number ILIKE $${i}
           OR sender_phone ILIKE $${i} OR sender_first_name ILIKE $${i} OR sender_last_name ILIKE $${i}
-          OR sender_address ILIKE $${i} OR cancel_reason ILIKE $${i}
-          OR recipient_phone ILIKE $${i} OR recipient_first_name ILIKE $${i} OR recipient_last_name ILIKE $${i}
-          OR sender_id_document ILIKE $${i} OR collector_scanned_id ILIKE $${i}
-          OR recipient_id_document ILIKE $${i})`,
+          OR cancel_reason ILIKE $${i}
+          OR recipient_phone ILIKE $${i} OR recipient_first_name ILIKE $${i} OR recipient_last_name ILIKE $${i})`,
       );
     }
 
@@ -521,8 +583,8 @@ adminMonitoringRouterPg.get(
       params.slice(0, params.length - 2),
     );
     const sumQ = await pool.query<{ amount_sum: string; fee_sum: string }>(
-      `SELECT COALESCE(SUM(amount), 0)::text AS amount_sum,
-              COALESCE(SUM(fee), 0)::text AS fee_sum
+      `SELECT COALESCE(SUM(amount_cents), 0)::text AS amount_sum,
+              COALESCE(SUM(fee_cents), 0)::text AS fee_sum
          FROM cash_send_vouchers ${where}`,
       params.slice(0, params.length - 2),
     );
@@ -537,8 +599,14 @@ adminMonitoringRouterPg.get(
 
     return res.json({
       total: Number(countQ.rows[0]?.total ?? 0),
-      amountSum: Number(sumQ.rows[0]?.amount_sum ?? 0),
-      feeSum: Number(sumQ.rows[0]?.fee_sum ?? 0),
+      amountSum: formatCents(
+        parseIntegerCents(sumQ.rows[0]?.amount_sum ?? '0', {
+          allowZero: true,
+        }),
+      ),
+      feeSum: formatCents(
+        parseIntegerCents(sumQ.rows[0]?.fee_sum ?? '0', { allowZero: true }),
+      ),
       limit,
       offset,
       vouchers: rowsQ.rows.map(toOpsCashSendVoucher),

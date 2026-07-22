@@ -17,6 +17,14 @@ import {
 } from 'lucide-react';
 import type { LaybyOrder } from '../../types';
 import { toast } from 'sonner';
+import {
+  compareMoney,
+  formatMoney,
+  moneyRatioPercent,
+  subtractMoney,
+  tryCanonicalMoney,
+  type MoneyInput,
+} from '../../money';
 
 export const LaybyPage = ({
   orders,
@@ -29,11 +37,11 @@ export const LaybyPage = ({
     customerName: string;
     customerPhone: string;
     itemName: string;
-    totalPrice: number;
-    amountPaid: number;
+    totalPrice: MoneyInput;
+    amountPaid: MoneyInput;
   }) => Promise<boolean>;
   /** Record an installment payment against an existing layby. */
-  onAddPayment?: (id: string, amount: number) => Promise<boolean>;
+  onAddPayment?: (id: string, amount: MoneyInput) => Promise<boolean>;
   navigate: (p: string) => void;
 }) => {
   /** Inline "record payment" controls per layby card. */
@@ -57,15 +65,17 @@ export const LaybyPage = ({
   );
 
   const submit = async () => {
-    const total = Number(totalPrice);
-    const paid = Number(amountPaid);
+    const total = tryCanonicalMoney(totalPrice);
+    const paid = tryCanonicalMoney(amountPaid);
     if (
       !customerName.trim() ||
       customerPhone.replace(/\D/g, '').length < 9 ||
       !itemName.trim() ||
-      !(total > 0) ||
-      paid < 0 ||
-      paid > total
+      total === null ||
+      paid === null ||
+      (total !== null && compareMoney(total, 0) <= 0) ||
+      (paid !== null && compareMoney(paid, 0) < 0) ||
+      (total !== null && paid !== null && compareMoney(paid, total) > 0)
     ) {
       toast.error('Check customer, item and amounts');
       return;
@@ -153,11 +163,14 @@ export const LaybyPage = ({
           </div>
         : <div className="space-y-4">
             {filteredOrders.map((order) => {
-              const progress =
-                order.totalPrice > 0 ?
-                  (order.amountPaid / order.totalPrice) * 100 :
-                  0;
-              const remaining = order.totalPrice - order.amountPaid;
+              const progress = moneyRatioPercent(
+                order.amountPaid,
+                order.totalPrice,
+              );
+              const remaining = subtractMoney(
+                order.totalPrice,
+                order.amountPaid,
+              );
               return (
                 <KPCard key={order.id} className="p-4">
                   <div className="flex justify-between items-start mb-3">
@@ -178,12 +191,12 @@ export const LaybyPage = ({
                     <p className="font-medium text-slate-800 mb-2">{order.itemName}</p>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-slate-500">Total Price</span>
-                      <span className="font-bold">R{order.totalPrice.toFixed(2)}</span>
+                      <span className="font-bold">R{formatMoney(order.totalPrice)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500">Amount Paid</span>
                       <span className="font-bold text-emerald-600">
-                        R{order.amountPaid.toFixed(2)}
+                        R{formatMoney(order.amountPaid)}
                       </span>
                     </div>
                   </div>
@@ -203,7 +216,7 @@ export const LaybyPage = ({
                         />
                       </div>
                       <p className="text-xs text-center text-slate-500 mb-3">
-                        R{remaining.toFixed(2)} remaining to collect item
+                        R{formatMoney(remaining)} remaining to collect item
                       </p>
                       {onAddPayment ?
                         <div className="flex gap-2">
@@ -224,14 +237,16 @@ export const LaybyPage = ({
                             type="button"
                             disabled={payingId === order.id}
                             onClick={async () => {
-                              const amt = Number(paymentDrafts[order.id] ?? '');
-                              if (!(amt > 0)) {
+                              const amt = tryCanonicalMoney(
+                                paymentDrafts[order.id] ?? '',
+                              );
+                              if (amt === null || compareMoney(amt, 0) <= 0) {
                                 toast.error('Enter a positive amount');
                                 return;
                               }
-                              if (amt > remaining + 0.01) {
+                              if (compareMoney(amt, remaining) > 0) {
                                 toast.error(
-                                  `Max R${remaining.toFixed(2)} remaining`,
+                                  `Max R${formatMoney(remaining)} remaining`,
                                 );
                                 return;
                               }

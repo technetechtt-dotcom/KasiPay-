@@ -9,6 +9,7 @@ import {
   listFrontendOrigins,
   LOGIN_RATE_LIMIT_PER_MIN,
   NODE_ENV,
+  IS_LOCAL_ENV,
   PORT,
 } from './config.js';
 import { getDb } from './db.js';
@@ -60,6 +61,23 @@ import { walletsRouter } from './routes/wallets.js';
 import { walletsRouterPg } from './routes/walletsPg.js';
 import { recordAuditEvent } from './services/audit.js';
 import { recordAuditEventPg } from './services/auditPg.js';
+import { enforceProductionControls } from './middleware/productionControls.js';
+import { approvalsRouterPg } from './security/approvalsPg.js';
+import { privacyRouterPg } from './routes/privacyPg.js';
+import { riskOpsRouterPg } from './routes/riskOpsPg.js';
+import { phase6OpsRouterPg } from './routes/phase6OpsPg.js';
+import { providerCallbacksRouterPg } from './routes/providerCallbacksPg.js';
+import { refundsRouterPg } from './routes/refundsPg.js';
+import { hashSensitive, metricsSnapshot, observeMetric, structuredLog } from './observability.js';
+import {
+  phase7OpsRouterPg,
+  phase7ProductsRouterPg,
+} from './routes/phase7ProductsPg.js';
+import { enforceRegulatedProductReadiness } from './productReadiness.js';
+import {
+  customerProtectionOpsRouterPg,
+  customerProtectionRouterPg,
+} from './routes/customerProtectionPg.js';
 
 validateProductionConfig();
 await initDataStore();
@@ -69,7 +87,9 @@ const app = express();
 app.disable('x-powered-by');
 
 function redactUrlForLog(url: string): string {
-  return url.replace(/([?&]pin=)[^&]*/gi, '$1[REDACTED]');
+  return url
+    .replace(/([?&](?:pin|otp|code|token|refreshToken|idDocument|document)=)[^&]*/gi, '$1[REDACTED]')
+    .replace(/\b\d{13}\b/g, '[REDACTED_ID]');
 }
 
 app.use((req, res, next) => {
@@ -79,8 +99,16 @@ app.use((req, res, next) => {
     : Array.isArray(req.headers['x-request-id']) ?
       req.headers['x-request-id'][0]
     : '';
-  const rid = incoming?.length ? incoming : randomUUID();
+  const rid = incoming && /^[A-Za-z0-9._-]{1,128}$/.test(incoming) ? incoming : randomUUID();
+  const correlationHeader = req.headers['x-correlation-id'];
+  const correlation =
+    typeof correlationHeader === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(correlationHeader)
+      ? correlationHeader
+      : rid;
+  req.requestId = rid;
+  req.correlationId = correlation;
   res.setHeader('X-Request-Id', rid);
+  res.setHeader('X-Correlation-Id', correlation);
   next();
 });
 
@@ -89,9 +117,16 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const rid = String(res.getHeader('X-Request-Id') ?? '');
     const durationMs = Date.now() - t0;
-    console.info(
-      `${rid} ${req.method} ${redactUrlForLog(req.originalUrl)} -> ${res.statusCode} (${durationMs}ms)`
-    );
+    observeMetric('http.request.duration_ms', durationMs);
+    if (res.statusCode >= 500) observeMetric('http.errors.5xx');
+    structuredLog(res.statusCode >= 500 ? 'error' : 'info', 'http.request.completed', {
+      requestId: rid,
+      correlationId: req.correlationId,
+      method: req.method,
+      path: redactUrlForLog(req.originalUrl),
+      statusCode: res.statusCode,
+      durationMs,
+    });
     if (!req.originalUrl.startsWith('/api') || req.originalUrl === '/api/refresh') {
       return;
     }
@@ -121,11 +156,47 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'none'"],
+      formAction: ["'none'"],
+      connectSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:'],
+    },
+  },
+  referrerPolicy: { policy: 'no-referrer' },
+  hsts: NODE_ENV === 'development' ? false : { maxAge: 31_536_000, includeSubDomains: true, preload: true },
+}));
 
-app.get('/health', (_req, res) => {
+app.get('/health/live', (_req, res) => {
   res.json({ ok: true, service: 'ekasi-pay-api' });
 });
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'ekasi-pay-api' }));
+app.get('/health/ready', async (_req, res) => {
+  if (!isPostgresMode()) {
+    return res.status(IS_LOCAL_ENV ? 200 : 503).json({ ok: IS_LOCAL_ENV, database: 'local' });
+  }
+  try {
+    await getPgPool().query('SELECT 1');
+    if (!IS_LOCAL_ENV) {
+      const backup = await getPgPool().query(
+        `SELECT 1 FROM backup_verification_markers
+          WHERE encrypted AND verified_at IS NOT NULL AND expires_at > clock_timestamp()
+          ORDER BY completed_at DESC LIMIT 1`,
+      );
+      if (!backup.rows[0]) {
+        return res.status(503).json({ ok: false, database: 'ready', backupFreshness: 'stale_or_unverified' });
+      }
+    }
+    return res.json({ ok: true, database: 'ready', backupFreshness: IS_LOCAL_ENV ? 'not_required_local' : 'verified' });
+  } catch {
+    return res.status(503).json({ ok: false, database: 'unavailable' });
+  }
+});
+app.get('/internal/metrics', (_req, res) => res.json(metricsSnapshot()));
 
 /**
  * CORS policy. In development we allow any origin so vite dev / Capacitor /
@@ -152,15 +223,15 @@ app.use(
             cb(null, false);
           }
         },
-    credentials: false,
+    credentials: true,
   })
 );
 app.use((req, res, next) => {
   // Compliance document uploads are base64 JSON and need a higher limit.
+  // Match both /api and /api/v1 mounts (see docs/api-versioning.md).
   if (
     req.method === 'POST' &&
-    (req.path === '/api/merchants/me/documents' ||
-      req.originalUrl.startsWith('/api/merchants/me/documents'))
+    /\/api(?:\/v1)?\/merchants\/me\/documents(?:\?|$)/u.test(req.originalUrl)
   ) {
     return express.json({ limit: '6mb' })(req, res, next);
   }
@@ -224,6 +295,42 @@ api.use((req, res, next) => {
   }
   next();
 });
+api.use(enforceProductionControls);
+api.use(enforceRegulatedProductReadiness);
+api.use(async (req, _res, next) => {
+  if (!isPostgresMode() || req.method !== 'POST') return next();
+  const events: Record<string, string[]> = {
+    '/pin-reset/request': ['otp_request'],
+    '/pin-reset/confirm': ['otp_verify'],
+    '/credit/verify/request': ['otp_request'],
+    '/credit/verify/confirm': ['otp_verify'],
+    '/cash-send/lookup': ['voucher_lookup'],
+    '/cash-send/collect': ['voucher_collect', 'cash_out'],
+  };
+  const eventTypes = events[req.path];
+  if (!eventTypes) return next();
+  try {
+    for (const eventType of eventTypes) {
+      await getPgPool().query(
+        `INSERT INTO risk_signals
+           (id,event_type,device_hash,ip_hash,request_id,correlation_id,metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,'{}'::jsonb)`,
+        [
+          randomUUID(),
+          eventType,
+          typeof req.headers['x-device-id'] === 'string' ? hashSensitive(req.headers['x-device-id']) : null,
+          hashSensitive(req.ip ?? ''),
+          req.requestId,
+          req.correlationId,
+        ],
+      );
+    }
+  } catch {
+    observeMetric('risk.signal.failure');
+    return next(Object.assign(new Error('Risk signal store unavailable.'), { status: 503 }));
+  }
+  return next();
+});
 
 if (isPostgresMode()) {
   api.use(authRouterPg);
@@ -231,6 +338,14 @@ if (isPostgresMode()) {
   // Those stacks run for every request that enters them and would 401 /ops/login
   // (and reject ops JWTs) before these routes are reached.
   api.use(opsAuthRouterPg);
+  api.use(approvalsRouterPg);
+  api.use(phase6OpsRouterPg);
+  api.use(phase7OpsRouterPg);
+  api.use(customerProtectionOpsRouterPg);
+  api.use(providerCallbacksRouterPg);
+  api.use(refundsRouterPg);
+  api.use(privacyRouterPg);
+  api.use(riskOpsRouterPg);
   api.use(adminUsersRouterPg);
   api.use(adminMonitoringRouterPg);
   api.use(adminRouterPg);
@@ -251,10 +366,10 @@ if (isPostgresMode()) {
   api.use(cashSendRouterPg);
   api.use(commissionsRouterPg);
   api.use(utilitiesRouterPg);
+  api.use(phase7ProductsRouterPg);
+  api.use(customerProtectionRouterPg);
   api.use((_req, res) => {
-    res.status(501).json({
-      error: 'This endpoint is not available in Postgres mode.',
-    });
+    res.status(404).json({ error: 'API endpoint not found.' });
   });
 } else {
   api.use(authRouter);
@@ -279,6 +394,9 @@ if (isPostgresMode()) {
   api.use(utilitiesRouter);
 }
 
+// Versioned clients use /api/v1. The unversioned mount remains as a
+// compatibility alias until the documented deprecation window expires.
+app.use('/api/v1', api);
 app.use('/api', api);
 
 app.use(
@@ -307,7 +425,7 @@ app.use(
 );
 
 const server = app.listen(PORT, () => {
-  console.log(`Ekasi Pay API listening on http://localhost:${PORT}`);
+  console.log(`KasiPay API listening on http://localhost:${PORT}`);
 });
 
 /** Graceful shutdown so SQLite has a chance to flush + checkpoint. */

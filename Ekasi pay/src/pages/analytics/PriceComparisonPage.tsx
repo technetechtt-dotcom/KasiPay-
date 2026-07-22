@@ -13,6 +13,15 @@ import {
 } from 'lucide-react';
 import type { PriceComparison } from '../../types';
 import { toast } from 'sonner';
+import {
+  absMoney,
+  compareMoney,
+  formatMoney,
+  moneyRatioPercent,
+  subtractMoney,
+  tryCanonicalMoney,
+  type MoneyInput,
+} from '../../money';
 
 export const PriceComparisonPage = ({
   comparisons,
@@ -22,10 +31,10 @@ export const PriceComparisonPage = ({
   comparisons: PriceComparison[];
   onAddComparison: (payload: {
     productName: string;
-    myPrice: number;
-    avgAreaPrice: number;
-    lowestAreaPrice: number;
-    highestAreaPrice: number;
+    myPrice: MoneyInput;
+    avgAreaPrice: MoneyInput;
+    lowestAreaPrice: MoneyInput;
+    highestAreaPrice: MoneyInput;
     competitors: number;
   }) => Promise<boolean>;
   navigate: (p: string) => void;
@@ -45,17 +54,21 @@ export const PriceComparisonPage = ({
   );
 
   const submit = async () => {
-    const my = Number(myPrice);
-    const avg = Number(avgAreaPrice);
-    const low = Number(lowestAreaPrice);
-    const high = Number(highestAreaPrice);
+    const my = tryCanonicalMoney(myPrice);
+    const avg = tryCanonicalMoney(avgAreaPrice);
+    const low = tryCanonicalMoney(lowestAreaPrice);
+    const high = tryCanonicalMoney(highestAreaPrice);
     const comp = Number(competitors);
     if (
       !productName.trim() ||
-      !(my >= 0) ||
-      !(avg >= 0) ||
-      !(low >= 0) ||
-      !(high >= 0) ||
+      my === null ||
+      avg === null ||
+      low === null ||
+      high === null ||
+      (my !== null && compareMoney(my, 0) < 0) ||
+      (avg !== null && compareMoney(avg, 0) < 0) ||
+      (low !== null && compareMoney(low, 0) < 0) ||
+      (high !== null && compareMoney(high, 0) < 0) ||
       !(comp >= 0)
     ) {
       toast.error('Fill all numeric fields');
@@ -135,11 +148,12 @@ export const PriceComparisonPage = ({
         )}
         <div className="space-y-4">
           {filteredComparisons.map((item) => {
-            const diff = item.myPrice - item.avgAreaPrice;
-            const isHigher = diff > 0;
-            const isLower = diff < 0;
-            const diffPercent =
-              item.avgAreaPrice > 0 ? Math.abs(diff / item.avgAreaPrice * 100) : 0;
+            const diff = subtractMoney(item.myPrice, item.avgAreaPrice);
+            const isHigher = compareMoney(diff, 0) > 0;
+            const isLower = compareMoney(diff, 0) < 0;
+            const diffPercent = Math.abs(
+              moneyRatioPercent(diff, item.avgAreaPrice),
+            );
             let status = 'competitive';
             if (isHigher && diffPercent > 10) status = 'too-high';
             if (isLower && diffPercent > 15) status = 'too-low';
@@ -157,22 +171,22 @@ export const PriceComparisonPage = ({
                       Your Price
                     </p>
                     <p className="font-bold text-xl text-slate-900">
-                      R{item.myPrice.toFixed(2)}
+                      R{formatMoney(item.myPrice)}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex justify-between text-xs text-slate-500 mb-4 px-1">
-                  <span>Lowest: R{item.lowestAreaPrice.toFixed(2)}</span>
-                  <span>Avg: R{item.avgAreaPrice.toFixed(2)}</span>
-                  <span>Highest: R{item.highestAreaPrice.toFixed(2)}</span>
+                  <span>Lowest: R{formatMoney(item.lowestAreaPrice)}</span>
+                  <span>Avg: R{formatMoney(item.avgAreaPrice)}</span>
+                  <span>Highest: R{formatMoney(item.highestAreaPrice)}</span>
                 </div>
 
                 {status === 'too-high' && (
                   <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm flex items-start gap-2">
                     <TrendingDown className="w-4 h-4 shrink-0 mt-0.5" />
                     <p>
-                      Your price is <strong>R{Math.abs(diff).toFixed(2)} higher</strong> than average.
+                      Your price is <strong>R{formatMoney(absMoney(diff))} higher</strong> than average.
                       You might be losing sales.
                     </p>
                   </div>
@@ -181,7 +195,7 @@ export const PriceComparisonPage = ({
                   <div className="bg-amber-50 text-amber-700 p-3 rounded-xl text-sm flex items-start gap-2">
                     <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" />
                     <p>
-                      Your price is <strong>R{Math.abs(diff).toFixed(2)} lower</strong> than average—you could lift margins cautiously.
+                      Your price is <strong>R{formatMoney(absMoney(diff))} lower</strong> than average—you could lift margins cautiously.
                     </p>
                   </div>
                 )}

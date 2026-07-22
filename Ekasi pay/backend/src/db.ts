@@ -660,7 +660,7 @@ function applyIncrementalMigrations(database: Database.Database) {
   );
   if (!merchantCols.has('approval_status')) {
     database.exec(
-      `ALTER TABLE merchants ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'approved'`,
+      `ALTER TABLE merchants ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'pending_docs'`,
     );
   }
   if (!merchantCols.has('rejection_reason')) {

@@ -9,6 +9,11 @@ import {
   PageTransition,
 } from '../../components/shared/UIComponents';
 import type { Wallet } from '../../types';
+import {
+  compareMoney,
+  tryCanonicalMoney,
+  type MoneyInput,
+} from '../../money';
 
 export const TransferMoneyPage = ({
   wallet,
@@ -18,7 +23,7 @@ export const TransferMoneyPage = ({
   wallet: Wallet;
   onSendMoney: (
     toPhone: string,
-    amount: number,
+    amount: MoneyInput,
     description: string,
   ) => Promise<boolean>;
   navigate: (p: string) => void;
@@ -29,8 +34,8 @@ export const TransferMoneyPage = ({
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
+    const amt = tryCanonicalMoney(amount);
+    if (amt === null || compareMoney(amt, 0) <= 0) {
       toast.error('Enter an amount greater than R0.');
       return;
     }

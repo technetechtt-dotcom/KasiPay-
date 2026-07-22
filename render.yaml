@@ -2,7 +2,7 @@
 # Repo layout: app code lives under "Ekasi pay/" (note the space).
 # Set secret env vars in the Render dashboard after the first sync:
 #   DATABASE_URL, SMS_PROVIDER (+ Twilio/Clickatell keys)
-#   OPS_DASHBOARD_PASSWORD (ops login password for OPS_SUPER_ADMIN_USERNAME)
+#   operator-session secrets, private KYC storage/scanner settings, encryption key
 # FRONTEND_ORIGINS on ekasi-pay-api must include both web and ops origins
 # (comma-separated), e.g. https://ekasi-pay-web.onrender.com,https://ekasi-ops-dashboard.onrender.com
 
@@ -11,13 +11,28 @@ services:
     name: ekasi-pay-api
     runtime: node
     rootDir: Ekasi pay/backend
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run migrate:validate && npm run build
+    preDeployCommand: npm run migrate:up
     startCommand: npm start
     healthCheckPath: /health
     plan: starter
     envVars:
       - key: NODE_ENV
         value: production
+      - key: FINANCIAL_POSTING_ENABLED
+        value: "false"
+      - key: CASH_SEND_ENABLED
+        value: "false"
+      - key: LENDING_ENABLED
+        value: "false"
+      - key: LENDING_DISBURSEMENT_ENABLED
+        value: "false"
+      - key: INSURANCE_ENABLED
+        value: "false"
+      - key: STOKVEL_MONEY_MOVEMENT_ENABLED
+        value: "false"
+      - key: LIVE_UTILITIES_ENABLED
+        value: "false"
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
@@ -34,25 +49,61 @@ services:
         sync: false
       - key: FRONTEND_ORIGINS
         sync: false
-      - key: OPS_DASHBOARD_ORIGIN
-        fromService:
-          name: ekasi-ops-dashboard
-          type: web
-          property: host
-      - key: OPS_DASHBOARD_PASSWORD
-        sync: false
-      - key: OPS_SUPER_ADMIN_USERNAME
-        value: IvanIJ
       - key: OPS_JWT_SECRET
         generateValue: true
+      - key: OPS_REFRESH_TOKEN_PEPPER
+        generateValue: true
+      - key: REFRESH_TOKEN_PEPPER
+        generateValue: true
+      - key: PIN_RESET_PEPPER
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: PRIVATE_STORAGE_PROVIDER
+        sync: false
+      - key: PRIVATE_STORAGE_SIGNING_ENDPOINT
+        sync: false
+      - key: PRIVATE_STORAGE_SIGNING_SECRET
+        sync: false
+      - key: PRIVATE_STORAGE_ENCRYPTION_KEY_REF
+        sync: false
+      - key: MALWARE_SCANNER_PROVIDER
+        sync: false
+      - key: MALWARE_SCANNER_CALLBACK_SECRET
+        sync: false
+      - key: REFRESH_COOKIE_ENABLED
+        value: "true"
+      - key: BEARER_REFRESH_COMPATIBILITY
+        value: "false"
+      - key: MONITORING_PROVIDER
+        sync: false
+      - key: MONITORING_DSN
+        sync: false
+      - key: BACKUP_PROVIDER
+        sync: false
+      - key: BACKUP_RETENTION_DAYS
+        value: "30"
+      # Flip only after production-readiness evidence is approved for that product.
 
   - type: web
     name: ekasi-pay-web
     runtime: static
     rootDir: Ekasi pay
-    buildCommand: npm install && node scripts/write-runtime-config.mjs && npm run build
+    buildCommand: npm ci && node scripts/write-runtime-config.mjs && npm run build
     staticPublishPath: dist
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://ekasi-pay-api.onrender.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
     envVars:
+      - key: VITE_REFRESH_COOKIE
+        value: "true"
       - key: API_HOST
         fromService:
           name: ekasi-pay-api
@@ -63,7 +114,7 @@ services:
     name: ekasi-ops-dashboard
     runtime: node
     rootDir: Ekasi pay/ops-dashboard
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /health
     plan: starter

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { getPgPool } from '../dbPg.js';
+import { formatCents, parseIntegerCents } from '../money.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
 export const commissionsRouterPg = Router();
@@ -10,7 +11,7 @@ export type CommissionPostingDto = {
   agentUserId: string;
   sourceType: string;
   sourceId: string;
-  amount: number;
+  amount: string;
   description: string;
   createdAt: string;
 };
@@ -20,7 +21,7 @@ type CommissionRow = {
   agent_user_id: string;
   source_type: string;
   source_id: string;
-  amount: number;
+  amount_cents: string;
   description: string;
   created_at: string;
 };
@@ -30,7 +31,7 @@ const toDto = (r: CommissionRow): CommissionPostingDto => ({
   agentUserId: r.agent_user_id,
   sourceType: r.source_type,
   sourceId: r.source_id,
-  amount: r.amount,
+  amount: formatCents(parseIntegerCents(r.amount_cents)),
   description: r.description,
   createdAt: r.created_at,
 });
@@ -45,7 +46,10 @@ commissionsRouterPg.get('/commissions/me', requireAuth, async (req, res) => {
     [req.auth!.userId],
   );
   const rows = r.rows;
-  const total = rows.reduce((s, row) => s + row.amount, 0);
+  const total = rows.reduce(
+    (sum, row) => sum + parseIntegerCents(row.amount_cents),
+    0n,
+  );
   const now = new Date();
   const thisMonth = rows
     .filter((row) => {
@@ -55,12 +59,15 @@ commissionsRouterPg.get('/commissions/me', requireAuth, async (req, res) => {
         d.getMonth() === now.getMonth()
       );
     })
-    .reduce((s, row) => s + row.amount, 0);
+    .reduce(
+      (sum, row) => sum + parseIntegerCents(row.amount_cents),
+      0n,
+    );
   return res.json({
     postings: rows.map(toDto),
     totals: {
-      lifetime: Number(total.toFixed(2)),
-      thisMonth: Number(thisMonth.toFixed(2)),
+      lifetime: formatCents(total),
+      thisMonth: formatCents(thisMonth),
     },
   });
 });

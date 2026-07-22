@@ -3,6 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 
 import { getPgPool } from '../dbPg.js';
+import {
+  formatCents,
+  multiplyCentsByQuantity,
+  parseIntegerCents,
+  parseZarToCents,
+  type Cents,
+} from '../money.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -14,9 +21,9 @@ type SaleItem = {
   productId: string;
   name: string;
   quantity: number;
-  price: number;
-  subtotal: number;
-  costPrice?: number;
+  price: string;
+  subtotal: string;
+  costPrice?: string;
 };
 
 export const salesRouterPg = Router();
@@ -36,7 +43,7 @@ salesRouterPg.get('/sales', async (req, res) => {
     id: string;
     merchant_id: string;
     items_json: string;
-    total: number;
+    total_cents: string;
     payment_method: string;
     created_at: string;
   }>(
@@ -48,7 +55,7 @@ salesRouterPg.get('/sales', async (req, res) => {
     id: row.id,
     merchantId: row.merchant_id,
     items: JSON.parse(row.items_json) as SaleItem[],
-    total: row.total,
+    total: formatCents(parseIntegerCents(row.total_cents, { allowZero: true })),
     paymentMethod: row.payment_method,
     createdAt: row.created_at,
   }));
@@ -84,7 +91,6 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
 
   const merchantWalletQ = await pool.query<{
     id: string;
-    balance: number;
     status: string;
     pool_id: string | null;
   }>(
@@ -97,7 +103,7 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
   }
 
   const saleItems: SaleItem[] = [];
-  let computedTotal = 0;
+  let computedTotalCents = 0n as Cents;
   const saleId = randomUUID();
   const createdAt = new Date().toISOString();
 
@@ -111,8 +117,8 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
         merchant_id: string;
         name: string;
         stock: number;
-        cost_price: number;
-      }>(`SELECT id, merchant_id, name, stock, cost_price FROM products WHERE id = $1`, [
+        cost_price_cents: string;
+      }>(`SELECT id, merchant_id, name, stock, cost_price_cents FROM products WHERE id = $1`, [
         line.productId,
       ]);
       const product = productQ.rows[0];
@@ -130,16 +136,19 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
         });
       }
 
-      const costAtSale = product.cost_price;
-      const subtotal = line.quantity * line.price;
-      computedTotal += subtotal;
+      const costAtSaleCents = parseIntegerCents(product.cost_price_cents, {
+        allowZero: true,
+      });
+      const priceCents = parseZarToCents(line.price, { allowZero: true });
+      const subtotalCents = multiplyCentsByQuantity(priceCents, line.quantity);
+      computedTotalCents = (computedTotalCents + subtotalCents) as Cents;
       saleItems.push({
         productId: product.id,
         name: product.name,
         quantity: line.quantity,
-        price: line.price,
-        subtotal,
-        costPrice: costAtSale,
+        price: formatCents(priceCents),
+        subtotal: formatCents(subtotalCents),
+        costPrice: formatCents(costAtSaleCents),
       });
 
       await client.query(`UPDATE products SET stock = stock - $1 WHERE id = $2`, [
@@ -150,7 +159,7 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       const movementId = randomUUID();
       await client.query(
         `INSERT INTO stock_movements
-          (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time, reference, notes, created_at)
+          (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time_cents, reference, notes, created_at)
          VALUES ($1, $2, $3, $4, 'out', $5, 'sale', $6, $7, NULL, $8)`,
         [
           movementId,
@@ -158,7 +167,7 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
           product.id,
           product.name,
           line.quantity,
-          costAtSale,
+          costAtSaleCents.toString(),
           saleId,
           createdAt,
         ],
@@ -179,7 +188,6 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
 
       const customerWalletQ = await client.query<{
         id: string;
-        balance: number;
         status: string;
         pool_id: string | null;
       }>(
@@ -194,7 +202,7 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       await postBetweenWalletsPg(client, {
         fromWalletId: customerWallet.id,
         toWalletId: merchantWallet.id,
-        amount: computedTotal,
+        amountCents: computedTotalCents,
         type: 'payment',
         referencePrefix: 'PAY',
         description: `Sale ${saleId}`,
@@ -202,13 +210,13 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
     }
 
     await client.query(
-      `INSERT INTO sales (id, merchant_id, items_json, total, payment_method, created_at)
+      `INSERT INTO sales (id, merchant_id, items_json, total_cents, payment_method, created_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         saleId,
         merchantId,
         JSON.stringify(saleItems),
-        computedTotal,
+        computedTotalCents.toString(),
         paymentMethod,
         createdAt,
       ],
@@ -231,7 +239,7 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       id: saleId,
       merchantId,
       items: saleItems,
-      total: computedTotal,
+      total: formatCents(computedTotalCents),
       paymentMethod,
       createdAt,
     },

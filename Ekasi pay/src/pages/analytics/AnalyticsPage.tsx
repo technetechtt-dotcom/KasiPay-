@@ -7,6 +7,7 @@ import {
 '../../components/shared/UIComponents';
 import { ArrowLeft, TrendingUp, AlertTriangle, PackageOpen } from 'lucide-react';
 import type { Sale, Product } from '../../types';
+import { addMoney, formatMoney, moneyToCents, type Money } from '../../money';
 import {
   apiGetAnalyticsSummary,
   type AnalyticsSummary,
@@ -57,13 +58,19 @@ export const AnalyticsPage = ({
         weekday: 'short'
       }) === day
     );
-    return daySales.reduce((sum, s) => sum + s.total, 0);
+    return daySales.reduce((sum, s) => addMoney(sum, s.total), '0.00');
   });
   const trendData =
     serverSummary?.trend?.length === 7 ?
       serverSummary.trend.map((t) => t.revenue)
     : localTrendData;
-  const maxTrend = Math.max(...trendData, 1);
+  const maxTrendCents = trendData.reduce(
+    (max, amount) => {
+      const cents = moneyToCents(amount);
+      return cents > max ? cents : max;
+    },
+    1n,
+  );
   // Best sellers
   const productSales = sales.
   flatMap((s) => s.items).
@@ -73,11 +80,14 @@ export const AnalyticsPage = ({
         acc[item.productId] = {
           name: item.name,
           quantity: 0,
-          revenue: 0
+          revenue: '0.00'
         };
       }
       acc[item.productId].quantity += item.quantity;
-      acc[item.productId].revenue += item.subtotal;
+      acc[item.productId].revenue = addMoney(
+        acc[item.productId].revenue,
+        item.subtotal,
+      );
       return acc;
     },
     {} as Record<
@@ -85,7 +95,7 @@ export const AnalyticsPage = ({
       {
         name: string;
         quantity: number;
-        revenue: number;
+        revenue: Money;
       }>
 
   );
@@ -155,8 +165,9 @@ export const AnalyticsPage = ({
           <KPCard className="p-5">
             <div className="flex items-end justify-between gap-2 h-40 mt-4">
               {trendData.map((amount, i) => {
-                const height =
-                maxTrend > 0 ? `${amount / maxTrend * 100}%` : '0%';
+                const height = `${Number(
+                  (moneyToCents(amount) * 10_000n) / maxTrendCents,
+                ) / 100}%`;
                 return (
                   <div
                     key={i}
@@ -177,7 +188,7 @@ export const AnalyticsPage = ({
                         className="w-full max-w-[24px] bg-emerald-500 rounded-t-md relative">
                         
                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                          R{amount.toFixed(0)}
+                          R{formatMoney(amount)}
                         </div>
                       </motion.div>
                     </div>

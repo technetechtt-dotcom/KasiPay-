@@ -5,6 +5,15 @@ import type { PoolClient } from 'pg';
 
 import { getPgPool } from '../dbPg.js';
 import { toProduct } from '../mappers.js';
+import {
+  formatCents,
+  multiplyCentsByQuantity,
+  multiplyCentsByRate,
+  parseFixedRate,
+  parseIntegerCents,
+  parseZarToCents,
+  type Cents,
+} from '../money.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
@@ -14,8 +23,8 @@ type IntakeLineResult = {
   productId: string;
   name: string;
   quantity: number;
-  costPrice: number;
-  lineTotal: number;
+  costPrice: string;
+  lineTotal: string;
 };
 
 type SlipRow = {
@@ -23,7 +32,7 @@ type SlipRow = {
   merchant_id: string;
   supplier_name: string | null;
   slip_reference: string | null;
-  total: number;
+  total_cents: string;
   line_items_json: string;
   notes: string | null;
   expense_id: string | null;
@@ -40,7 +49,7 @@ function toPurchaseSlip(row: SlipRow) {
     merchantId: row.merchant_id,
     supplierName: row.supplier_name ?? undefined,
     slipReference: row.slip_reference ?? undefined,
-    total: row.total,
+    total: formatCents(parseIntegerCents(row.total_cents)),
     lineItems: JSON.parse(row.line_items_json) as IntakeLineResult[],
     notes: row.notes ?? undefined,
     expenseId: row.expense_id ?? undefined,
@@ -65,8 +74,8 @@ async function applyStockIntakePg(
           id: string;
           merchant_id: string;
           name: string;
-          cost_price: number;
-          price: number;
+          cost_price_cents: string;
+          price_cents: string;
           stock: number;
           category: string;
           barcode: string | null;
@@ -78,8 +87,8 @@ async function applyStockIntakePg(
         id: string;
         merchant_id: string;
         name: string;
-        cost_price: number;
-        price: number;
+        cost_price_cents: string;
+        price_cents: string;
         stock: number;
         category: string;
         barcode: string | null;
@@ -95,23 +104,37 @@ async function applyStockIntakePg(
       const nextStock = product.stock + line.quantity;
       await client.query(
         `UPDATE products
-            SET stock = $1, cost_price = $2
+            SET stock = $1, cost_price_cents = $2
           WHERE id = $3`,
-        [nextStock, line.costPrice, product.id],
+        [
+          nextStock,
+          parseZarToCents(line.costPrice, { allowZero: true }).toString(),
+          product.id,
+        ],
       );
-      product = { ...product, stock: nextStock, cost_price: line.costPrice };
+      product = {
+        ...product,
+        stock: nextStock,
+        cost_price_cents: parseZarToCents(line.costPrice, {
+          allowZero: true,
+        }).toString(),
+      };
     } else {
       const id = randomUUID();
-      const sellingPrice = line.sellingPrice ?? line.costPrice * 1.2;
+      const costCents = parseZarToCents(line.costPrice, { allowZero: true });
+      const sellingPriceCents =
+        line.sellingPrice === undefined
+          ? multiplyCentsByRate(costCents, parseFixedRate('1.2'))
+          : parseZarToCents(line.sellingPrice);
       await client.query(
-        `INSERT INTO products (id, merchant_id, name, cost_price, price, stock, category, barcode)
+        `INSERT INTO products (id, merchant_id, name, cost_price_cents, price_cents, stock, category, barcode)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           id,
           merchantId,
           line.name!,
-          line.costPrice,
-          sellingPrice,
+          costCents.toString(),
+          sellingPriceCents.toString(),
           line.quantity,
           line.category!,
           line.barcode ?? null,
@@ -121,8 +144,8 @@ async function applyStockIntakePg(
         id: string;
         merchant_id: string;
         name: string;
-        cost_price: number;
-        price: number;
+        cost_price_cents: string;
+        price_cents: string;
         stock: number;
         category: string;
         barcode: string | null;
@@ -133,7 +156,7 @@ async function applyStockIntakePg(
     const movementId = randomUUID();
     await client.query(
       `INSERT INTO stock_movements
-        (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time, reference, notes, created_at)
+        (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time_cents, reference, notes, created_at)
        VALUES ($1, $2, $3, $4, 'in', $5, 'restock', $6, $7, $8, $9)`,
       [
         movementId,
@@ -141,7 +164,7 @@ async function applyStockIntakePg(
         product.id,
         product.name,
         line.quantity,
-        line.costPrice,
+        parseZarToCents(line.costPrice, { allowZero: true }).toString(),
         slipId,
         body.notes ?? null,
         now,
@@ -149,22 +172,34 @@ async function applyStockIntakePg(
     );
     movements.push(movementId);
 
-    const lineTotal = line.quantity * line.costPrice;
+    const costCents = parseZarToCents(line.costPrice, { allowZero: true });
+    const lineTotalCents = multiplyCentsByQuantity(costCents, line.quantity);
     lineResults.push({
       productId: product.id,
       name: product.name,
       quantity: line.quantity,
-      costPrice: line.costPrice,
-      lineTotal: Number(lineTotal.toFixed(2)),
+      costPrice: formatCents(costCents),
+      lineTotal: formatCents(lineTotalCents),
     });
     updatedProducts.push(toProduct(product));
   }
 
-  const computedTotal = lineResults.reduce((s, l) => s + l.lineTotal, 0);
-  const slipTotal = body.slipTotal ?? computedTotal;
+  const computedTotalCents = body.lines.reduce(
+    (sum, line) =>
+      (sum +
+        multiplyCentsByQuantity(
+          parseZarToCents(line.costPrice, { allowZero: true }),
+          line.quantity,
+        )) as Cents,
+    0n as Cents,
+  );
+  const slipTotalCents =
+    body.slipTotal === undefined
+      ? computedTotalCents
+      : parseZarToCents(body.slipTotal);
   let expenseId: string | null = null;
 
-  if (body.recordExpense !== false && slipTotal > 0) {
+  if (body.recordExpense !== false && slipTotalCents > 0n) {
     expenseId = randomUUID();
     const supplier = body.supplierName?.trim() || 'Supplier';
     const ref = body.slipReference?.trim();
@@ -172,22 +207,22 @@ async function applyStockIntakePg(
       ? `Stock purchase — ${supplier} (slip ${ref})`
       : `Stock purchase — ${supplier}`;
     await client.query(
-      `INSERT INTO expenses (id, merchant_id, category, description, amount, created_at)
+      `INSERT INTO expenses (id, merchant_id, category, description, amount_cents, created_at)
        VALUES ($1, $2, 'supplier', $3, $4, $5)`,
-      [expenseId, merchantId, description, slipTotal, now],
+      [expenseId, merchantId, description, slipTotalCents.toString(), now],
     );
   }
 
   await client.query(
     `INSERT INTO purchase_slips
-      (id, merchant_id, supplier_name, slip_reference, total, line_items_json, notes, expense_id, created_at)
+      (id, merchant_id, supplier_name, slip_reference, total_cents, line_items_json, notes, expense_id, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       slipId,
       merchantId,
       body.supplierName?.trim() || null,
       body.slipReference?.trim() || null,
-      slipTotal,
+      slipTotalCents.toString(),
       JSON.stringify(lineResults),
       body.notes ?? null,
       expenseId,

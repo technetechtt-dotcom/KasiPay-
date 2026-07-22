@@ -1,3 +1,5 @@
+import type { Money } from './money';
+
 export type Role = 'customer' | 'merchant' | 'agent' | 'admin';
 export type AccountTier = 'Basic' | 'Standard' | 'Premium';
 export type KYCStatus = 'pending' | 'verified' | 'rejected';
@@ -32,7 +34,7 @@ export interface User {
 export interface Wallet {
   id: string;
   userId: string;
-  balance: number;
+  balance: Money;
   currency: string;
   status: 'active' | 'frozen';
   /** Regional ledger pool (same as country for now). */
@@ -44,7 +46,7 @@ export interface Transaction {
   id: string;
   fromWalletId: string | null;
   toWalletId: string | null;
-  amount: number;
+  amount: Money;
   type: TransactionType;
   status: TransactionStatus;
   reference: string;
@@ -57,8 +59,8 @@ export interface LedgerEntry {
   transactionId: string;
   accountId: string;
   entryType: EntryType;
-  amount: number;
-  balanceAfter: number;
+  amount: Money;
+  balanceAfter: Money;
   createdAt: string;
 }
 
@@ -101,8 +103,8 @@ export interface Product {
   id: string;
   merchantId: string;
   name: string;
-  costPrice: number;
-  price: number;
+  costPrice: Money;
+  price: Money;
   stock: number;
   category: string;
   barcode?: string;
@@ -112,16 +114,16 @@ export interface SaleItem {
   productId: string;
   name: string;
   quantity: number;
-  price: number;
-  subtotal: number;
-  costPrice?: number;
+  price: Money;
+  subtotal: Money;
+  costPrice?: Money;
 }
 
 export interface Sale {
   id: string;
   merchantId: string;
   items: SaleItem[];
-  total: number;
+  total: Money;
   paymentMethod: 'cash' | 'wallet';
   createdAt: string;
 }
@@ -129,12 +131,12 @@ export interface Sale {
 export interface Loan {
   id: string;
   userId: string;
-  amount: number;
+  amount: Money;
   interestRate: number;
   status: 'pending' | 'approved' | 'rejected' | 'disbursed' | 'repaid';
   disbursedAt?: string;
   dueDate?: string;
-  repaidAmount: number;
+  repaidAmount: Money;
 }
 
 export interface ComplianceFlag {
@@ -174,7 +176,7 @@ export interface Expense {
   merchantId: string;
   category: ExpenseCategory;
   description: string;
-  amount: number;
+  amount: Money;
   createdAt: string;
 }
 
@@ -186,8 +188,8 @@ export interface CreditCustomer {
   merchantId: string;
   name: string;
   phone: string;
-  totalOwed: number;
-  creditLimit: number;
+  totalOwed: Money;
+  creditLimit: Money;
   lastPaymentDate?: string;
   createdAt: string;
   idVerified?: boolean;
@@ -197,7 +199,7 @@ export interface CreditTransaction {
   id: string;
   customerId: string;
   type: 'purchase' | 'payment';
-  amount: number;
+  amount: Money;
   description: string;
   createdAt: string;
 }
@@ -215,8 +217,8 @@ export interface SupplierOrder {
   id: string;
   merchantId: string;
   supplierId: string;
-  items: {name: string;quantity: number;unitCost: number;}[];
-  total: number;
+  items: {name: string;quantity: number;unitCost: Money;}[];
+  total: Money;
   status: 'pending' | 'confirmed' | 'delivered';
   orderDate: string;
   expectedDelivery?: string;
@@ -230,11 +232,11 @@ export interface StokvelLoan {
   lenderPhone: string;
   borrowerName: string;
   borrowerPhone: string;
-  amount: number;
+  amount: Money;
   /** Percent charged on every R100 (10 → R10 interest per R100). */
   interestRatePercent: number;
-  interestAmount: number;
-  totalDue: number;
+  interestAmount: Money;
+  totalDue: Money;
   fromPool: boolean;
   status: 'active' | 'repaid';
   notes?: string;
@@ -247,7 +249,7 @@ export interface StokvelContribution {
   stokvelId: string;
   memberName: string;
   memberPhone: string;
-  amount: number;
+  amount: Money;
   /** YYYY-MM */
   periodMonth: string;
   notes?: string;
@@ -257,9 +259,9 @@ export interface StokvelContribution {
 export interface StokvelGroup {
   id: string;
   name: string;
-  members: {name: string;phone: string;contributed: number;}[];
-  targetAmount: number;
-  currentAmount: number;
+  members: {name: string;phone: string;contributed: Money;}[];
+  targetAmount: Money;
+  currentAmount: Money;
   frequency: 'weekly' | 'monthly';
   nextPayoutDate: string;
   createdAt: string;
@@ -274,9 +276,9 @@ export interface LaybyOrder {
   customerName: string;
   customerPhone: string;
   itemName: string;
-  totalPrice: number;
-  amountPaid: number;
-  installments: {amount: number;date: string;}[];
+  totalPrice: Money;
+  amountPaid: Money;
+  installments: {amount: Money;date: string;}[];
   status: 'active' | 'completed' | 'cancelled';
   createdAt: string;
 }
@@ -295,10 +297,10 @@ export interface LoadSheddingSlot {
 export interface PriceComparison {
   id: string;
   productName: string;
-  myPrice: number;
-  avgAreaPrice: number;
-  lowestAreaPrice: number;
-  highestAreaPrice: number;
+  myPrice: Money;
+  avgAreaPrice: Money;
+  lowestAreaPrice: Money;
+  highestAreaPrice: Money;
   competitors: number;
   lastUpdated: string;
 }
@@ -309,8 +311,8 @@ export interface InsurancePolicy {
   merchantId: string;
   provider: string;
   type: 'stock' | 'fire' | 'theft';
-  coverageAmount: number;
-  monthlyPremium: number;
+  coverageAmount: Money;
+  monthlyPremium: Money;
   status: 'active' | 'pending' | 'cancelled';
   nextPaymentDate: string;
 }
@@ -373,8 +375,8 @@ export interface CashSendVoucher {
   recipientIdLast4?: string;
   /** Payout used a beneficiary ID that matched what was captured at send time. */
   collectIdMatchedOnFile?: boolean;
-  amount: number;
-  fee: number;
+  amount: Money;
+  fee: Money;
   atmPin: string;
   referenceNumber: string;
   status: 'active' | 'collected' | 'expired' | 'cancelled';
@@ -399,7 +401,7 @@ export interface StockMovement {
   'theft' |
   'manual' |
   'initial';
-  costPriceAtTime?: number;
+  costPriceAtTime?: Money;
   reference?: string;
   createdAt: string;
   notes?: string;
@@ -409,8 +411,8 @@ export interface PurchaseSlipLine {
   productId: string;
   name: string;
   quantity: number;
-  costPrice: number;
-  lineTotal: number;
+  costPrice: Money;
+  lineTotal: Money;
 }
 
 export interface PurchaseSlip {
@@ -418,7 +420,7 @@ export interface PurchaseSlip {
   merchantId: string;
   supplierName?: string;
   slipReference?: string;
-  total: number;
+  total: Money;
   lineItems: PurchaseSlipLine[];
   notes?: string;
   expenseId?: string;

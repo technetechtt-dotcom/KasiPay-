@@ -1,10 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { Router } from 'express';
 import { z } from 'zod';
 
 import {
-  cashSendIdsMatch,
   isSaCellphoneInput,
   normalizeCashSendId,
   parseCashSendVoucherReference,
@@ -15,10 +14,21 @@ import { optionalSaIdBody, saIdBody } from '../cashSendSchemas.js';
 import { getPgPool } from '../dbPg.js';
 import { toCashSendVoucher } from '../extraMappers.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
+import {
+  encryptField,
+  hashSensitiveIdentifier,
+  hashesEqual,
+} from '../security/fieldEncryption.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { hashPin, verifyPin } from '../password.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
+import {
+  formatCents,
+  parseIntegerCents,
+  parseZarToCents,
+  type Cents,
+} from '../money.js';
 import {
   recordCommissionPostingPg,
   reverseCommissionPostingsPg,
@@ -27,6 +37,14 @@ import { createComplianceFlagPg } from '../services/compliancePg.js';
 import { notifySenderCashSendVoucher } from '../services/cashSendSms.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
+import { evaluateTransactionRiskPg } from '../services/riskPg.js';
+import {
+  calculateFeeCents,
+  postFeeAccrualPg,
+  recordFeeAssessmentPg,
+  reverseFeeAccrualPg,
+  resolveFeeSchedulePg,
+} from '../services/feeEnginePg.js';
 import { cashSendVoucherPin } from '../validation.js';
 import {
   clearCollectPinFailuresPg,
@@ -34,13 +52,10 @@ import {
   recordCollectPinFailurePg,
 } from '../security/collectPinAttemptsPg.js';
 
-const COMMISSION_FEE_SHARE = 0.5;
-
 export const cashSendRouterPg = Router();
 
 cashSendRouterPg.use(requireAuth, requireApprovedMerchant);
 
-const FEE = 10;
 const DAYS_VALID = 14;
 
 type VoucherRow = {
@@ -50,8 +65,8 @@ type VoucherRow = {
   sender_name: string | null;
   recipient_phone: string;
   recipient_name: string | null;
-  amount: number;
-  fee: number;
+  amount_cents: string;
+  fee_cents: string;
   pin_hash: string;
   reference_number: string;
   status: string;
@@ -61,6 +76,10 @@ type VoucherRow = {
   cancel_reason: string | null;
   recipient_id_document?: string;
   sender_id_document?: string;
+  recipient_id_document_encrypted?: string | null;
+  sender_id_document_encrypted?: string | null;
+  sender_id_hash?: string | null;
+  recipient_id_hash?: string | null;
 };
 
 cashSendRouterPg.get('/cash-send/me', requireAuth, async (req, res) => {
@@ -139,7 +158,7 @@ cashSendRouterPg.post('/cash-send/lookup', requireAuth, async (req, res) => {
   return res.json({
     referenceNumber: row.reference_number,
     status: row.status,
-    amount: row.amount,
+    amount: formatCents(parseIntegerCents(row.amount_cents)),
     recipientPhone: row.recipient_phone,
     expiresAt: row.expires_at,
   });
@@ -173,7 +192,7 @@ const createBody = z.object({
   recipientLastName: nameField,
   recipientPhone: phoneDigits,
   recipientIdDocument: optionalSaIdBody,
-  amount: z.coerce.number().positive(),
+  amount: z.union([z.string(), z.number()]),
   atmPin: cashSendVoucherPin,
 });
 
@@ -189,6 +208,14 @@ cashSendRouterPg.post(
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    let amountCents: Cents;
+    try {
+      amountCents = parseZarToCents(parsed.data.amount);
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : 'Invalid amount',
+      });
     }
     if (
       digitsOnlyPhoneSame(parsed.data.recipientPhone, parsed.data.senderPhone)
@@ -209,7 +236,6 @@ cashSendRouterPg.post(
     const customerSenderPhone = parsed.data.senderPhone;
     const walletQ = await pool.query<{
       id: string;
-      balance: number;
       status: string;
       pool_id: string | null;
     }>(
@@ -221,7 +247,14 @@ cashSendRouterPg.post(
     if (!wallet || wallet.status !== 'active') {
       return res.status(400).json({ error: 'Wallet unavailable' });
     }
-    const total = parsed.data.amount + FEE;
+    const feePolicy = await resolveFeeSchedulePg(pool, {
+      product: 'cash_send',
+      currency: 'ZAR',
+      principalCents: amountCents,
+    });
+    const feeCalculation = calculateFeeCents(amountCents, feePolicy.tier);
+    const feeCents = feeCalculation.totalFeeCents;
+    const totalCents = (amountCents + feeCents) as Cents;
     const poolId = wallet.pool_id ?? DEFAULT_POOL_ID;
     const escrowId = await getEscrowWalletIdForPoolPg(pool, poolId);
     if (!escrowId) {
@@ -232,21 +265,54 @@ cashSendRouterPg.post(
     const id = randomUUID();
     const pinHash = hashPin(parsed.data.atmPin);
     const ref = generateCashSendReference();
+    const risk = await evaluateTransactionRiskPg(pool, {
+      eventType: 'voucher',
+      actorUserId: userId,
+      amountCents: totalCents,
+      financialReference: ref,
+      deviceId: typeof req.headers['x-device-id'] === 'string' ? req.headers['x-device-id'] : undefined,
+      ip: req.ip,
+      counterparty: parsed.data.recipientPhone,
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+    });
+    if (risk.decision === 'block') {
+      return res.status(403).json({ error: 'Transaction declined by configured risk controls.', code: 'RISK_BLOCKED' });
+    }
+    if (risk.decision === 'hold') {
+      return res.status(202).json({ status: 'held_for_review', referenceNumber: ref });
+    }
     const now = new Date();
     const expires = new Date(
       now.getTime() + DAYS_VALID * 86400000,
     ).toISOString();
     const nowIso = now.toISOString();
+    const beneficiaryBindingHash = createHash('sha256')
+      .update(`${normalizeCashSendId(parsed.data.recipientIdDocument ?? '')}|${parsed.data.recipientPhone.replace(/\D/g, '')}`)
+      .digest('hex');
+    const senderIdNorm = normalizeCashSendId(parsed.data.senderIdDocument);
+    const recipientIdNorm = normalizeCashSendId(
+      parsed.data.recipientIdDocument ?? '',
+    );
+    const senderIdEncrypted = encryptField(senderIdNorm);
+    const recipientIdEncrypted = recipientIdNorm
+      ? encryptField(recipientIdNorm)
+      : '';
+    const senderAddressEncrypted = encryptField(parsed.data.senderAddress);
+    const senderIdHash = hashSensitiveIdentifier(senderIdNorm);
+    const recipientIdHash = recipientIdNorm
+      ? hashSensitiveIdentifier(recipientIdNorm)
+      : '';
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await postBetweenWalletsPg(client, {
+      const holdPosting = await postBetweenWalletsPg(client, {
         fromWalletId: wallet.id,
         toWalletId: escrowId,
-        amount: total,
+        amountCents: totalCents,
         type: 'cash_send_hold',
         referencePrefix: 'CSH',
-        description: `Cash Send hold (${ref}) — principal ${parsed.data.amount} ZAR + fee ${FEE} → escrow pool ${poolId}`,
+        description: `Cash Send hold (${ref}) — principal ${formatCents(amountCents)} ZAR + fee ${formatCents(feeCents)} → escrow pool ${poolId}`,
       });
       const senderDisplay =
         `${parsed.data.senderFirstName} ${parsed.data.senderLastName}`.trim();
@@ -258,15 +324,22 @@ cashSendRouterPg.post(
           sender_first_name, sender_last_name, sender_id_document, sender_address,
           recipient_phone, recipient_name,
           recipient_first_name, recipient_last_name, recipient_id_document,
-          amount, fee, pin_hash, reference_number, status, created_at, expires_at,
-          collector_scanned_id, collected_with_id_verified
+          amount_cents, fee_cents, pin_hash, reference_number, status, created_at, expires_at,
+          collector_scanned_id, collected_with_id_verified,
+          beneficiary_binding_hash, hold_transaction_id,
+          sender_id_hash, recipient_id_hash,
+          sender_id_document_encrypted, recipient_id_document_encrypted,
+          sender_address_encrypted
         ) VALUES (
           $1, $2, $3, $4,
           $5, $6, $7, $8,
           $9, $10,
           $11, $12, $13,
           $14, $15, $16, $17, 'active', $18, $19,
-          NULL, 0
+          NULL, 0, $20, $21,
+          $22, $23,
+          $24, $25,
+          $26
         )`,
         [
           id,
@@ -275,33 +348,77 @@ cashSendRouterPg.post(
           senderDisplay,
           parsed.data.senderFirstName,
           parsed.data.senderLastName,
-          parsed.data.senderIdDocument,
-          parsed.data.senderAddress,
+          '', // never store plaintext SA ID
+          '', // never store plaintext address
           parsed.data.recipientPhone,
           recipientDisplay || null,
           parsed.data.recipientFirstName,
           parsed.data.recipientLastName,
-          parsed.data.recipientIdDocument,
-          parsed.data.amount,
-          FEE,
+          '', // never store plaintext beneficiary SA ID
+          amountCents.toString(),
+          feeCents.toString(),
           pinHash,
           ref,
           nowIso,
           expires,
+          beneficiaryBindingHash,
+          holdPosting.transactionId,
+          senderIdHash,
+          recipientIdHash || null,
+          senderIdEncrypted,
+          recipientIdEncrypted || null,
+          senderAddressEncrypted,
         ],
       );
-      await recordCommissionPostingPg(client, {
-        agentUserId: userId,
+      await client.query(
+        `INSERT INTO cash_send_outbox
+           (id, voucher_id, event_type, channel, destination_hash, template, safe_payload, request_id, correlation_id)
+         VALUES
+           ($1,$2,'voucher_created','sms',$3,'cash_send_reference',$4::jsonb,$5,$5),
+           ($6,$2,'voucher_pin_created','sms',$3,'cash_send_pin_separate','{}'::jsonb,$5,$5)`,
+        [
+          randomUUID(),
+          id,
+          createHash('sha256').update(customerSenderPhone).digest('hex'),
+          JSON.stringify({ referenceNumber: ref, expiresAt: expires }),
+          req.requestId,
+          randomUUID(),
+        ],
+      );
+      const feeAccrual = await postFeeAccrualPg(client, {
+        sourceWalletId: escrowId,
+        sourceReference: ref,
+        currency: 'ZAR',
+        components: feeCalculation.components,
+        actorId: userId,
+      });
+      const assessment = await recordFeeAssessmentPg(client, {
+        scheduleId: feePolicy.scheduleId,
+        tier: feePolicy.tier,
         sourceType: 'cash_send',
         sourceId: id,
-        amount: Number((FEE * COMMISSION_FEE_SHARE).toFixed(2)),
-        description: `Cash Send fee share for voucher ${ref}`,
+        principalCents: amountCents,
+        currency: 'ZAR',
+        journalTransactionId: feeAccrual.transactionId,
+        beneficiaries: { agent: userId },
       });
-      if (parsed.data.amount >= 3000) {
+      const agentCommission = feeCalculation.components.agent;
+      if (agentCommission > 0n) {
+        await recordCommissionPostingPg(client, {
+          agentUserId: userId,
+          sourceType: 'cash_send',
+          sourceId: id,
+          amountCents: agentCommission,
+          description: `Cash Send fee share for voucher ${ref}`,
+          feeAssessmentId: assessment.assessmentId,
+          journalTransactionId: feeAccrual.transactionId,
+        });
+      }
+      if (amountCents >= 300_000n) {
         await createComplianceFlagPg(client, {
           userId,
-          severity: parsed.data.amount >= 7000 ? 'high' : 'medium',
-          reason: `Large Cash Send created (R${parsed.data.amount.toFixed(2)})`,
+          severity: amountCents >= 700_000n ? 'high' : 'medium',
+          reason: `Large Cash Send created (R${formatCents(amountCents)})`,
         });
       }
       await client.query('COMMIT');
@@ -330,7 +447,7 @@ cashSendRouterPg.post(
       `${parsed.data.recipientFirstName} ${parsed.data.recipientLastName}`.trim();
     const smsSent = await notifySenderCashSendVoucher({
       senderPhone: customerSenderPhone,
-      amount: parsed.data.amount,
+      amount: formatCents(amountCents),
       beneficiaryName,
       referenceNumber: ref,
       pin: parsed.data.atmPin,
@@ -339,7 +456,7 @@ cashSendRouterPg.post(
       shopLocation: merchant?.location,
     });
     return res.status(201).json({
-      voucher: toCashSendVoucher(row, parsed.data.atmPin),
+      voucher: toCashSendVoucher(row),
       smsSent,
     });
   },
@@ -384,7 +501,6 @@ cashSendRouterPg.post(
 
     const senderWalletQ = await pool.query<{
       id: string;
-      balance: number;
       status: string;
       pool_id: string | null;
     }>(
@@ -408,7 +524,8 @@ cashSendRouterPg.post(
       }
       const poolId = senderWalletRow.pool_id ?? DEFAULT_POOL_ID;
       const escrowId = await getEscrowWalletIdForPoolPg(pool, poolId);
-      const refundTotal = row.amount + row.fee;
+      const refundTotalCents = (parseIntegerCents(row.amount_cents) +
+        parseIntegerCents(row.fee_cents, { allowZero: true })) as Cents;
       if (!escrowId) {
         return res
           .status(503)
@@ -417,17 +534,28 @@ cashSendRouterPg.post(
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        await postBetweenWalletsPg(client, {
+        const lockedVoucher = await client.query<{ status: string }>(
+          `SELECT status FROM cash_send_vouchers WHERE id = $1 FOR UPDATE`,
+          [row.id],
+        );
+        if (lockedVoucher.rows[0]?.status !== 'active') {
+          throw Object.assign(new Error('Voucher is no longer active'), { status: 409 });
+        }
+        await reverseFeeAccrualPg(client, { sourceType: 'cash_send', sourceId: row.id });
+        const refundPosting = await postBetweenWalletsPg(client, {
           fromWalletId: escrowId,
           toWalletId: senderWalletRow.id,
-          amount: refundTotal,
+          amountCents: refundTotalCents,
           type: 'cash_send_expire_refund',
           referencePrefix: 'CSE',
           description: `Cash Send expired (${row.reference_number}) — refund principal + fee from escrow (${poolId})`,
         });
         await client.query(
-          `UPDATE cash_send_vouchers SET status = $1, cancel_reason = $2 WHERE id = $3`,
-          ['expired', 'Expired — refunded to sender from escrow', row.id],
+          `UPDATE cash_send_vouchers
+              SET status = $1, cancel_reason = $2, refund_transaction_id = $4,
+                  expiry_processed_at = clock_timestamp(), lifecycle_version = lifecycle_version + 1
+            WHERE id = $3`,
+          ['expired', 'Expired — refunded to sender from escrow', row.id, refundPosting.transactionId],
         );
         await reverseCommissionPostingsPg(client, 'cash_send', row.id);
         await client.query('COMMIT');
@@ -468,10 +596,16 @@ cashSendRouterPg.post(
 
     await clearCollectPinFailuresPg(pool, voucherRef);
 
-    const storedRecipientId = normalizeCashSendId(
-      row.recipient_id_document ?? '',
-    );
-    const storedSenderId = normalizeCashSendId(row.sender_id_document ?? '');
+    const storedRecipientHash =
+      row.recipient_id_hash ||
+      (row.recipient_id_document
+        ? hashSensitiveIdentifier(normalizeCashSendId(row.recipient_id_document))
+        : '');
+    const storedSenderHash =
+      row.sender_id_hash ||
+      (row.sender_id_document
+        ? hashSensitiveIdentifier(normalizeCashSendId(row.sender_id_document))
+        : '');
     const scannedNorm = normalizeCashSendId(parsed.data.scannedIdDocument);
     if (!validateSaIdDigits(scannedNorm)) {
       return res.status(400).json({
@@ -479,9 +613,10 @@ cashSendRouterPg.post(
           'Capture the beneficiary’s SA ID number in full (13 digits — use the barcode scanner pointed at their ID, or enter the number carefully).',
       });
     }
+    const scannedHash = hashSensitiveIdentifier(scannedNorm);
     if (
-      storedSenderId.length >= 13 &&
-      cashSendIdsMatch(storedSenderId, scannedNorm)
+      storedSenderHash &&
+      hashesEqual(storedSenderHash, scannedHash)
     ) {
       return res.status(400).json({
         error:
@@ -489,8 +624,8 @@ cashSendRouterPg.post(
       });
     }
     if (
-      storedRecipientId.length >= 13 &&
-      !cashSendIdsMatch(storedRecipientId, scannedNorm)
+      storedRecipientHash &&
+      !hashesEqual(storedRecipientHash, scannedHash)
     ) {
       return res.status(400).json({
         error:
@@ -528,34 +663,44 @@ cashSendRouterPg.post(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await postBetweenWalletsPg(client, {
+      const lockedVoucher = await client.query<{ status: string }>(
+        `SELECT status FROM cash_send_vouchers WHERE id = $1 FOR UPDATE`,
+        [row.id],
+      );
+      if (lockedVoucher.rows[0]?.status !== 'active') {
+        throw Object.assign(new Error('Voucher is no longer active'), { status: 409 });
+      }
+      const principalPosting = await postBetweenWalletsPg(client, {
         fromWalletId: escrowId,
         toWalletId: collectorWallet.id,
-        amount: row.amount,
+        amountCents: parseIntegerCents(row.amount_cents),
         type: 'cash_send_collect',
         referencePrefix: 'CSC',
-        description: `Cash Send payout (${row.reference_number}) principal ${row.amount} from escrow (${poolId}) to collector wallet`,
+        description: `Cash Send payout (${row.reference_number}) principal ${formatCents(parseIntegerCents(row.amount_cents))} from escrow (${poolId}) to collector wallet`,
       });
-      if (row.fee > 0) {
-        await postBetweenWalletsPg(client, {
-          fromWalletId: escrowId,
-          toWalletId: collectorWallet.id,
-          amount: row.fee,
-          type: 'cash_send_collect',
-          referencePrefix: 'CSF',
-          description: `Cash Send collection fee (${row.reference_number}) R${row.fee} from escrow (${poolId}) to collector wallet`,
-        });
-      }
+      await client.query(
+        `UPDATE cash_send_vouchers SET settlement_transaction_ids = $1::jsonb WHERE id = $2`,
+        [JSON.stringify([principalPosting.transactionId]), row.id],
+      );
       await client.query(
         `UPDATE cash_send_vouchers
             SET status = 'collected', collected_at = $1,
-                collector_scanned_id = $2, collected_with_id_verified = 1,
-                recipient_id_document = CASE
-                  WHEN COALESCE(recipient_id_document, '') = '' THEN $2
-                  ELSE recipient_id_document
-                END
-          WHERE id = $3`,
-        [nowIso, scannedNorm, row.id],
+                collector_scanned_id = '',
+                collector_scanned_id_encrypted = $2,
+                collector_scanned_id_hash = $3,
+                collected_with_id_verified = 1,
+                lifecycle_version = lifecycle_version + 1,
+                recipient_id_document = '',
+                recipient_id_document_encrypted = COALESCE(
+                  NULLIF(recipient_id_document_encrypted, ''),
+                  $2
+                ),
+                recipient_id_hash = COALESCE(
+                  NULLIF(recipient_id_hash, ''),
+                  $3
+                )
+          WHERE id = $4`,
+        [nowIso, encryptField(scannedNorm), scannedHash, row.id],
       );
       await client.query('COMMIT');
     } catch (e) {
@@ -578,13 +723,14 @@ cashSendRouterPg.post(
 cashSendRouterPg.post(
   '/cash-send/:id/cancel',
   requireAuth,
+  idempotentPg('POST /cash-send/:id/cancel'),
   async (req, res) => {
     const pool = getPgPool();
     const voucherQ = await pool.query<{
       id: string;
       sender_user_id: string;
-      amount: number;
-      fee: number;
+      amount_cents: string;
+      fee_cents: string;
       status: string;
     }>(`SELECT * FROM cash_send_vouchers WHERE id = $1`, [req.params.id]);
     const voucher = voucherQ.rows[0];
@@ -615,21 +761,33 @@ cashSendRouterPg.post(
         .json({ error: 'Regional escrow float is not available' });
     }
 
-    const refund = voucher.amount + voucher.fee;
+    const refundCents = (parseIntegerCents(voucher.amount_cents) +
+      parseIntegerCents(voucher.fee_cents, { allowZero: true })) as Cents;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await postBetweenWalletsPg(client, {
+      const lockedVoucher = await client.query<{ status: string }>(
+        `SELECT status FROM cash_send_vouchers WHERE id = $1 FOR UPDATE`,
+        [voucher.id],
+      );
+      if (lockedVoucher.rows[0]?.status !== 'active') {
+        throw Object.assign(new Error('Voucher is no longer active'), { status: 409 });
+      }
+      await reverseFeeAccrualPg(client, { sourceType: 'cash_send', sourceId: voucher.id });
+      const refundPosting = await postBetweenWalletsPg(client, {
         fromWalletId: escrowId,
         toWalletId: senderWalletFull.id,
-        amount: refund,
+        amountCents: refundCents,
         type: 'cash_send_cancel_refund',
         referencePrefix: 'CSX',
         description: `Cash Send cancelled (${voucher.id}) — refund principal + fee from escrow (${poolId})`,
       });
       await client.query(
-        `UPDATE cash_send_vouchers SET status = 'cancelled', cancel_reason = $1 WHERE id = $2`,
-        ['Cancelled by sender — refunded from escrow', voucher.id],
+        `UPDATE cash_send_vouchers
+            SET status = 'cancelled', cancel_reason = $1, refund_transaction_id = $3,
+                lifecycle_version = lifecycle_version + 1
+          WHERE id = $2`,
+        ['Cancelled by sender — refunded from escrow', voucher.id, refundPosting.transactionId],
       );
       await reverseCommissionPostingsPg(client, 'cash_send', voucher.id);
       await client.query('COMMIT');

@@ -23,6 +23,13 @@ import {
   ScanLine } from
 'lucide-react';
 import { toast } from 'sonner';
+import {
+  addMoney,
+  compareMoney,
+  formatMoney,
+  tryCanonicalMoney,
+  type MoneyInput,
+} from '../../money';
 import type { Wallet, CashSendVoucher } from '../../types';
 import {
   writeScannerSession,
@@ -31,6 +38,11 @@ import {
 '../../lib/scannerSession';
 import { clearSenderKycProfile } from '../../lib/senderKycProfile';
 import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
+import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import {
+  apiGetRuntimeControls,
+  type RuntimeProductControls,
+} from '../../services/api';
 import { saIdValidationMessage } from '../../lib/saIdValidation';
 import {
   isSaCellphoneInput,
@@ -53,7 +65,7 @@ export type CashSendCreatePayload = {
   recipientLastName: string;
   recipientPhone: string;
   recipientIdDocument?: string;
-  amount: number;
+  amount: MoneyInput;
   pin: string;
 };
 
@@ -114,10 +126,40 @@ export const MoneyServices = ({
   const [activeTab, setActiveTab] = useState<'send' | 'receive' | 'vouchers'>(
     () => inferCashSendTabFromDraft(initialTab),
   );
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
+  useEffect(() => {
+    let active = true;
+    apiGetRuntimeControls()
+      .then((r) => {
+        if (active) setControls(r.controls);
+      })
+      .catch(() => {
+        if (active) {
+          setControls({
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const cashSendEnabled = controls?.cashSend === true;
   return (
     <PageTransition className="min-h-0 h-full flex flex-col bg-slate-50">
       <CashSendConsentGate>
       <div className="flex flex-col flex-1 min-h-0">
+      {!cashSendEnabled ? (
+        <ProductDisabledNotice
+          title="Cash Send is disabled"
+          detail="Create, collect, and cancel are blocked on the server until Cash Send is explicitly enabled for this environment."
+        />
+      ) : null}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
         <div className="flex items-center mb-4">
           {showBackButton &&
@@ -165,6 +207,12 @@ export const MoneyServices = ({
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {!cashSendEnabled ? (
+          <div className="p-6 text-sm text-slate-600">
+            Cash Send money movement is unavailable. You can still review historical vouchers when the product is re-enabled.
+          </div>
+        ) : (
+          <>
         {activeTab === 'send' &&
         <SendCashFlow
           key="send-cash-flow"
@@ -189,6 +237,8 @@ export const MoneyServices = ({
             cancelCashSend={cancelCashSend} />
         </div>
         }
+          </>
+        )}
       </div>
       </div>
       </CashSendConsentGate>
@@ -444,9 +494,15 @@ const SendCashFlow = ({
       return;
     }
     if (step === 3) {
-      const amt = Number(amount);
-      if (amt > 0 && amt + 10 <= wallet.balance) setStep(4);
-      else if (amt <= 0) setError('Enter a valid amount');
+      const amt = tryCanonicalMoney(amount);
+      if (
+        amt !== null &&
+        compareMoney(amt, 0) > 0 &&
+        compareMoney(addMoney(amt, '10.00'), wallet.balance) <= 0
+      )
+        setStep(4);
+      else if (amt === null || compareMoney(amt, 0) <= 0)
+        setError('Enter a valid amount');
       else setError('Insufficient shop funds (including R10 fee)');
       return;
     }
@@ -468,7 +524,7 @@ const SendCashFlow = ({
           recipientLastName: recipientLastName.trim(),
           recipientPhone: onlyDigits(recipientPhone),
           recipientIdDocument: '',
-          amount: Number(amount),
+          amount,
           pin,
         });
         if (newVoucher) {
@@ -476,7 +532,7 @@ const SendCashFlow = ({
           setVoucher(newVoucher);
           setStep(5);
           toast.success(
-            `Cash Send created — R${(Number(amount) + 10).toFixed(2)} deducted from your shop wallet.`,
+            `Cash Send created — R${formatMoney(addMoney(amount, '10.00'))} deducted from your shop wallet.`,
           );
         } else {
           setError(
@@ -495,8 +551,8 @@ const SendCashFlow = ({
       `${voucher.recipientFirstName ?? ''} ${voucher.recipientLastName ?? ''}`.trim() ||
       voucher.recipientName ||
       voucher.recipientPhone;
-    const text = `KasiPay Cash Send for ${beneficiary}. Amount R${voucher.amount.toFixed(
-      2
+    const text = `KasiPay Cash Send for ${beneficiary}. Amount R${formatMoney(
+      voucher.amount,
     )}. Ref: ${voucher.referenceNumber} PIN: ${voucher.atmPin}. At collection the beneficiary must present both and scan their own SA ID.`;
     navigator.clipboard.writeText(text);
     toast.success('Details copied to clipboard');
@@ -536,20 +592,20 @@ const SendCashFlow = ({
           <div className="flex justify-between items-center gap-3 pt-4 border-t border-emerald-200/50">
             <span className="text-slate-600 font-medium shrink-0">Amount</span>
             <span className="text-xl font-bold text-emerald-700 tabular-nums">
-              R{voucher.amount.toFixed(2)}
+              R{formatMoney(voucher.amount)}
             </span>
           </div>
           <div className="flex justify-between items-center gap-3 pt-2">
             <span className="text-slate-600 font-medium shrink-0">Deducted from wallet</span>
             <span className="text-lg font-bold text-slate-900 tabular-nums">
-              R{(voucher.amount + (voucher.fee ?? 10)).toFixed(2)}
+              R{formatMoney(addMoney(voucher.amount, voucher.fee ?? '10.00'))}
             </span>
           </div>
         </KPCard>
 
         <div className="bg-slate-50 text-slate-700 p-4 rounded-xl text-sm w-full mb-4 text-left">
           Your shop wallet was reduced by{' '}
-          <strong>R{(voucher.amount + (voucher.fee ?? 10)).toFixed(2)}</strong>.
+          <strong>R{formatMoney(addMoney(voucher.amount, voucher.fee ?? '10.00'))}</strong>.
           Current balance: <KPAmount amount={wallet.balance} />.
         </div>
 
@@ -765,7 +821,7 @@ const SendCashFlow = ({
               <div className="flex justify-between py-2 border-b border-slate-200">
                 <span className="text-slate-500">Beneficiary receives</span>
                 <span className="font-bold">
-                  R{Number(amount || 0).toFixed(2)}
+                  R{formatMoney(amount || '0.00')}
                 </span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-200">
@@ -777,7 +833,7 @@ const SendCashFlow = ({
                   Deducted from your shop wallet
                 </span>
                 <span className="font-bold text-emerald-600">
-                  R{(Number(amount || 0) + 10).toFixed(2)}
+                  R{formatMoney(addMoney(amount || '0.00', '10.00'))}
                 </span>
               </div>
             </KPCard>
@@ -998,7 +1054,7 @@ const CollectCashFlow = ({
 
         <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl text-sm w-full mb-8">
           Your shop wallet has been credited with{' '}
-          <KPAmount amount={voucher.amount + (voucher.fee ?? 0)} />
+          <KPAmount amount={addMoney(voucher.amount, voucher.fee ?? '0.00')} />
           {' '}(cash payout + agent fee). Hand{' '}
           <KPAmount amount={voucher.amount} /> in cash to the customer.
         </div>
@@ -1245,7 +1301,7 @@ const VouchersList = ({
               <div className="flex justify-between items-center">
                 <span className="text-xs text-slate-500">Amount</span>
                 <span className="font-bold text-slate-900">
-                  R{v.amount.toFixed(2)}
+                  R{formatMoney(v.amount)}
                 </span>
               </div>
               <div className="flex justify-between items-center">

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "phase5.dashboard.v1",
+  "title": "Ekasi Pay Production Safety",
+  "refreshSeconds": 30,
+  "panels": [
+    { "title": "API latency p50/p95/p99", "metrics": ["http.request.duration_ms"] },
+    { "title": "API error rate", "metrics": ["http.errors.5xx"] },
+    { "title": "Database pool", "metrics": ["db.pool.active", "db.pool.idle", "db.pool.waiting"] },
+    { "title": "Ledger postings", "metrics": ["posting.success", "posting.failure"] },
+    { "title": "Idempotency", "metrics": ["idempotency.replay", "idempotency.conflict"] },
+    { "title": "Reconciliation", "metrics": ["reconciliation.discrepancies"] },
+    { "title": "Authentication", "metrics": ["auth.success", "auth.failure", "auth.lockout"] },
+    { "title": "Voucher attempts", "metrics": ["voucher.lookup.failure", "voucher.pin.failure", "voucher.lockout"] },
+    { "title": "Fraud queue", "metrics": ["risk.holds.open", "fraud.cases.open"] },
+    { "title": "Resilience", "metrics": ["backup.age_hours", "audit.outbox.dead_letter", "provider.outbox.dead_letter"] }
+  ],
+  "notes": "Definition only. Connect it to the selected monitoring sink and alert route before production."
+}

@@ -5,13 +5,80 @@ on:
     branches: ['**']
   pull_request:
 
+# Cancel superseded runs on the same ref so PR push storms do not queue stale work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default; jobs that need more must declare it explicitly.
+permissions:
+  contents: read
+
 defaults:
   run:
     working-directory: Ekasi pay
 
 jobs:
+  # Reminder only — configure these in the GitHub UI for the default branch / environments:
+  # - Branch protection: require PR reviews before merge
+  # - Required status checks: this workflow's jobs (validate, secret-scan, etc.)
+  # - Deployment environments: staging (and production) with required reviewers / wait timer
+  # Do not invent org-specific settings here; operators must match their GitHub plan and policy.
+  github-controls-reminder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Document external GitHub UI gates
+        working-directory: .
+        run: |
+          {
+            echo '## External GitHub controls (configure in UI)'
+            echo ''
+            echo 'This workflow does not enable branch protection or environment approvals.'
+            echo 'Configure in the repository / organization settings:'
+            echo ''
+            echo '- Protected default branch with required pull-request reviews'
+            echo '- Required status checks matching this workflow'
+            echo '- Staging (and production) Environments with required reviewers before deploy'
+            echo ''
+            echo 'See `Ekasi pay/backend/docs/phase8-release.md`.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # MIT gitleaks CLI (not gitleaks-action) so org repos do not need GITLEAKS_LICENSE.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        working-directory: .
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - name: Scan repository for secrets
+        working-directory: .
+        run: gitleaks detect --source . --verbose --redact --exit-code 1
+
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ekasi
+          POSTGRES_PASSWORD: ekasi
+          POSTGRES_DB: ekasi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ekasi -d ekasi_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,6 +87,8 @@ jobs:
           cache: npm
           cache-dependency-path: Ekasi pay/package-lock.json
       - run: npm ci
+      - name: Frontend production dependency audit
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm run test -- --run
       - run: npm run build
@@ -27,6 +96,8 @@ jobs:
         working-directory: Ekasi pay/backend
         run: |
           npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run migrate:validate
           npm run lint
           npm run typecheck
           npm run test
@@ -34,9 +105,22 @@ jobs:
           npm run smoke
         env:
           NODE_ENV: test
+      - name: Validate PostgreSQL migrations
+        working-directory: Ekasi pay/backend
+        run: |
+          npm run migrate:up
+          npm run migrate:status
+          npm run ledger:reconcile
+          npm run voucher:reconcile
+          npm run test:postgres
+        env:
+          DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
+          TEST_DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
+          PG_INTEGRATION_TESTS: '1'
 
   mobile-web-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       VITE_API_URL: https://api.ci.example
     steps:
@@ -53,6 +137,7 @@ jobs:
 
   mobile-ios-verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: mobile-web-build
     env:
       VITE_API_URL: https://api.ci.example
@@ -70,6 +155,7 @@ jobs:
 
   ops-dashboard:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,5 +167,6 @@ jobs:
         working-directory: Ekasi pay/ops-dashboard
         run: |
           npm ci
+          npm audit --omit=dev --audit-level=high
           npm run typecheck
           npm run build

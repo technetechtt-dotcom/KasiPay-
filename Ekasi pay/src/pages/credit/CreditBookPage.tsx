@@ -30,6 +30,18 @@ import {
   consumePendingCreditCustomerSaId,
   writeScannerSession,
 } from '../../lib/scannerSession';
+import {
+  addMoney,
+  canonicalMoney,
+  compareMoney,
+  formatMoney,
+  moneyRatioPercent,
+  multiplyMoney,
+  tryCanonicalMoney,
+  type Money,
+  type MoneyInput,
+} from '../../money';
+import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
 
 /** Common spaza credit categories — emoji-led to make scanning fast. */
 type CreditCategoryId =
@@ -84,14 +96,14 @@ type CreditDraftItem = {
   category: CreditCategoryId;
   name: string;
   qty: number;
-  unitPrice: number;
+  unitPrice: Money;
 };
 
 const formatDraftItemsAsDescription = (items: CreditDraftItem[]): string =>
   items
     .map(
       (i) =>
-        `${i.qty}× ${i.name} (${i.category}) @ R${i.unitPrice.toFixed(2)}`,
+        `${i.qty}× ${i.name} (${i.category}) @ R${formatMoney(i.unitPrice)}`,
     )
     .join(' · ');
 
@@ -105,7 +117,7 @@ type CreditScannerDraft = {
   ncLimit?: string;
   pendingPurchase?: {
     customerId: string;
-    total: number;
+    total: Money;
     description: string;
     phone: string;
   };
@@ -281,14 +293,14 @@ export const CreditBookPage = ({
   onAddTransaction: (
     customerId: string,
     type: 'purchase' | 'payment',
-    amount: number,
+    amount: MoneyInput,
     description: string,
     verificationToken?: string,
   ) => Promise<boolean | void> | void;
   onCreateCustomer: (
     name: string,
     phone: string,
-    creditLimit: number,
+    creditLimit: MoneyInput,
     saIdDocument: string,
     verificationToken: string,
   ) => Promise<boolean>;
@@ -328,7 +340,7 @@ export const CreditBookPage = ({
   const [purchaseBusy, setPurchaseBusy] = useState(false);
   const [pendingPurchase, setPendingPurchase] = useState<{
     customerId: string;
-    total: number;
+    total: Money;
     description: string;
     phone: string;
   } | null>(null);
@@ -370,14 +382,17 @@ export const CreditBookPage = ({
   };
 
   const draftQtyNumber = Number(draftQty);
-  const draftPriceNumber = Number(draftPrice);
+  const draftPriceMoney = tryCanonicalMoney(draftPrice);
   const canAddDraftItem =
     draftName.trim().length > 0 &&
     Number.isFinite(draftQtyNumber) &&
     draftQtyNumber > 0 &&
-    Number.isFinite(draftPriceNumber) &&
-    draftPriceNumber > 0;
-  const itemsTotal = items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+    draftPriceMoney !== null &&
+    compareMoney(draftPriceMoney, 0) > 0;
+  const itemsTotal = items.reduce(
+    (sum, item) => addMoney(sum, multiplyMoney(item.unitPrice, item.qty)),
+    '0.00',
+  );
 
   const addDraftItem = () => {
     if (!canAddDraftItem) return;
@@ -388,7 +403,7 @@ export const CreditBookPage = ({
         category: draftCategory,
         name: draftName.trim(),
         qty: draftQtyNumber,
-        unitPrice: draftPriceNumber,
+        unitPrice: canonicalMoney(draftPrice),
       },
     ]);
     setDraftName('');
@@ -407,8 +422,13 @@ export const CreditBookPage = ({
     setDraftPrice('');
     setAmount('');
   };
-  const totalOutstanding = customers.reduce((sum, c) => sum + c.totalOwed, 0);
-  const activeCustomers = customers.filter((c) => c.totalOwed > 0).length;
+  const totalOutstanding = customers.reduce(
+    (sum, customer) => addMoney(sum, customer.totalOwed),
+    '0.00',
+  );
+  const activeCustomers = customers.filter(
+    (customer) => compareMoney(customer.totalOwed, 0) > 0,
+  ).length;
   const filteredCustomers = customers.filter(
     (c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -427,7 +447,7 @@ export const CreditBookPage = ({
         return;
       }
       const desc = formatDraftItemsAsDescription(items);
-      const total = items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+      const total = itemsTotal;
       const customer = customers.find((c) => c.id === customerId);
       if (!customer) {
         toast.error('Customer not found');
@@ -443,8 +463,8 @@ export const CreditBookPage = ({
       setVerifyPurchaseOpen(true);
       return;
     }
-    const amt = parseFloat(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
+    const amt = tryCanonicalMoney(amount);
+    if (amt === null || compareMoney(amt, 0) <= 0) {
       toast.error('Enter a payment amount.');
       return;
     }
@@ -460,7 +480,7 @@ export const CreditBookPage = ({
     })();
   };
   const handleWhatsAppReminder = (customer: CreditCustomer) => {
-    const text = `Sawubona ${customer.name}, this is a friendly reminder from KasiPay Spaza. Your current credit balance is R${customer.totalOwed.toFixed(2)}. Please arrange payment soon. Ngiyabonga!`;
+    const text = `Sawubona ${customer.name}, this is a friendly reminder from KasiPay Spaza. Your current credit balance is R${formatMoney(customer.totalOwed)}. Please arrange payment soon. Ngiyabonga!`;
     window.open(
       `https://wa.me/27${customer.phone.substring(1)}?text=${text}`,
       '_blank'
@@ -535,6 +555,7 @@ export const CreditBookPage = ({
         </div>
       </div>
 
+      <ProductReadinessNotice product="merchant_credit" />
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav">
         <AnimatePresence mode="wait">
@@ -690,7 +711,7 @@ export const CreditBookPage = ({
                             Items on this slip
                           </span>
                           <span className="text-sm font-bold text-slate-900">
-                            R{itemsTotal.toFixed(2)}
+                            R{formatMoney(itemsTotal)}
                           </span>
                         </div>
                         {items.length === 0 ?
@@ -712,13 +733,13 @@ export const CreditBookPage = ({
                                         {it.qty}× {it.name}
                                       </p>
                                       <p className="text-[11px] text-slate-500">
-                                        {meta?.label ?? it.category} · R{it.unitPrice.toFixed(2)} each
+                                        {meta?.label ?? it.category} · R{formatMoney(it.unitPrice)} each
                                       </p>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
                                     <span className="text-sm font-bold text-slate-900">
-                                      R{(it.qty * it.unitPrice).toFixed(2)}
+                                      R{formatMoney(multiplyMoney(it.unitPrice, it.qty))}
                                     </span>
                                     <button
                                       type="button"
@@ -745,7 +766,7 @@ export const CreditBookPage = ({
                     }
                     className={`mt-2 ${showForm === 'payment' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
                     {showForm === 'purchase' ?
-                      `Add to Credit Book${items.length > 0 ? ` · R${itemsTotal.toFixed(2)}` : ''}` :
+                      `Add to Credit Book${items.length > 0 ? ` · R${formatMoney(itemsTotal)}` : ''}` :
                       'Record Payment'}
                   </KPButton>
                 </div>
@@ -766,8 +787,10 @@ export const CreditBookPage = ({
             
               <div className="space-y-3">
                 {filteredCustomers.map((customer) => {
-                const utilization =
-                customer.totalOwed / customer.creditLimit * 100;
+              const utilization = moneyRatioPercent(
+                customer.totalOwed,
+                customer.creditLimit,
+              );
                 const statusColor =
                 utilization > 80 ?
                 'bg-red-500' :
@@ -805,9 +828,9 @@ export const CreditBookPage = ({
                               {customer.name}
                             </h3>
                             <span
-                            className={`font-bold shrink-0 ${customer.totalOwed > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                            className={`font-bold shrink-0 ${compareMoney(customer.totalOwed, 0) > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                             
-                              R{customer.totalOwed.toFixed(2)}
+                              R{formatMoney(customer.totalOwed)}
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 mb-2">
@@ -932,7 +955,7 @@ export const CreditBookPage = ({
                                         <span
                                           className={`font-medium shrink-0 ${tx.type === 'payment' ? 'text-emerald-600' : 'text-red-600'}`}>
                                           {tx.type === 'payment' ? '-' : '+'}R
-                                          {tx.amount.toFixed(2)}
+                                          {formatMoney(tx.amount)}
                                         </span>
                                       </div>
                                     );
@@ -984,8 +1007,13 @@ export const CreditBookPage = ({
               busy={ncBusy}
               setBusy={setNcBusy}
               onVerified={async (verificationToken) => {
-                const lim = Number(ncLimit);
-                if (!ncName.trim() || ncPhone.replace(/\D/g, '').length < 9 || !(lim > 0)) {
+                const lim = tryCanonicalMoney(ncLimit);
+                if (
+                  !ncName.trim() ||
+                  ncPhone.replace(/\D/g, '').length < 9 ||
+                  lim === null ||
+                  compareMoney(lim, 0) <= 0
+                ) {
                   toast.error('Check name, phone, and limit');
                   return;
                 }
@@ -1026,7 +1054,7 @@ export const CreditBookPage = ({
               </button>
             </div>
             <p className="text-sm text-slate-500 mb-2">
-              Total: <strong>R{pendingPurchase.total.toFixed(2)}</strong>
+              Total: <strong>R{formatMoney(pendingPurchase.total)}</strong>
             </p>
             <CreditOtpPanel
               phone={pendingPurchase.phone}

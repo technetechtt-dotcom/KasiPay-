@@ -1,4 +1,10 @@
 import { useState } from 'react';
+import {
+  absMoney,
+  compareMoney,
+  formatMoney,
+  subtractMoney,
+} from '../../money';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Delete, Calculator as CalcIcon, Coins } from 'lucide-react';
 function formatDisplay(value: number): string {
@@ -159,9 +165,9 @@ export function CalculatorPage({
       setAmountReceived((amountReceived || '0') + '.');
     }
   };
-  const owed = parseFloat(totalOwed) || 0;
-  const received = parseFloat(amountReceived) || 0;
-  const change = received - owed;
+  const owed = totalOwed || '0.00';
+  const received = amountReceived || '0.00';
+  const change = subtractMoney(received, owed);
   // Shared button styles
   const btn =
   'rounded-xl font-bold active:scale-95 transition-transform flex items-center justify-center text-base';
@@ -355,13 +361,13 @@ export function CalculatorPage({
               Change to Give
             </p>
             <div
-            className={`text-3xl font-bold text-center ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            className={`text-3xl font-bold text-center ${compareMoney(change, 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             
-              R {Math.abs(change).toFixed(2)}
+              R {formatMoney(absMoney(change))}
             </div>
-            {change < 0 &&
+            {compareMoney(change, 0) < 0 &&
           <p className="text-[10px] text-red-400 text-center mt-1">
-                Short by R{Math.abs(change).toFixed(2)}
+                Short by R{formatMoney(absMoney(change))}
               </p>
           }
           </div>

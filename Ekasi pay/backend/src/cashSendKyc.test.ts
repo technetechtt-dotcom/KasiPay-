@@ -70,9 +70,9 @@ describe('parseCashSendVoucherReference', () => {
 });
 
 describe('generateCashSendReference', () => {
-  it('returns CS prefix with 14 hex chars', () => {
+  it('returns CS prefix with 128 random bits', () => {
     const ref = generateCashSendReference();
-    assert.match(ref, /^CS[0-9A-F]{14}$/);
+    assert.match(ref, /^CS[0-9A-F]{32}$/);
     assert.notEqual(ref, generateCashSendReference());
   });
 });

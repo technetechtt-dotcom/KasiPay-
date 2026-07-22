@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import bcrypt from 'bcryptjs';
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -9,7 +7,9 @@ import { JWT_SECRET, NODE_ENV } from './config.js';
 import { getPgPool } from './dbPg.js';
 import { isPostgresMode } from './dbRuntime.js';
 import { getDb } from './db.js';
-import { requireAuth, requireRoles } from './middleware/requireAuth.js';
+import type { OperatorRole } from './security/authorization.js';
+import { createOperatorSession } from './security/operatorSessionsPg.js';
+import { decryptSensitive, verifyTotp } from './security/totp.js';
 
 const FALLBACK_OPS_JWT = 'dev-only-ops-dashboard-jwt-secret';
 
@@ -27,30 +27,28 @@ export const OPS_JWT_SECRET = (() => {
   return raw || FALLBACK_OPS_JWT;
 })();
 
-export const OPS_TOKEN_TTL_SEC = Number(
-  process.env.OPS_TOKEN_TTL_SEC ?? 8 * 60 * 60,
+export const OPS_TOKEN_TTL_SEC = Math.min(
+  Number(process.env.OPS_TOKEN_TTL_SEC ?? 600),
+  900,
 );
-
-export const OPS_SUPER_ADMIN_USERNAME =
-  process.env.OPS_SUPER_ADMIN_USERNAME?.trim() || 'IvanIJ';
-/** Password for the single env-managed ops account (`OPS_SUPER_ADMIN_USERNAME`). */
-export const OPS_SUPER_ADMIN_PASSWORD =
-  process.env.OPS_DASHBOARD_PASSWORD?.trim() ||
-  process.env.OPS_SUPER_ADMIN_PASSWORD?.trim() ||
-  '';
 
 export type OpsAuth = {
   operatorId: string;
   username: string;
-  role: 'super_admin' | 'operator';
+  role: OperatorRole;
+  sessionId: string;
+  tokenVersion: number;
 };
 
 type OpsUserRow = {
   id: string;
   username: string;
   password_hash: string;
-  role: 'super_admin' | 'operator';
+  role: OperatorRole;
   is_active: boolean | number;
+  token_version: number;
+  mfa_secret_encrypted: string | null;
+  mfa_enabled_at: string | null;
   created_at: string;
   updated_at: string;
   last_login_at: string | null;
@@ -68,72 +66,9 @@ function normalizeOpsUser(row: OpsUserRow) {
   };
 }
 
-function looksLikeBcrypt(value: string): boolean {
-  return /^\$2[aby]\$\d{2}\$/.test(value);
-}
-
-async function hashOpsPassword(raw: string): Promise<string> {
-  return looksLikeBcrypt(raw) ? raw : bcrypt.hash(raw, 12);
-}
-
-/**
- * One env-managed ops account:
- *   username = OPS_SUPER_ADMIN_USERNAME
- *   password = OPS_DASHBOARD_PASSWORD (or OPS_SUPER_ADMIN_PASSWORD)
- * Creates the user if missing; updates password/role/active when password env is set.
- */
+/** Legacy SQLite table initialization only. PostgreSQL structure is migration-owned. */
 export async function ensureOpsAuthStore(): Promise<void> {
-  const username = OPS_SUPER_ADMIN_USERNAME.toLowerCase();
-  const password = OPS_SUPER_ADMIN_PASSWORD;
-
   if (isPostgresMode()) {
-    const pool = getPgPool();
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ops_admin_users (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL,
-        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        last_login_at TIMESTAMPTZ
-      );
-    `);
-
-    if (!password) {
-      console.warn(
-        '[ops-auth] OPS_DASHBOARD_PASSWORD not set — env superadmin account will not be synced.',
-      );
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const hash = await hashOpsPassword(password);
-    const existing = await pool.query<{ id: string }>(
-      `SELECT id FROM ops_admin_users WHERE lower(username) = lower($1)`,
-      [username],
-    );
-    if (existing.rows[0]) {
-      await pool.query(
-        `UPDATE ops_admin_users
-            SET password_hash = $1,
-                role = 'super_admin',
-                is_active = TRUE,
-                updated_at = $2
-          WHERE id = $3`,
-        [hash, now, existing.rows[0].id],
-      );
-      console.info(`[ops-auth] Synced env superadmin "${username}"`);
-    } else {
-      await pool.query(
-        `INSERT INTO ops_admin_users
-          (id, username, password_hash, role, is_active, created_at, updated_at)
-         VALUES ($1, $2, $3, 'super_admin', TRUE, $4, $4)`,
-        [randomUUID(), username, hash, now],
-      );
-      console.info(`[ops-auth] Created env superadmin "${username}"`);
-    }
     return;
   }
 
@@ -151,35 +86,6 @@ export async function ensureOpsAuthStore(): Promise<void> {
     );
   `);
 
-  if (!password) {
-    console.warn(
-      '[ops-auth] OPS_DASHBOARD_PASSWORD not set — env superadmin account will not be synced.',
-    );
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const hash = looksLikeBcrypt(password)
-    ? password
-    : bcrypt.hashSync(password, 12);
-  const existing = db
-    .prepare(`SELECT id FROM ops_admin_users WHERE lower(username) = lower(?)`)
-    .get(username) as { id: string } | undefined;
-  if (existing) {
-    db.prepare(
-      `UPDATE ops_admin_users
-          SET password_hash = ?, role = 'super_admin', is_active = 1, updated_at = ?
-        WHERE id = ?`,
-    ).run(hash, now, existing.id);
-    console.info(`[ops-auth] Synced env superadmin "${username}"`);
-  } else {
-    db.prepare(
-      `INSERT INTO ops_admin_users
-        (id, username, password_hash, role, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, 'super_admin', 1, ?, ?)`,
-    ).run(randomUUID(), username, hash, now, now);
-    console.info(`[ops-auth] Created env superadmin "${username}"`);
-  }
 }
 
 async function findOpsUserByUsername(username: string): Promise<OpsUserRow | null> {
@@ -196,16 +102,20 @@ async function findOpsUserByUsername(username: string): Promise<OpsUserRow | nul
   return row ?? null;
 }
 
-function issueOpsToken(user: {
+export function issueOpsToken(user: {
   id: string;
   username: string;
-  role: 'super_admin' | 'operator';
+  role: OperatorRole;
+  tokenVersion: number;
+  sessionId: string;
 }): string {
   return jwt.sign(
     {
       sub: user.id,
       username: user.username,
       role: user.role,
+      sid: user.sessionId,
+      tv: user.tokenVersion,
       kind: 'ops',
     },
     OPS_JWT_SECRET,
@@ -216,6 +126,12 @@ function issueOpsToken(user: {
 const loginBody = z.object({
   username: z.string().trim().min(1),
   password: z.string().min(1),
+  totp: z.string().regex(/^\d{6}$/u).optional(),
+  device: z.object({
+    installId: z.string().min(8).max(200).optional(),
+    label: z.string().min(1).max(100).optional(),
+    platform: z.string().max(40).optional(),
+  }).optional(),
 });
 
 export async function opsLoginHandler(req: Request, res: Response) {
@@ -224,12 +140,26 @@ export async function opsLoginHandler(req: Request, res: Response) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
   const user = await findOpsUserByUsername(parsed.data.username);
-  if (!user || !Boolean(user.is_active)) {
+  if (!user || !user.is_active) {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
   const ok = await bcrypt.compare(parsed.data.password, user.password_hash);
   if (!ok) {
     return res.status(401).json({ error: 'Invalid username or password.' });
+  }
+  if (isPostgresMode()) {
+    if (!user.mfa_enabled_at || !user.mfa_secret_encrypted) {
+      return res.status(403).json({
+        error: 'MFA enrollment is required before operator access can be issued.',
+        code: 'MFA_ENROLLMENT_REQUIRED',
+      });
+    }
+    if (
+      !parsed.data.totp ||
+      !verifyTotp(decryptSensitive(user.mfa_secret_encrypted), parsed.data.totp)
+    ) {
+      return res.status(401).json({ error: 'Invalid username, password, or MFA code.' });
+    }
   }
   const now = new Date().toISOString();
   if (isPostgresMode()) {
@@ -244,18 +174,30 @@ export async function opsLoginHandler(req: Request, res: Response) {
       )
       .run(now, now, user.id);
   }
+  if (!isPostgresMode()) {
+    return res.status(503).json({ error: 'Operator sessions require PostgreSQL.' });
+  }
+  const session = await createOperatorSession(
+    getPgPool(),
+    user.id,
+    user.token_version,
+    parsed.data.device,
+  );
   return res.json({
     token: issueOpsToken({
       id: user.id,
       username: user.username,
       role: user.role,
+      tokenVersion: user.token_version,
+      sessionId: session.id,
     }),
+    refreshToken: session.refreshToken,
     expiresInSec: OPS_TOKEN_TTL_SEC,
     user: normalizeOpsUser({ ...user, last_login_at: now }),
   });
 }
 
-export function requireOpsAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireOpsAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing bearer token' });
@@ -267,59 +209,39 @@ export function requireOpsAuth(req: Request, res: Response, next: NextFunction) 
     }) as {
       sub?: string;
       username?: string;
-      role?: 'super_admin' | 'operator';
+      role?: OperatorRole;
+      sid?: string;
+      tv?: number;
       kind?: string;
     };
-    if (!payload.sub || !payload.username || !payload.role) {
+    if (!payload.sub || !payload.username || !payload.role || !payload.sid || !payload.tv) {
       return res.status(401).json({ error: 'Invalid token' });
+    }
+    if (!isPostgresMode()) {
+      return res.status(403).json({ error: 'Operator sessions require PostgreSQL.' });
+    }
+    const live = await getPgPool().query(
+      `SELECT 1 FROM operator_sessions s
+        JOIN ops_admin_users o ON o.id = s.operator_id
+       WHERE s.id = $1 AND s.operator_id = $2 AND s.revoked_at IS NULL
+         AND s.expires_at > NOW() AND s.absolute_expires_at > NOW()
+         AND s.token_version = $3 AND o.token_version = $3 AND o.is_active = TRUE`,
+      [payload.sid, payload.sub, payload.tv],
+    );
+    if (!live.rowCount) {
+      return res.status(401).json({ error: 'Operator session ended or revoked.' });
     }
     req.opsAuth = {
       operatorId: payload.sub,
       username: payload.username,
       role: payload.role,
+      sessionId: payload.sid,
+      tokenVersion: payload.tv,
     };
     return next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
-}
-
-/** Allow either app admin JWT or ops username/password JWT. */
-export function requireAdminOrOps(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing bearer token' });
-  }
-  const token = header.slice('Bearer '.length).trim();
-
-  try {
-    const payload = jwt.verify(token, OPS_JWT_SECRET, {
-      issuer: 'ekasi-ops',
-    }) as {
-      sub?: string;
-      username?: string;
-      role?: 'super_admin' | 'operator';
-    };
-    if (payload.sub && payload.username && payload.role) {
-      req.opsAuth = {
-        operatorId: payload.sub,
-        username: payload.username,
-        role: payload.role,
-      };
-      return next();
-    }
-  } catch {
-    /* fall through to app admin auth */
-  }
-
-  return requireAuth(req, res, (err?: unknown) => {
-    if (err) return next(err as Error);
-    return requireRoles('admin')(req, res, next);
-  });
 }
 
 export async function opsMeHandler(req: Request, res: Response) {
@@ -340,13 +262,3 @@ export async function opsMeHandler(req: Request, res: Response) {
   return res.json({ user: normalizeOpsUser(row) });
 }
 
-export function requireOpsSuperAdmin(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
-  if (!req.opsAuth || req.opsAuth.role !== 'super_admin') {
-    return res.status(403).json({ error: 'Super admin access required' });
-  }
-  return next();
-}

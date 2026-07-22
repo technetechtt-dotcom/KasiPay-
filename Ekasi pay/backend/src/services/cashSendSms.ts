@@ -4,7 +4,7 @@ import { sendSms } from './sms.js';
 
 export type CashSendSmsPayload = {
   senderPhone: string;
-  amount: number;
+  amount: string | number;
   beneficiaryName: string;
   referenceNumber: string;
   pin: string;
@@ -39,7 +39,7 @@ export function buildCashSendCollectHint(shop?: {
   return CASH_SEND_COLLECT_HINT;
 }
 
-export function formatCashSendVoucherSms(payload: CashSendSmsPayload): string {
+export function formatCashSendReferenceSms(payload: CashSendSmsPayload): string {
   const beneficiary = payload.beneficiaryName.trim() || 'your beneficiary';
   const hint = buildCashSendCollectHint(
     payload.shopName ?
@@ -47,22 +47,31 @@ export function formatCashSendVoucherSms(payload: CashSendSmsPayload): string {
     : undefined,
   );
   return (
-    `KasiPay Cash Send R${payload.amount.toFixed(2)} for ${beneficiary}. ` +
-    `Voucher: ${payload.referenceNumber} PIN: ${payload.pin}. ` +
+    `KasiPay Cash Send R${
+      typeof payload.amount === 'number'
+        ? payload.amount.toFixed(2)
+        : payload.amount
+    } for ${beneficiary}. ` +
+    `Voucher: ${payload.referenceNumber}. ` +
     `${hint} Expires ${formatExpiry(payload.expiresAt)}.`
   );
 }
 
-/** SMS the sender their voucher ref, PIN, and where to withdraw. Never throws. */
+export function formatCashSendPinSms(payload: Pick<CashSendSmsPayload, 'pin'>): string {
+  return `KasiPay Cash Send PIN: ${payload.pin}. Share it only with the named beneficiary. The voucher number is sent separately.`;
+}
+
+/** Reference and PIN are deliberately delivered in separate messages. Never throws. */
 export async function notifySenderCashSendVoucher(
   payload: CashSendSmsPayload,
 ): Promise<boolean> {
   try {
-    await sendSms(payload.senderPhone, formatCashSendVoucherSms(payload));
+    await sendSms(payload.senderPhone, formatCashSendReferenceSms(payload));
+    await sendSms(payload.senderPhone, formatCashSendPinSms(payload));
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'SMS delivery failed';
-    console.error(`[cash-send-sms] failed for ${payload.senderPhone}: ${msg}`);
+    console.error(`[cash-send-sms] delivery failed: ${msg}`);
     return false;
   }
 }

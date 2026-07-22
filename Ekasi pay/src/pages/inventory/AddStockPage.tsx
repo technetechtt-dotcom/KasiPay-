@@ -26,6 +26,14 @@ import { groceryLookupCode } from '../../lib/productBarcode';
 import { apiLookupProductBarcode } from '../../services/api';
 import type { Product } from '../../types';
 import { findExistingMatch } from './findExistingMatch';
+import {
+  compareMoney,
+  formatMoney,
+  moneyRatioPercent,
+  multiplyMoney,
+  subtractMoney,
+  type MoneyInput,
+} from '../../money';
 
 const CATEGORIES = ['Food', 'Drinks', 'Airtime', 'Household'];
 
@@ -40,21 +48,21 @@ export const AddStockPage = ({
     productId: string,
     quantity: number,
     options?: {
-      costPrice?: number;
+      costPrice?: MoneyInput;
       supplierName?: string;
       slipReference?: string;
     },
-  ) => void | Promise<void>;
+  ) => void | Promise<boolean | void>;
   onAddProduct: (product: {
     name: string;
-    costPrice: number;
-    price: number;
+    costPrice: MoneyInput;
+    price: MoneyInput;
     stock: number;
     category: string;
     barcode?: string;
     supplierName?: string;
     slipReference?: string;
-  }) => void | Promise<void>;
+  }) => void | Promise<boolean | void>;
   existingProducts: Product[];
   navigate: (p: string) => void;
   scannedBarcode?: string;
@@ -117,7 +125,7 @@ export const AddStockPage = ({
         setName((current) => (current.trim() ? current : hit.name ?? ''));
         if (hit.category) {
           setCategory((current) =>
-            current === 'Food' ? hit.category : current,
+            current === 'Food' ? (hit.category ?? current) : current,
           );
         }
         setCatalogHint(`Identified from product database — check name and prices.`);
@@ -154,27 +162,28 @@ export const AddStockPage = ({
     );
   }, [existingMatch]);
 
-  const costVal = parseFloat(costPrice) || 0;
-  const sellVal = parseFloat(sellingPrice) || 0;
+  const costVal = costPrice || '0.00';
+  const sellVal = sellingPrice || '0.00';
   const stockQty = parseInt(stock) || 0;
-  const margin = sellVal > 0 && costVal > 0 ? sellVal - costVal : 0;
-  const marginPct = costVal > 0 ? (margin / costVal) * 100 : 0;
+  const margin = subtractMoney(sellVal, costVal);
+  const marginPct = moneyRatioPercent(margin, costVal);
   const isRestock = existingMatch !== null;
   const newTotal = isRestock ? existingMatch.stock + stockQty : stockQty;
 
   const isValid = isRestock
     ? stockQty > 0
     : name.trim().length > 0 &&
-      costVal > 0 &&
-      sellVal > 0 &&
-      sellVal >= costVal &&
+      compareMoney(costVal, 0) > 0 &&
+      compareMoney(sellVal, 0) > 0 &&
+      compareMoney(sellVal, costVal) >= 0 &&
       stockQty > 0;
 
   const handleSubmit = async () => {
     if (!isValid) return;
     if (isRestock && existingMatch && onRestockProduct) {
       await onRestockProduct(existingMatch.id, stockQty, {
-        costPrice: costVal > 0 ? costVal : existingMatch.costPrice,
+        costPrice:
+          compareMoney(costVal, 0) > 0 ? costVal : existingMatch.costPrice,
         supplierName: supplierName.trim() || undefined,
         slipReference: slipReference.trim() || undefined,
       });
@@ -435,7 +444,7 @@ export const AddStockPage = ({
             </div>
 
             {/* Margin Indicator */}
-            {costVal > 0 && sellVal > 0 &&
+            {compareMoney(costVal, 0) > 0 && compareMoney(sellVal, 0) > 0 &&
             <motion.div
               initial={{
                 opacity: 0,
@@ -445,14 +454,14 @@ export const AddStockPage = ({
                 opacity: 1,
                 height: 'auto'
               }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${margin > 0 ? 'bg-emerald-50 text-emerald-700' : margin === 0 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${compareMoney(margin, 0) > 0 ? 'bg-emerald-50 text-emerald-700' : compareMoney(margin, 0) === 0 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
               
                 <TrendingUp className="w-4 h-4" />
                 <span>
-                  Margin: R{margin.toFixed(2)} per unit ({marginPct.toFixed(0)}
+                  Margin: R{formatMoney(margin)} per unit ({marginPct.toFixed(0)}
                   %)
                 </span>
-                {sellVal < costVal &&
+                {compareMoney(sellVal, costVal) < 0 &&
               <span className="text-xs ml-auto">
                     ⚠ Selling below cost!
                   </span>
@@ -564,9 +573,9 @@ export const AddStockPage = ({
             value={slipReference}
             onChange={(e) => setSlipReference(e.target.value)}
           />
-          {stockQty > 0 && costVal > 0 ? (
+          {stockQty > 0 && compareMoney(costVal, 0) > 0 ? (
             <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-              Purchase total for books: R{(stockQty * costVal).toFixed(2)}
+              Purchase total for books: R{formatMoney(multiplyMoney(costVal, stockQty))}
             </p>
           ) : null}
         </KPCard>
@@ -600,10 +609,10 @@ export const AddStockPage = ({
                     <p className="font-medium text-slate-900">{name.trim()}</p>
                     <div className="flex items-center gap-3 mt-0.5">
                       <span className="text-xs text-slate-500">
-                        Cost: R{costVal.toFixed(2)}
+                        Cost: R{formatMoney(costVal)}
                       </span>
                       <span className="text-sm text-emerald-600 font-semibold">
-                        Sell: R{sellVal.toFixed(2)}
+                        Sell: R{formatMoney(sellVal)}
                       </span>
                       <span className="text-xs text-slate-500">
                         {stock || '0'} units
@@ -612,10 +621,10 @@ export const AddStockPage = ({
                         {category}
                       </span>
                     </div>
-                    {margin > 0 &&
+                    {compareMoney(margin, 0) > 0 &&
                   <p className="text-[10px] text-emerald-600 font-medium mt-1">
-                        Profit: R{margin.toFixed(2)}/unit × {stock || '0'} = R
-                        {(margin * (parseInt(stock) || 0)).toFixed(2)} total
+                        Profit: R{formatMoney(margin)}/unit × {stock || '0'} = R
+                        {formatMoney(multiplyMoney(margin, parseInt(stock) || 0))} total
                       </p>
                   }
                   </div>

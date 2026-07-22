@@ -22,6 +22,7 @@ import { openProductScanner, drainShopScanQueue } from '../../lib/scannerSession
 import { findProductByBarcode } from '../../lib/productBarcode';
 import { FloatingScanButton } from '../../components/shared/FloatingScanButton';
 import type { Product } from '../../types';
+import { addMoney, formatMoney, multiplyMoney } from '../../money';
 
 export const ShopPage = ({
   products,
@@ -106,8 +107,9 @@ export const ShopPage = ({
     });
   };
   const total = cart.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
-    0
+    (sum, item) =>
+      addMoney(sum, multiplyMoney(item.product.price, item.quantity)),
+    '0.00',
   );
   const handleCheckout = () => {
     if (paymentMethod === 'wallet' && customerPhone.length < 10) return;
@@ -128,10 +130,10 @@ export const ShopPage = ({
     const itemsList = cart
       .map(
         (i) =>
-          `${i.quantity}x ${i.product.name} - R${(i.product.price * i.quantity).toFixed(2)}`,
+          `${i.quantity}x ${i.product.name} - R${formatMoney(multiplyMoney(i.product.price, i.quantity))}`,
       )
       .join('\n');
-    const text = `*KasiPay Spaza Receipt*\n${date}\n\n*Items:*\n${itemsList}\n\n*Total: R${total.toFixed(2)}*\nPaid via: ${paymentMethod.toUpperCase()}\n\nThank you for your support!`;
+    const text = `*KasiPay Spaza Receipt*\n${date}\n\n*Items:*\n${itemsList}\n\n*Total: R${formatMoney(total)}*\nPaid via: ${paymentMethod.toUpperCase()}\n\nThank you for your support!`;
     /**
      * Prefer the native share sheet so users can send to any chat app, email
      * or AirDrop without forcing WhatsApp. Falls back to a WhatsApp deep link
@@ -193,7 +195,7 @@ export const ShopPage = ({
                   {item.quantity}x {item.product.name}
                 </span>
                 <span className="font-medium text-slate-900">
-                  R{(item.product.price * item.quantity).toFixed(2)}
+                  R{formatMoney(multiplyMoney(item.product.price, item.quantity))}
                 </span>
               </div>
             )}
@@ -201,7 +203,7 @@ export const ShopPage = ({
           <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
             <span className="font-bold text-slate-900">Total</span>
             <span className="font-bold text-lg text-slate-900">
-              R{total.toFixed(2)}
+              R{formatMoney(total)}
             </span>
           </div>
           <div className="mt-2 text-xs text-slate-500 text-center uppercase tracking-wider">
@@ -439,7 +441,7 @@ export const ShopPage = ({
                         {item.product.name}
                       </p>
                       <KPAmount
-                  amount={item.product.price * item.quantity}
+                  amount={multiplyMoney(item.product.price, item.quantity)}
                   className="text-blue-600 text-sm" />
                 
                     </div>

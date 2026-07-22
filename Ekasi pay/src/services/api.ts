@@ -1,4 +1,10 @@
 import { pushClientDiag } from './clientDiagnostics';
+import type { Money, MoneyInput } from '../money';
+import {
+  clearSecureRefresh,
+  readSecureRefresh,
+  writeSecureRefresh,
+} from './secureAuthStorage';
 
 function readConfiguredApiUrl(): string | undefined {
   if (typeof window !== 'undefined') {
@@ -55,7 +61,6 @@ function isNativeCapacitorRuntime(): boolean {
   return protocol === 'capacitor:' || protocol === 'ionic:';
 }
 
-const REFRESH_KEY = 'kasiPay.refresh.v1';
 /**
  * Legacy localStorage key for the access token. We migrated to an in-memory cache
  * so the JWT is no longer readable from disk (mitigates XSS exfiltration). We
@@ -84,21 +89,15 @@ export function setToken(token: string | null): void {
   accessTokenMemory = token && token !== '' ? token : null;
 }
 
-export function getRefreshToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.sessionStorage.getItem(REFRESH_KEY);
-}
-
-export function persistAuth(access: string, refresh: string): void {
+export function persistAuth(access: string, refresh?: string): void {
   setToken(access);
-  if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(REFRESH_KEY, refresh);
+  if (refresh) writeSecureRefresh(refresh);
 }
 
 export function clearAuthStorage(): void {
   setToken(null);
   if (typeof window === 'undefined') return;
-  window.sessionStorage.removeItem(REFRESH_KEY);
+  clearSecureRefresh();
   try {
     window.localStorage.removeItem(LEGACY_TOKEN_KEY);
   } catch {
@@ -186,8 +185,9 @@ let refreshFlight: Promise<boolean> | null = null;
 
 export async function refreshAccessToken(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
-  const raw = window.sessionStorage.getItem(REFRESH_KEY);
-  if (!raw) return false;
+  const raw = await readSecureRefresh();
+  const cookieMode = import.meta.env.VITE_REFRESH_COOKIE === 'true';
+  if (!raw && !cookieMode) return false;
   if (refreshFlight) return refreshFlight;
   refreshFlight = (async () => {
     try {
@@ -196,7 +196,7 @@ export async function refreshAccessToken(): Promise<boolean> {
         {
           method: 'POST',
           auth: false,
-          body: JSON.stringify({ refreshToken: raw }),
+          body: JSON.stringify(raw ? { refreshToken: raw } : {}),
         },
       );
       persistAuth(payload.token, payload.refreshToken);
@@ -236,7 +236,18 @@ async function apiRequestSilent<T>(
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(resolveUrl(path), { ...rest, headers });
+  if (import.meta.env.VITE_REFRESH_COOKIE === 'true') {
+    const csrf = document.cookie
+      .split('; ')
+      .find((item) => item.startsWith('ekasi_csrf='))
+      ?.split('=')[1];
+    if (csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+  }
+  const res = await fetch(resolveUrl(path), {
+    ...rest,
+    headers,
+    credentials: import.meta.env.VITE_REFRESH_COOKIE === 'true' ? 'include' : rest.credentials,
+  });
   const payload = await parseMaybeJson(res);
   if (!res.ok) {
     const msg = errorMessageFromPayload(payload, res.statusText);
@@ -290,7 +301,6 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     ) {
       throw e;
     }
-    if (!getRefreshToken()) throw e;
     const refreshed = await refreshAccessToken();
     if (!refreshed) throw e;
     return apiRequest<T>(path, {
@@ -328,7 +338,7 @@ export type PublicUserDto = {
 export async function apiLogin(phone: string, pin: string) {
   return apiRequest<{
     token: string;
-    refreshToken: string;
+    refreshToken?: string;
     user: PublicUserDto;
   }>('/api/login', {
     method: 'POST',
@@ -349,7 +359,7 @@ export async function apiRegister(body: {
 }) {
   return apiRequest<{
     token: string;
-    refreshToken: string;
+    refreshToken?: string;
     user: PublicUserDto;
   }>('/api/register', {
     method: 'POST',
@@ -543,13 +553,17 @@ export async function apiAdminFetchMerchantDocument(
 
 export async function apiAdminReviewMerchant(
   merchantId: string,
-  body: { status: 'approved' | 'rejected'; reason?: string },
+  body: {
+    status: 'approved' | 'rejected';
+    reason?: string;
+  },
 ) {
   return apiRequest<{ merchant: AdminMerchantRow }>(
     `/api/admin/merchants/${merchantId}/approval`,
     {
       method: 'PATCH',
       body: JSON.stringify(body),
+      idempotencyKey: true,
     },
   );
 }
@@ -579,8 +593,8 @@ export async function apiLookupProductBarcode(code: string) {
 
 export async function apiCreateProduct(body: {
   name: string;
-  costPrice: number;
-  price: number;
+  costPrice: MoneyInput;
+  price: MoneyInput;
   stock: number;
   category: string;
   barcode?: string;
@@ -595,8 +609,8 @@ export async function apiUpdateProduct(
   id: string,
   body: Partial<{
     name: string;
-    costPrice: number;
-    price: number;
+    costPrice: MoneyInput;
+    price: MoneyInput;
     stock: number;
     category: string;
     barcode: string;
@@ -610,7 +624,7 @@ export async function apiUpdateProduct(
 
 export async function apiTransfer(
   toPhone: string,
-  amount: number,
+  amount: MoneyInput,
   description: string,
   idempotencyKey?: string,
 ) {
@@ -627,7 +641,7 @@ export async function apiGetSales() {
 
 export async function apiCreateSale(
   body: {
-    items: { productId: string; quantity: number; price: number }[];
+    items: { productId: string; quantity: number; price: MoneyInput }[];
     paymentMethod: 'cash' | 'wallet';
     customerPhone?: string;
   },
@@ -671,6 +685,7 @@ export async function apiRequestCreditOtp(body: {
     {
       method: 'POST',
       body: JSON.stringify(body),
+      idempotencyKey: true,
     },
   );
 }
@@ -695,7 +710,7 @@ export async function apiConfirmCreditOtp(body: {
 export async function apiCreateCreditCustomer(body: {
   name: string;
   phone: string;
-  creditLimit: number;
+  creditLimit: MoneyInput;
   saIdDocument: string;
   verificationToken: string;
 }) {
@@ -717,7 +732,7 @@ export async function apiGetCreditTransactions() {
 export async function apiCreateCreditTransaction(body: {
   customerId: string;
   type: 'purchase' | 'payment';
-  amount: number;
+  amount: MoneyInput;
   description: string;
   verificationToken?: string;
 }) {
@@ -727,6 +742,7 @@ export async function apiCreateCreditTransaction(body: {
   }>('/api/credit/transactions', {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: true,
   });
 }
 
@@ -762,8 +778,8 @@ export async function apiGetSupplierOrders() {
 
 export async function apiCreateSupplierOrder(body: {
   supplierId: string;
-  items: { name: string; quantity: number; unitCost: number }[];
-  total: number;
+  items: { name: string; quantity: number; unitCost: MoneyInput }[];
+  total: MoneyInput;
   expectedDelivery?: string;
 }) {
   return apiRequest<{ order: import('../types').SupplierOrder }>(
@@ -811,22 +827,23 @@ export async function apiGetStokvelGroups() {
 
 export async function apiCreateStokvelGroup(body: {
   name: string;
-  members: { name: string; phone: string; contributed: number }[];
-  targetAmount: number;
-  currentAmount: number;
+  members: { name: string; phone: string; contributed: MoneyInput }[];
+  targetAmount: MoneyInput;
+  currentAmount: MoneyInput;
   frequency: 'weekly' | 'monthly';
   nextPayoutDate: string;
 }) {
   return apiRequest<{ group: import('../types').StokvelGroup }>('/api/stokvel', {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: true,
   });
 }
 
 /** Replace the members on a stokvel group (UI is single-source-of-truth). */
 export async function apiUpdateStokvelMembers(
   id: string,
-  members: { name: string; phone: string; contributed: number }[],
+  members: { name: string; phone: string; contributed: MoneyInput }[],
 ) {
   return apiRequest<{ group: import('../types').StokvelGroup }>(
     `/api/stokvel/${id}/members`,
@@ -844,7 +861,7 @@ export async function apiCreateStokvelLoan(
     lenderPhone: string;
     borrowerName: string;
     borrowerPhone: string;
-    amount: number;
+    amount: MoneyInput;
     interestRatePercent: number;
     fromPool?: boolean;
     notes?: string;
@@ -856,6 +873,7 @@ export async function apiCreateStokvelLoan(
   }>(`/api/stokvel/${stokvelId}/loans`, {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: true,
   });
 }
 
@@ -865,6 +883,7 @@ export async function apiRepayStokvelLoan(stokvelId: string, loanId: string) {
     group: import('../types').StokvelGroup;
   }>(`/api/stokvel/${stokvelId}/loans/${loanId}/repay`, {
     method: 'PATCH',
+    idempotencyKey: true,
   });
 }
 
@@ -872,7 +891,7 @@ export async function apiRecordStokvelContribution(
   stokvelId: string,
   body: {
     memberPhone: string;
-    amount: number;
+    amount: MoneyInput;
     periodMonth: string;
     notes?: string;
   },
@@ -883,6 +902,7 @@ export async function apiRecordStokvelContribution(
   }>(`/api/stokvel/${stokvelId}/contributions`, {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: true,
   });
 }
 
@@ -894,30 +914,32 @@ export async function apiCreateLaybyOrder(body: {
   customerName: string;
   customerPhone: string;
   itemName: string;
-  totalPrice: number;
-  amountPaid: number;
-  installments?: { amount: number; date: string }[];
+  totalPrice: MoneyInput;
+  amountPaid: MoneyInput;
+  installments?: { amount: MoneyInput; date: string }[];
   status?: 'active' | 'completed' | 'cancelled';
 }) {
   return apiRequest<{ order: import('../types').LaybyOrder }>('/api/layby', {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: true,
   });
 }
 
 /** Record a customer installment on a layby. Auto-completes on full payment. */
 export async function apiAddLaybyPayment(
   id: string,
-  amount: number,
+  amount: MoneyInput,
   date?: string,
 ) {
   return apiRequest<{
     order: import('../types').LaybyOrder;
-    applied: number;
-    outstanding: number;
+    applied: Money;
+    outstanding: Money;
   }>(`/api/layby/${id}/payments`, {
     method: 'POST',
     body: JSON.stringify({ amount, date }),
+    idempotencyKey: true,
   });
 }
 
@@ -930,10 +952,10 @@ export async function apiGetPriceComparisons(merchantId: string) {
 
 export async function apiCreatePriceComparison(body: {
   productName: string;
-  myPrice: number;
-  avgAreaPrice: number;
-  lowestAreaPrice: number;
-  highestAreaPrice: number;
+  myPrice: MoneyInput;
+  avgAreaPrice: MoneyInput;
+  lowestAreaPrice: MoneyInput;
+  highestAreaPrice: MoneyInput;
   competitors: number;
 }) {
   return apiRequest<{ comparison: import('../types').PriceComparison }>(
@@ -951,14 +973,14 @@ export async function apiGetInsurancePolicies() {
 export async function apiCreateInsurancePolicy(body: {
   provider: string;
   type: 'stock' | 'fire' | 'theft';
-  coverageAmount: number;
-  monthlyPremium: number;
+  coverageAmount: MoneyInput;
+  monthlyPremium: MoneyInput;
   status?: 'active' | 'pending' | 'cancelled';
   nextPaymentDate: string;
 }) {
   return apiRequest<{ policy: import('../types').InsurancePolicy }>(
     '/api/insurance',
-    { method: 'POST', body: JSON.stringify(body) }
+    { method: 'POST', body: JSON.stringify(body), idempotencyKey: true }
   );
 }
 
@@ -968,7 +990,7 @@ export type InsuranceClaim = {
   merchantId: string;
   type: 'stock' | 'fire' | 'theft';
   description: string;
-  claimedAmount: number;
+  claimedAmount: Money;
   status: 'submitted' | 'approved' | 'rejected' | 'paid';
   createdAt: string;
   reviewedAt?: string;
@@ -986,7 +1008,7 @@ export async function apiFileInsuranceClaim(
   body: {
     type: 'stock' | 'fire' | 'theft';
     description: string;
-    claimedAmount: number;
+    claimedAmount: MoneyInput;
   },
 ) {
   return apiRequest<{ claim: InsuranceClaim }>(
@@ -994,6 +1016,7 @@ export async function apiFileInsuranceClaim(
     {
       method: 'POST',
       body: JSON.stringify(body),
+      idempotencyKey: true,
     },
   );
 }
@@ -1001,16 +1024,16 @@ export async function apiFileInsuranceClaim(
 export type AnalyticsSummary = {
   period: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'all';
   rangeStart: string | null;
-  totalRevenue: number;
+  totalRevenue: Money;
   transactionCount: number;
-  avgOrder: number;
+  avgOrder: Money;
   bestSellers: {
     productId: string;
     name: string;
     quantity: number;
-    revenue: number;
+    revenue: Money;
   }[];
-  trend: { day: string; revenue: number }[];
+  trend: { day: string; revenue: Money }[];
   atRiskProducts: { id: string; name: string; stock: number }[];
 };
 
@@ -1025,13 +1048,13 @@ export async function apiGetAnalyticsSummary(
 export type IncomeStatement = {
   period: AnalyticsSummary['period'];
   rangeStart: string | null;
-  totalRevenue: number;
-  totalCOGS: number;
-  grossProfit: number;
+  totalRevenue: Money;
+  totalCOGS: Money;
+  grossProfit: Money;
   grossMarginPct: number;
-  totalExpenses: number;
-  expensesByCategory: { category: string; amount: number }[];
-  netProfit: number;
+  totalExpenses: Money;
+  expensesByCategory: { category: string; amount: Money }[];
+  netProfit: Money;
   netMarginPct: number;
   saleCount: number;
   expenseCount: number;
@@ -1048,13 +1071,13 @@ export async function apiGetIncomeStatement(
 export type ExpenseStatement = {
   period: IncomeStatement['period'];
   rangeStart: string | null;
-  totalExpenses: number;
-  expensesByCategory: { category: string; amount: number }[];
+  totalExpenses: Money;
+  expensesByCategory: { category: string; amount: Money }[];
   expenses: {
     id: string;
     category: string;
     description: string;
-    amount: number;
+    amount: Money;
     createdAt: string;
   }[];
   expenseCount: number;
@@ -1072,8 +1095,8 @@ export type InventoryReport = {
   generatedAt: string;
   totalSkus: number;
   totalUnits: number;
-  totalCostValue: number;
-  totalRetailValue: number;
+  totalCostValue: Money;
+  totalRetailValue: Money;
   lowStockCount: number;
   outOfStockCount: number;
   items: {
@@ -1082,11 +1105,11 @@ export type InventoryReport = {
     category: string;
     barcode?: string;
     stock: number;
-    costPrice: number;
-    sellingPrice: number;
-    costValue: number;
-    retailValue: number;
-    marginPerUnit: number;
+    costPrice: Money;
+    sellingPrice: Money;
+    costValue: Money;
+    retailValue: Money;
+    marginPerUnit: Money;
   }[];
 };
 
@@ -1098,8 +1121,8 @@ export type StockIntakeLine = {
   productId?: string;
   name?: string;
   quantity: number;
-  costPrice: number;
-  sellingPrice?: number;
+  costPrice: MoneyInput;
+  sellingPrice?: MoneyInput;
   category?: string;
   barcode?: string;
 };
@@ -1107,7 +1130,7 @@ export type StockIntakeLine = {
 export async function apiStockIntake(body: {
   supplierName?: string;
   slipReference?: string;
-  slipTotal?: number;
+  slipTotal?: MoneyInput;
   notes?: string;
   recordExpense?: boolean;
   lines: StockIntakeLine[];
@@ -1133,7 +1156,7 @@ export type CommissionPosting = {
   agentUserId: string;
   sourceType: string;
   sourceId: string;
-  amount: number;
+  amount: Money;
   description: string;
   createdAt: string;
 };
@@ -1141,7 +1164,7 @@ export type CommissionPosting = {
 export async function apiGetMyCommissions() {
   return apiRequest<{
     postings: CommissionPosting[];
-    totals: { lifetime: number; thisMonth: number };
+    totals: { lifetime: Money; thisMonth: Money };
   }>('/api/commissions/me');
 }
 
@@ -1230,7 +1253,7 @@ export async function apiCreateStockMovement(body: {
     | 'theft'
     | 'manual'
     | 'initial';
-  costPriceAtTime?: number;
+  costPriceAtTime?: MoneyInput;
   reference?: string;
   notes?: string;
 }) {
@@ -1244,27 +1267,29 @@ export async function apiGetLoansMe() {
   return apiRequest<{ loans: import('../types').Loan[] }>('/api/loans/me');
 }
 
-export async function apiApplyLoan(body: { amount: number; interestRate: number }) {
+export async function apiApplyLoan(body: { amount: MoneyInput; interestRate: number }) {
   return apiRequest<{ loan: import('../types').Loan }>('/api/loans', {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: true,
   });
 }
 
 export async function apiDisburseLoan(id: string) {
   return apiRequest<{ loan: import('../types').Loan }>(
     `/api/loans/${id}/disburse`,
-    { method: 'PATCH' },
+    { method: 'PATCH', idempotencyKey: true },
   );
 }
 
-export async function apiRepayLoan(id: string, amount: number) {
+export async function apiRepayLoan(id: string, amount: MoneyInput) {
   return apiRequest<{
     loan: import('../types').Loan;
-    outstanding: number;
+    outstanding: Money;
   }>(`/api/loans/${id}/repayments`, {
     method: 'POST',
     body: JSON.stringify({ amount }),
+    idempotencyKey: true,
   });
 }
 
@@ -1291,7 +1316,7 @@ export async function apiCreateCashSend(
     recipientLastName: string;
     recipientPhone: string;
   recipientIdDocument?: string;
-    amount: number;
+    amount: MoneyInput;
     atmPin: string;
   },
   idempotencyKey?: string,
@@ -1310,7 +1335,7 @@ export async function apiLookupCashSend(input: { reference: string; pin: string 
   return apiRequest<{
     referenceNumber: string;
     status: string;
-    amount: number;
+    amount: Money;
     recipientPhone: string;
     expiresAt: string;
   }>('/api/cash-send/lookup', {
@@ -1340,6 +1365,7 @@ export async function apiCollectCashSend(
 export async function apiCancelCashSend(id: string) {
   return apiRequest<{ ok: boolean }>(`/api/cash-send/${id}/cancel`, {
     method: 'POST',
+    idempotencyKey: true,
   });
 }
 
@@ -1379,18 +1405,79 @@ export async function apiAdminUpdateInsuranceClaim(
     {
       method: 'PATCH',
       body: JSON.stringify(body),
+      idempotencyKey: true,
     },
   );
 }
 
-export type UtilityCategory = 'airtime' | 'data' | 'electricity' | 'dstv';
+export type UtilityCategory = 'airtime' | 'data' | 'electricity' | 'water';
+
+export type ProductReadinessStatus = {
+  product: 'stokvel' | 'lending' | 'merchant_credit' | 'insurance' | 'utilities';
+  environment: 'sandbox' | 'production';
+  enabled: boolean;
+  databaseApproved: boolean;
+  configEnabled: boolean;
+  missing: Array<
+    | 'legal'
+    | 'provider'
+    | 'accounting'
+    | 'customer_journey'
+    | 'reconciliation'
+    | 'testing'
+    | 'runbook'
+  >;
+};
+
+export async function apiGetProductReadiness() {
+  return apiRequest<{
+    environment: 'sandbox' | 'production';
+    products: ProductReadinessStatus[];
+  }>('/api/product-readiness');
+}
+
+export type RuntimeProductControls = {
+  financialPosting: boolean;
+  lending: boolean;
+  insurance: boolean;
+  stokvelMoneyMovement: boolean;
+  cashSend: boolean;
+  liveUtilities: boolean;
+};
+
+export async function apiGetRuntimeControls() {
+  return apiRequest<{ controls: RuntimeProductControls }>(
+    '/api/runtime-controls',
+  );
+}
+
+export type UtilityCatalogueItem = {
+  id: string;
+  provider_product_ref: string;
+  version: number;
+  category: UtilityCategory;
+  name: string;
+  cost_cents: string;
+  fee_cents: string;
+  min_cents: string;
+  max_cents: string;
+  finality_disclosure: string;
+  finality_sha256: string;
+  provider: string;
+};
+
+export async function apiGetUtilityCatalogue() {
+  return apiRequest<{ products: UtilityCatalogueItem[] }>(
+    '/api/regulated/utilities/catalogue',
+  );
+}
 
 export type UtilityPurchase = {
   id: string;
   category: UtilityCategory;
   provider: string;
   beneficiary: string;
-  amount: number;
+  amount: Money;
   reference: string;
   voucherCode: string | null;
   status: 'completed' | 'pending' | 'failed';
@@ -1401,7 +1488,7 @@ export type UtilityPurchase = {
 export type UtilityProviderStatus = {
   available: boolean;
   mode: 'mock' | 'http' | 'disabled';
-  maxAmount: number;
+  maxAmount: Money;
   mocked: boolean;
 };
 
@@ -1410,10 +1497,9 @@ export async function apiGetUtilityPurchaseStatus() {
 }
 
 export async function apiBuyUtility(body: {
-  category: UtilityCategory;
-  provider: string;
+  catalogueVersionId: string;
   beneficiary: string;
-  amount: number;
+  amount: MoneyInput;
 }) {
   return apiRequest<{
     purchase: UtilityPurchase;
@@ -1487,9 +1573,9 @@ export type ReconciliationReport = {
     userId: string;
     poolId: string;
     kind: string;
-    walletBalance: number;
-    ledgerBalance: number;
-    delta: number;
+    walletBalance: Money;
+    ledgerBalance: Money;
+    delta: Money;
   }>;
 };
 
@@ -1497,4 +1583,76 @@ export async function apiAdminRunReconciliation() {
   return apiRequest<ReconciliationReport>('/api/admin/reconciliation/run', {
     method: 'POST',
   });
+}
+
+export type CustomerStatementItem = {
+  id: string;
+  amount_cents: string;
+  type: string;
+  status: string;
+  reference: string;
+  description: string;
+  created_at: string;
+  direction: 'debit' | 'credit';
+};
+
+export type CustomerCase = {
+  id: string;
+  case_number: string;
+  case_type: string;
+  subject: string;
+  description: string;
+  priority: string;
+  state: string;
+  acknowledged_due_at: string;
+  resolution_due_at: string;
+  created_at: string;
+};
+
+export async function apiSearchCustomerStatements(query = '') {
+  const params = new URLSearchParams({ limit: '200' });
+  if (query.trim()) params.set('q', query.trim());
+  return apiRequest<{ statement: CustomerStatementItem[] }>(
+    `/api/v1/customer/statements?${params.toString()}`,
+  );
+}
+
+export async function apiListCustomerCases() {
+  return apiRequest<{ cases: CustomerCase[] }>('/api/v1/customer/cases');
+}
+
+export async function apiCreateCustomerCase(body: {
+  caseType:
+    | 'incorrect_payment'
+    | 'suspected_fraud'
+    | 'complaint'
+    | 'dispute'
+    | 'account_recovery'
+    | 'refund_query';
+  subject: string;
+  description: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  resourceId?: string;
+  resourceType?: string;
+}) {
+  return apiRequest<{ case: CustomerCase }>('/api/v1/customer/cases', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiFreezeMyAccount(reason: string) {
+  return apiRequest<{ actionId: string; state: string; message: string }>(
+    '/api/v1/customer/account/freeze',
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+export async function apiGetDurableReceipt(transactionId: string) {
+  return apiRequest<{ receipt: { receipt_number: string; content: unknown } }>(
+    `/api/v1/customer/receipts/transaction/${encodeURIComponent(transactionId)}`,
+  );
 }

@@ -4,6 +4,7 @@ import { Router } from 'express';
 
 import { getPgPool } from '../dbPg.js';
 import { toExpense } from '../mappers.js';
+import { parseZarToCents } from '../money.js';
 import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -31,7 +32,7 @@ expensesRouterPg.get('/expenses', requireAuth, async (req, res) => {
     merchant_id: string;
     category: string;
     description: string;
-    amount: number;
+    amount_cents: string;
     created_at: string;
   }>(
     `SELECT * FROM expenses WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 500`,
@@ -56,16 +57,23 @@ expensesRouterPg.post('/expenses', requireAuth, idempotentPg('POST /expenses'), 
   const now = new Date().toISOString();
   const e = parsed.data;
   await pool.query(
-    `INSERT INTO expenses (id, merchant_id, category, description, amount, created_at)
+    `INSERT INTO expenses (id, merchant_id, category, description, amount_cents, created_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, merchantId, e.category, e.description, e.amount, now],
+    [
+      id,
+      merchantId,
+      e.category,
+      e.description,
+      parseZarToCents(e.amount).toString(),
+      now,
+    ],
   );
   const row = await pool.query<{
     id: string;
     merchant_id: string;
     category: string;
     description: string;
-    amount: number;
+    amount_cents: string;
     created_at: string;
   }>(`SELECT * FROM expenses WHERE id = $1`, [id]);
   return res.status(201).json({ expense: toExpense(row.rows[0]) });

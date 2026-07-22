@@ -5,11 +5,13 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { toExpense } from '../mappers.js';
 import { idempotent } from '../middleware/idempotency.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantId } from '../services/merchant.js';
 import { expenseCreateSchema } from '../validation.js';
 
 export const expensesRouter = Router();
+expensesRouter.use(requireAuth, requireApprovedMerchant);
 
 expensesRouter.get('/expenses', requireAuth, (req, res) => {
   let merchantId: string;

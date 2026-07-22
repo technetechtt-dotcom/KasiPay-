@@ -11,6 +11,11 @@ const lines: string[] = [];
 function redact(input: string): string {
   return (
     input
+      // Named secrets and document payloads.
+      .replace(
+        /\b(pin|otp|code|password|token|refreshToken|idDocument|document|dataBase64)\s*[:=]\s*["']?[^,\s"'}]+/gi,
+        '$1=[redacted]',
+      )
       // Bearer / JWT tokens.
       .replace(
         /\b(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/g,
@@ -25,6 +30,8 @@ function redact(input: string): string {
       .replace(/\b([a-z]{2,6})_[A-Za-z0-9]{6,}\b/g, '$1_[id]')
       // SA-style phone numbers.
       .replace(/\b(\+?27|0)\d{9}\b/g, '[phone]')
+      // South African identity numbers.
+      .replace(/\b\d{13}\b/g, '[id-document]')
       // Email addresses.
       .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email]')
   );

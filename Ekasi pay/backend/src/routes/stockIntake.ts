@@ -4,6 +4,7 @@ import { Router } from 'express';
 
 import { getDb } from '../db.js';
 import { toProduct } from '../mappers.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantId } from '../services/merchant.js';
 import { stockIntakeBodySchema } from '../validation.js';
@@ -185,6 +186,7 @@ function applyStockIntake(
 }
 
 export const stockIntakeRouter = Router();
+stockIntakeRouter.use(requireAuth, requireApprovedMerchant);
 
 stockIntakeRouter.get('/purchase-slips', requireAuth, (req, res) => {
   let merchantId: string;

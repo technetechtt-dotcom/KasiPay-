@@ -19,8 +19,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Supplier, SupplierOrder } from '../../types';
+import {
+  addMoney,
+  formatMoney,
+  multiplyMoney,
+  type Money,
+} from '../../money';
 
-type Line = { name: string; quantity: number; unitCost: number };
+type Line = { name: string; quantity: number; unitCost: Money };
 
 export const SupplierOrdersPage = ({
   suppliers,
@@ -35,7 +41,7 @@ export const SupplierOrdersPage = ({
   onCreateOrder: (payload: {
     supplierId: string;
     items: Line[];
-    total: number;
+    total: Money;
     expectedDelivery?: string;
   }) => Promise<boolean>;
   onCreateSupplier: (payload: {
@@ -55,7 +61,9 @@ export const SupplierOrdersPage = ({
 
   const [orderSupplierId, setOrderSupplierId] = useState('');
   const [expectedDelivery, setExpectedDelivery] = useState('');
-  const [lines, setLines] = useState<Line[]>([{ name: '', quantity: 1, unitCost: 0 }]);
+  const [lines, setLines] = useState<Line[]>([
+    { name: '', quantity: 1, unitCost: '0.00' },
+  ]);
   const [busy, setBusy] = useState(false);
 
   const [newSupplierName, setNewSupplierName] = useState('');
@@ -67,9 +75,11 @@ export const SupplierOrdersPage = ({
   );
   const deliveredOrders = orders.filter((o) => o.status === 'delivered');
 
-  const orderTotal =
-    lines.reduce((s, l) => s + Math.max(0, l.quantity) * Math.max(0, l.unitCost), 0) ||
-    0;
+  const orderTotal = lines.reduce(
+    (sum, line) =>
+      addMoney(sum, multiplyMoney(line.unitCost, Math.max(0, line.quantity))),
+    '0.00',
+  );
 
   const submitOrder = async () => {
     if (!orderSupplierId) {
@@ -96,7 +106,7 @@ export const SupplierOrdersPage = ({
       if (ok) {
         toast.success('Order placed');
         setShowPlaceOrder(false);
-        setLines([{ name: '', quantity: 1, unitCost: 0 }]);
+        setLines([{ name: '', quantity: 1, unitCost: '0.00' }]);
         setExpectedDelivery('');
         setOrderSupplierId('');
       } else {
@@ -242,14 +252,14 @@ export const SupplierOrdersPage = ({
                                 {item.quantity}x {item.name}
                               </span>
                               <span className="font-medium">
-                                R{(item.quantity * item.unitCost).toFixed(2)}
+                                R{formatMoney(multiplyMoney(item.unitCost, item.quantity))}
                               </span>
                             </div>
                           ))}
                           <div className="border-t border-slate-200 mt-2 pt-2 flex justify-between font-bold">
                             <span>Total</span>
                             <span className="text-blue-600">
-                              R{order.total.toFixed(2)}
+                              R{formatMoney(order.total)}
                             </span>
                           </div>
                         </div>
@@ -312,7 +322,7 @@ export const SupplierOrdersPage = ({
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-500">{order.items.length} items</span>
                           <span className="font-medium text-slate-700">
-                            R{order.total.toFixed(2)}
+                            R{formatMoney(order.total)}
                           </span>
                         </div>
                       </KPCard>
@@ -420,7 +430,7 @@ export const SupplierOrdersPage = ({
                   value={line.unitCost || ''}
                   onChange={(e) => {
                     const n = [...lines];
-                    n[idx] = { ...n[idx], unitCost: Number(e.target.value) };
+                    n[idx] = { ...n[idx], unitCost: e.target.value };
                     setLines(n);
                   }}
                 />
@@ -430,11 +440,11 @@ export const SupplierOrdersPage = ({
               type="button"
               variant="outline"
               className="w-full mb-4"
-              onClick={() => setLines([...lines, { name: '', quantity: 1, unitCost: 0 }])}>
+              onClick={() => setLines([...lines, { name: '', quantity: 1, unitCost: '0.00' }])}>
               Add line
             </KPButton>
             <p className="text-right font-bold text-slate-900 mb-4">
-              Total R{orderTotal.toFixed(2)}
+              Total R{formatMoney(orderTotal)}
             </p>
             <KPButton
               type="button"

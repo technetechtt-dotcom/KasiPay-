@@ -102,6 +102,19 @@ describe('transferBodySchema', () => {
     );
   });
 
+  it('rejects exponent notation and sub-cent precision', () => {
+    for (const amount of ['0.001', '1e2', 'NaN', 'Infinity']) {
+      assert.equal(
+        transferBodySchema.safeParse({
+          toPhone: '0821234567',
+          amount,
+          description: 'test',
+        }).success,
+        false,
+      );
+    }
+  });
+
   it('rejects empty descriptions', () => {
     assert.equal(
       transferBodySchema.safeParse({

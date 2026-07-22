@@ -18,6 +18,14 @@ import {
 import type { InsurancePolicy } from '../../types';
 import { toast } from 'sonner';
 import { apiListInsuranceClaims, type InsuranceClaim } from '../../services/api';
+import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
+import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import {
+  compareMoney,
+  formatMoney,
+  tryCanonicalMoney,
+  type MoneyInput,
+} from '../../money';
 export const MicroInsurancePage = ({
   policies,
   onSubscribePlan,
@@ -31,7 +39,7 @@ export const MicroInsurancePage = ({
     body: {
       type: 'stock' | 'fire' | 'theft';
       description: string;
-      claimedAmount: number;
+      claimedAmount: MoneyInput;
     },
   ) => Promise<boolean>;
   navigate: (p: string) => void;
@@ -63,12 +71,12 @@ export const MicroInsurancePage = ({
 
   const submitClaim = async () => {
     if (!activePolicy || !onFileClaim) return;
-    const amt = Number(claimAmount);
+    const amt = tryCanonicalMoney(claimAmount);
     if (!claimDescription.trim() || claimDescription.trim().length < 10) {
       toast.error('Describe what happened (at least 10 characters).');
       return;
     }
-    if (!(amt > 0)) {
+    if (amt === null || compareMoney(amt, 0) <= 0) {
       toast.error('Enter the claim amount in rands.');
       return;
     }
@@ -131,6 +139,11 @@ export const MicroInsurancePage = ({
         </p>
       </div>
 
+      <ProductReadinessNotice product="insurance" />
+      <ProductDisabledNotice
+        title="Insurance is disabled"
+        detail="Policy activation and claims processing are blocked until a licensed insurer or intermediary model is approved."
+      />
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
         {activePolicy ?
@@ -241,7 +254,7 @@ export const MicroInsurancePage = ({
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
                         {new Date(claim.createdAt).toLocaleDateString('en-ZA')} · R
-                        {claim.claimedAmount.toFixed(2)}
+                        {formatMoney(claim.claimedAmount)}
                       </p>
                       <p className="text-xs text-slate-600 mt-2">{claim.description}</p>
                       {claim.adminNote && (
@@ -385,7 +398,7 @@ export const MicroInsurancePage = ({
             <p className="text-xs text-slate-500 mb-3">
               Coverage up to{' '}
               <strong className="text-slate-700">
-                R{activePolicy.coverageAmount.toFixed(0)}
+                R{formatMoney(activePolicy.coverageAmount)}
               </strong>{' '}
               · Provider {activePolicy.provider}
             </p>

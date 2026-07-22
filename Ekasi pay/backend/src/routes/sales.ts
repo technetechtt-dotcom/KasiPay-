@@ -4,6 +4,7 @@ import { Router } from 'express';
 
 import { getDb } from '../db.js';
 import { idempotent } from '../middleware/idempotency.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { requireMerchantId } from '../services/merchant.js';
@@ -90,6 +91,7 @@ function moveWalletFunds(
 }
 
 export const salesRouter = Router();
+salesRouter.use(requireAuth, requireApprovedMerchant);
 
 salesRouter.get('/sales', requireAuth, (req, res) => {
   let merchantId: string;

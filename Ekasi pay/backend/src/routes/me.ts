@@ -7,6 +7,7 @@ import { NODE_ENV, PIN_RESET_PEPPER } from '../config.js';
 import { getDb } from '../db.js';
 import { sendSms } from '../services/sms.js';
 import { toPublicUser } from '../mappers.js';
+import { getRuntimeProductControls } from '../middleware/productionControls.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { hashPin, verifyPin } from '../password.js';
 import { clearPinFailures } from '../security/pinAttempts.js';
@@ -15,6 +16,10 @@ import type { RowUser } from '../types.js';
 import { accountPin, updatePinBodySchema } from '../validation.js';
 
 export const meRouter = Router();
+
+meRouter.get('/runtime-controls', requireAuth, (_req, res) => {
+  return res.json({ controls: getRuntimeProductControls() });
+});
 
 meRouter.get('/me', requireAuth, (req, res) => {
   const database = getDb();

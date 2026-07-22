@@ -5,9 +5,24 @@ import { getPgPool } from '../dbPg.js';
 import { isPostgresMode } from '../dbRuntime.js';
 
 /**
- * Blocks merchants who have not completed document submission + admin approval
- * from using money / shop APIs. Non-merchant roles pass through.
+ * Blocks unapproved merchant accounts from merchant-only APIs. Role alone is
+ * not treated as sufficient context: known merchant-only paths require a
+ * merchant profile even when a customer/agent token calls them.
  */
+export function isMerchantOnlyRequest(path: string): boolean {
+  return [
+    /^\/products(?:\/|$)/,
+    /^\/sales(?:\/|$)/,
+    /^\/expenses(?:\/|$)/,
+    /^\/credit\/(?:customers|transactions)(?:\/|$)/,
+    /^\/stock-intake(?:\/|$)/,
+    /^\/suppliers(?:\/|$)/,
+    /^\/supplier-orders(?:\/|$)/,
+    /^\/stokvel(?:\/|$)/,
+    /^\/insurance(?:\/|$)/,
+  ].some((pattern) => pattern.test(path));
+}
+
 export async function requireApprovedMerchant(
   req: Request,
   res: Response,
@@ -16,7 +31,9 @@ export async function requireApprovedMerchant(
   if (!req.auth) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  if (req.auth.role !== 'merchant') {
+  const needsMerchantContext =
+    req.auth.role === 'merchant' || isMerchantOnlyRequest(req.path);
+  if (!needsMerchantContext) {
     return next();
   }
 

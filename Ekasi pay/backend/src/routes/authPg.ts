@@ -26,6 +26,12 @@ import {
   refreshBodySchema,
   registerBodySchema,
 } from '../validation.js';
+import {
+  clearRefreshCookie,
+  refreshFromRequest,
+  setRefreshCookie,
+  verifyCsrfForCookieRefresh,
+} from '../security/refreshCookie.js';
 
 export const authRouterPg = Router();
 
@@ -39,6 +45,7 @@ async function issueSessionTokensPg(
     phone: user.phone,
     role: user.role,
     sid: sessionId,
+    tv: user.token_version ?? 1,
   });
   return { token, refreshToken: refreshRaw };
 }
@@ -85,7 +92,7 @@ authRouterPg.post('/register', async (req, res) => {
 
     await client.query(
       `INSERT INTO wallets (
-        id, user_id, balance, currency, status, pool_id, wallet_kind
+        id, user_id, balance_cents, currency, status, pool_id, wallet_kind
       ) VALUES ($1, $2, 0, $3, 'active', $4, 'user')`,
       [walletId, userId, walletCurrency, poolId],
     );
@@ -126,7 +133,11 @@ authRouterPg.post('/register', async (req, res) => {
   }
 
   const { token, refreshToken } = await issueSessionTokensPg(user);
-  return res.status(201).json({ token, refreshToken, user: toPublicUser(user) });
+  return res.status(201).json({
+    token,
+    refreshToken: setRefreshCookie(res, refreshToken),
+    user: toPublicUser(user),
+  });
 });
 
 authRouterPg.post('/login', async (req, res) => {
@@ -162,11 +173,19 @@ authRouterPg.post('/login', async (req, res) => {
 
   await clearPinFailuresPg(pool, user.id);
   const { token, refreshToken } = await issueSessionTokensPg(user);
-  return res.json({ token, refreshToken, user: toPublicUser(user) });
+  return res.json({
+    token,
+    refreshToken: setRefreshCookie(res, refreshToken),
+    user: toPublicUser(user),
+  });
 });
 
 authRouterPg.post('/refresh', async (req, res) => {
-  const parsed = refreshBodySchema.safeParse(req.body);
+  if (!verifyCsrfForCookieRefresh(req)) {
+    return res.status(403).json({ error: 'CSRF validation failed.' });
+  }
+  const rawRefresh = refreshFromRequest(req);
+  const parsed = refreshBodySchema.safeParse({ refreshToken: rawRefresh });
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid refresh payload' });
   }
@@ -201,10 +220,11 @@ authRouterPg.post('/refresh', async (req, res) => {
       phone: user.phone,
       role: user.role,
       sid: hit.id,
+      tv: user.token_version ?? 1,
     });
     return res.json({
       token,
-      refreshToken: newRefreshPlain,
+      refreshToken: setRefreshCookie(res, newRefreshPlain),
     });
   } catch {
     return res.status(401).json({ error: 'Could not extend session' });
@@ -214,5 +234,6 @@ authRouterPg.post('/refresh', async (req, res) => {
 authRouterPg.post('/logout', requireAuth, async (req, res) => {
   const pool = getPgPool();
   await revokeSessionPg(pool, req.auth!.sessionId);
+  clearRefreshCookie(res);
   return res.json({ ok: true });
 });

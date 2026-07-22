@@ -3,18 +3,11 @@
  * Login: ops username + password (`/api/ops/login`).
  * Data: `/api/admin/*` (same backend as merchant admin).
  */
+import type { Money } from './money';
 
-const TOKEN_KEY = 'ekasi_ops_token';
 const DEFAULT_API = 'https://ekasi-pay-api.onrender.com';
 let inMemoryToken: string | null = null;
-
-function readStorage(): Storage | null {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
+let inMemoryRefresh: string | null = null;
 
 function normalizeApiBase(raw: string): string {
   let value = raw.trim().replace(/\/$/, '');
@@ -64,8 +57,7 @@ function resolveUrl(path: string): string {
 }
 
 export function getToken(): string | null {
-  const storage = readStorage();
-  const raw = storage?.getItem(TOKEN_KEY) ?? inMemoryToken;
+  const raw = inMemoryToken;
   if (!raw || raw === 'undefined' || raw === 'null') return null;
   return raw;
 }
@@ -76,17 +68,42 @@ export function setToken(token: string): void {
     return;
   }
   inMemoryToken = token;
-  const storage = readStorage();
-  if (!storage) return;
-  storage.setItem(TOKEN_KEY, token);
 }
 
 export function clearToken(): void {
   inMemoryToken = null;
-  const storage = readStorage();
-  if (!storage) return;
-  storage.removeItem(TOKEN_KEY);
-  storage.removeItem('ekasi_ops_refresh');
+  inMemoryRefresh = null;
+}
+
+export type OpsProductReadiness = {
+  product: 'stokvel' | 'lending' | 'merchant_credit' | 'insurance' | 'utilities';
+  environment: 'sandbox' | 'production';
+  enabled: boolean;
+  databaseApproved: boolean;
+  configEnabled: boolean;
+  missing: string[];
+};
+
+export type OpsReadinessEvidence = {
+  id: string;
+  product: OpsProductReadiness['product'];
+  environment: OpsProductReadiness['environment'];
+  control: string;
+  decision: 'approved' | 'rejected' | 'withdrawn';
+  authority: string;
+  authority_reference: string;
+  artifact_uri: string;
+  artifact_sha256: string;
+  evidence_sha256: string;
+  notes: string;
+  recorded_at: string;
+};
+
+export function apiProductReadiness() {
+  return opsFetch<{
+    statuses: OpsProductReadiness[];
+    evidence: OpsReadinessEvidence[];
+  }>('/api/ops/product-readiness');
 }
 
 async function readJson(res: Response): Promise<unknown> {
@@ -107,9 +124,9 @@ async function readJson(res: Response): Promise<unknown> {
 
 async function opsFetch<T>(
   path: string,
-  init?: RequestInit & { auth?: boolean },
+  init?: RequestInit & { auth?: boolean; _retried?: boolean },
 ): Promise<T> {
-  const { auth = true, ...rest } = init ?? {};
+  const { auth = true, _retried = false, ...rest } = init ?? {};
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...(rest.headers as Record<string, string> | undefined),
@@ -149,9 +166,26 @@ async function opsFetch<T>(
 
   const body = (await readJson(res)) as T & { error?: string };
   if (!res.ok) {
-    if (res.status === 401) {
-      clearToken();
+    if (
+      res.status === 401 &&
+      auth &&
+      !_retried &&
+      inMemoryRefresh &&
+      path !== '/api/ops/refresh'
+    ) {
+      const refreshed = await opsFetch<{ token: string; refreshToken: string }>(
+        '/api/ops/refresh',
+        {
+          method: 'POST',
+          auth: false,
+          body: JSON.stringify({ refreshToken: inMemoryRefresh }),
+        },
+      );
+      inMemoryToken = refreshed.token;
+      inMemoryRefresh = refreshed.refreshToken;
+      return opsFetch<T>(path, { ...rest, auth: true, _retried: true });
     }
+    if (res.status === 401) clearToken();
     throw new Error(
       typeof body?.error === 'string' ? body.error : `Request failed (${res.status})`,
     );
@@ -162,7 +196,7 @@ async function opsFetch<T>(
 export type OpsAdminUser = {
   id: string;
   username: string;
-  role: 'super_admin' | 'operator' | 'admin';
+  role: 'admin' | 'operations' | 'compliance' | 'finance' | 'support';
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -171,21 +205,28 @@ export type OpsAdminUser = {
   phone?: string;
 };
 
-export async function apiLogin(username: string, password: string) {
+export async function apiLogin(username: string, password: string, totp: string) {
   clearToken();
   const result = await opsFetch<{
     token: string;
+    refreshToken: string;
     expiresInSec: number;
     user: OpsAdminUser;
   }>('/api/ops/login', {
     method: 'POST',
     auth: false,
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({
+      username,
+      password,
+      totp,
+      device: { installId: crypto.randomUUID(), label: navigator.userAgent.slice(0, 100), platform: navigator.platform },
+    }),
   });
   if (!result.token || typeof result.token !== 'string') {
     throw new Error('Login succeeded but no token was returned by the API.');
   }
   setToken(result.token);
+  inMemoryRefresh = result.refreshToken;
   return result;
 }
 
@@ -200,7 +241,7 @@ export async function apiAdminUsers() {
 export async function apiCreateAdminUser(body: {
   username: string;
   password: string;
-  role: 'super_admin' | 'operator';
+  role: 'admin' | 'operations' | 'compliance' | 'finance' | 'support';
 }) {
   return opsFetch<{ user: OpsAdminUser }>('/api/ops/admin-users', {
     method: 'POST',
@@ -210,7 +251,11 @@ export async function apiCreateAdminUser(body: {
 
 export async function apiUpdateAdminUser(
   id: string,
-  body: { role?: 'super_admin' | 'operator'; isActive?: boolean; password?: string },
+  body: {
+    role?: 'admin' | 'operations' | 'compliance' | 'finance' | 'support';
+    isActive?: boolean;
+    password?: string;
+  },
 ) {
   return opsFetch<{ user: OpsAdminUser }>(`/api/ops/admin-users/${id}`, {
     method: 'PATCH',
@@ -233,9 +278,9 @@ export type Overview = {
     suspended: number;
     merchants: number;
   };
-  wallets: { activeCount: number; totalUserBalance: number };
+  wallets: { activeCount: number; totalUserBalance: Money };
   compliance: { openFlags: number };
-  transactions24h: { count: number; volume: number };
+  transactions24h: { count: number; volume: Money };
   merchants: number;
 };
 
@@ -279,7 +324,7 @@ export async function apiUserDetail(id: string) {
     user: OpsUser;
     wallet: {
       id: string;
-      balance: number;
+      balance: Money;
       currency: string;
       status: string;
       pool_id?: string;
@@ -300,7 +345,7 @@ export async function apiUserDetail(id: string) {
     recentTransactions: {
       id: string;
       type: string;
-      amount: number;
+      amount: Money;
       status: string;
       reference: string;
       description: string;
@@ -352,7 +397,7 @@ export type OpsInsuranceClaim = {
   merchantUserId?: string;
   type: string;
   description: string;
-  claimedAmount: number;
+  claimedAmount: Money;
   status: 'submitted' | 'approved' | 'rejected' | 'paid' | string;
   createdAt: string;
   reviewedAt?: string;
@@ -378,6 +423,7 @@ export async function apiUpdateInsuranceClaim(
     {
       method: 'PATCH',
       body: JSON.stringify(body),
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
     },
   );
 }
@@ -385,10 +431,10 @@ export async function apiUpdateInsuranceClaim(
 export type OpsLoan = {
   id: string;
   userId: string;
-  amount: number;
+  amount: Money;
   interestRate: number;
   status: string;
-  repaidAmount: number;
+  repaidAmount: Money;
   disbursedAt?: string;
   dueDate?: string;
 };
@@ -402,6 +448,21 @@ export async function apiDisburseLoan(id: string) {
   return opsFetch<{ loan: OpsLoan }>(`/api/admin/loans/${id}/disburse`, {
     method: 'PATCH',
   });
+}
+
+export type RuntimeProductControls = {
+  financialPosting: boolean;
+  lending: boolean;
+  insurance: boolean;
+  stokvelMoneyMovement: boolean;
+  cashSend: boolean;
+  liveUtilities: boolean;
+};
+
+export async function apiRuntimeControls() {
+  return opsFetch<{ controls: RuntimeProductControls }>(
+    '/api/admin/runtime-controls',
+  );
 }
 
 export type OpsMerchant = {
@@ -441,7 +502,10 @@ export async function apiMerchantDetail(id: string) {
 
 export async function apiReviewMerchant(
   id: string,
-  body: { status: 'approved' | 'rejected'; reason?: string },
+  body: {
+    status: 'approved' | 'rejected';
+    reason?: string;
+  },
 ) {
   return opsFetch<{ merchant: OpsMerchant }>(
     `/api/admin/merchants/${id}/approval`,
@@ -513,7 +577,7 @@ export async function apiTransactions(params?: {
     transactions: {
       id: string;
       type: string;
-      amount: number;
+      amount: Money;
       status: string;
       reference: string;
       description: string;
@@ -527,11 +591,11 @@ export async function apiTransactions(params?: {
     offset: number;
     types: string[];
     totals: {
-      day: { count: number; volume: number };
-      week: { count: number; volume: number };
-      month: { count: number; volume: number };
-      year: { count: number; volume: number };
-      filtered: { count: number; volume: number };
+      day: { count: number; volume: Money };
+      week: { count: number; volume: Money };
+      month: { count: number; volume: Money };
+      year: { count: number; volume: Money };
+      filtered: { count: number; volume: Money };
     };
   }>(`/api/admin/transactions?${q}`);
 }
@@ -544,9 +608,9 @@ export async function apiReconciliation() {
     discrepancies: {
       walletId: string;
       userId: string;
-      delta: number;
-      walletBalance: number;
-      ledgerBalance: number;
+      delta: Money;
+      walletBalance: Money;
+      ledgerBalance: Money;
     }[];
   }>('/api/admin/reconciliation');
 }
@@ -561,9 +625,9 @@ export async function apiRunReconciliation() {
       userId: string;
       poolId?: string;
       kind?: string;
-      delta: number;
-      walletBalance: number;
-      ledgerBalance: number;
+      delta: Money;
+      walletBalance: Money;
+      ledgerBalance: Money;
     }[];
   }>('/api/admin/reconciliation/run', { method: 'POST' });
 }
@@ -600,8 +664,8 @@ export type OpsCashSendVoucher = {
   id: string;
   referenceNumber: string;
   status: string;
-  amount: number;
-  fee: number;
+  amount: Money;
+  fee: Money;
   createdAt: string;
   expiresAt: string;
   collectedAt: string | null;
@@ -629,10 +693,111 @@ export async function apiCashSendVouchers(params: {
   if (params.offset) q.set('offset', String(params.offset));
   return opsFetch<{
     total: number;
-    amountSum: number;
-    feeSum: number;
+    amountSum: Money;
+    feeSum: Money;
     limit: number;
     offset: number;
     vouchers: OpsCashSendVoucher[];
   }>(`/api/admin/cash-send/vouchers?${q}`);
+}
+
+export type OpsFraudCase = {
+  id: string;
+  case_number: string;
+  state: string;
+  priority: string;
+  title: string;
+  safe_summary: string;
+  assigned_operator_id: string | null;
+  created_at: string;
+};
+
+export type OpsTransactionHold = {
+  id: string;
+  financial_reference: string;
+  reason_code: string;
+  state: string;
+  amount_cents: string | null;
+  held_at: string;
+};
+
+export async function apiRiskCases(state?: string) {
+  const query = state ? `?state=${encodeURIComponent(state)}` : '';
+  return opsFetch<{ cases: OpsFraudCase[] }>(`/api/admin/risk/cases${query}`);
+}
+
+export async function apiRiskHolds() {
+  return opsFetch<{ holds: OpsTransactionHold[] }>('/api/admin/risk/holds');
+}
+
+export async function apiAddFraudCaseNote(caseId: string, note: string) {
+  return opsFetch<{ id: string }>(`/api/admin/risk/cases/${caseId}/notes`, {
+    method: 'POST',
+    body: JSON.stringify({ note, evidenceRefs: [] }),
+  });
+}
+
+export async function apiDecideRiskHold(
+  holdId: string,
+  decision: 'released' | 'rejected',
+  reason: string,
+) {
+  return opsFetch<{ ok: boolean }>(`/api/admin/risk/holds/${holdId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, reason }),
+  });
+}
+
+export async function apiSetFinancialPosting(enabled: boolean, reason: string) {
+  return opsFetch<{ enabled: boolean }>('/api/admin/controls/financial-posting', {
+    method: 'POST',
+    body: JSON.stringify({ enabled, reason }),
+  });
+}
+
+export type SettlementOverview = {
+  files: Array<{
+    id: string;
+    provider: string;
+    file_name: string;
+    row_count: number;
+    content_sha256: string;
+    imported_at: string;
+  }>;
+  breaks: Array<{
+    id: string;
+    state: string;
+    reason_code: string;
+    opened_at: string;
+    provider_reference: string;
+    amount_cents: string;
+    currency: string;
+    match_state: string;
+    journal_transaction_id: string;
+  }>;
+  batches: Array<Record<string, unknown>>;
+  closes: Array<Record<string, unknown>>;
+};
+
+export async function apiSettlementOverview() {
+  return opsFetch<SettlementOverview>('/api/ops/settlement/overview');
+}
+
+export async function apiImportSettlementStatement(body: {
+  provider: string;
+  fileName: string;
+  contentBase64: string;
+}) {
+  return opsFetch<{
+    fileId: string;
+    rowCount: number;
+    matches: Record<string, number>;
+  }>('/api/ops/settlement/statements', {
+    method: 'POST',
+    body: JSON.stringify({ ...body, schemaVersion: 'phase6-v1' }),
+  });
+}
+
+export async function apiFeeSchedules() {
+  return opsFetch<{ schedules: Array<Record<string, unknown>> }>('/api/ops/fees/schedules');
 }

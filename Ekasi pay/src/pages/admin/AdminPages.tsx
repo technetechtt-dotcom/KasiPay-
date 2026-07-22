@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { addMoney, formatMoney } from '../../money';
 import {
   KPButton,
   KPCard,
@@ -36,10 +37,13 @@ import {
   apiAdminUpdateComplianceFlag,
   apiAdminUpdateInsuranceClaim,
   apiDisburseLoan,
+  apiGetRuntimeControls,
   type AdminInsuranceClaim,
   type AdminMerchantRow,
   type ReconciliationReport,
+  type RuntimeProductControls,
 } from '../../services/api';
+import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
 import type {
   User,
   LedgerEntry,
@@ -193,9 +197,9 @@ export const AdminDashboard = ({
   );
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
   const activeFlags = adminFlags.filter(isUnresolvedComplianceFlag).length;
-  const totalVolume = ledger.
-  filter((l) => l.entryType === 'credit').
-  reduce((sum, l) => sum + l.amount, 0);
+  const totalVolume = ledger
+    .filter((l) => l.entryType === 'credit')
+    .reduce((sum, l) => addMoney(sum, l.amount), '0.00');
   const auditTypes = Array.from(new Set(auditEvents.map((event) => event.type)));
   const getWindowStart = () => {
     const now = Date.now();
@@ -802,12 +806,26 @@ const LoanDisbursementCard = () => {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const { loans: rows } = await apiAdminListLoans('pending');
+      const [{ loans: rows }, runtime] = await Promise.all([
+        apiAdminListLoans('pending'),
+        apiGetRuntimeControls().catch(() => ({
+          controls: {
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          } satisfies RuntimeProductControls,
+        })),
+      ]);
       setLoans(rows);
+      setControls(runtime.controls);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not load loans';
       toast.error(msg);
@@ -821,11 +839,17 @@ const LoanDisbursementCard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot mount
   }, []);
 
+  const lendingEnabled = controls?.lending === true;
+
   const disburse = async (loan: Loan) => {
+    if (!lendingEnabled) {
+      toast.error('Lending is disabled on this deployment.');
+      return;
+    }
     setBusyId(loan.id);
     try {
       await apiDisburseLoan(loan.id);
-      toast.success(`Disbursed R${loan.amount.toFixed(2)} — borrower ${loan.userId.slice(0, 6)}…`);
+      toast.success(`Disbursed R${formatMoney(loan.amount)} — borrower ${loan.userId.slice(0, 6)}…`);
       setLoans((prev) => prev.filter((l) => l.id !== loan.id));
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Disbursement failed';
@@ -847,6 +871,12 @@ const LoanDisbursementCard = () => {
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
+      {!lendingEnabled ? (
+        <ProductDisabledNotice
+          title="Lending is disabled"
+          detail="Loan disbursement is blocked until LENDING_ENABLED is approved for this environment."
+        />
+      ) : null}
       {loans.length === 0 ?
         <KPCard className="p-5 text-sm text-slate-500 text-center">
           {loading ? 'Loading pending loans…' : 'No pending loan applications.'}
@@ -857,9 +887,9 @@ const LoanDisbursementCard = () => {
             <KPCard key={loan.id} className="p-4 flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-bold text-slate-900">
-                  R{loan.amount.toFixed(2)}
+                  R{formatMoney(loan.amount)}
                   <span className="ml-2 text-[11px] font-medium text-amber-700 uppercase tracking-wider">
-                    {(loan.interestRate * 100).toFixed(1)}% APR
+                    {loan.interestRate} fractional APR
                   </span>
                 </p>
                 <p className="text-xs text-slate-500 font-mono truncate">
@@ -870,9 +900,13 @@ const LoanDisbursementCard = () => {
                 type="button"
                 fullWidth={false}
                 className="!min-w-[120px]"
-                disabled={busyId === loan.id}
+                disabled={!lendingEnabled || busyId === loan.id}
                 onClick={() => void disburse(loan)}>
-                {busyId === loan.id ? 'Posting…' : 'Disburse'}
+                {!lendingEnabled
+                  ? 'Disabled'
+                  : busyId === loan.id
+                    ? 'Posting…'
+                    : 'Disburse'}
               </KPButton>
             </KPCard>
           ))}
@@ -936,8 +970,8 @@ const ReconciliationCheckCard = () => {
                     {d.walletId.slice(0, 8)}… ({d.kind})
                   </div>
                   <div className="text-slate-500">
-                    wallet R{d.walletBalance.toFixed(2)} vs ledger R
-                    {d.ledgerBalance.toFixed(2)} · Δ R{d.delta.toFixed(2)}
+                    wallet R{formatMoney(d.walletBalance)} vs ledger R
+                    {formatMoney(d.ledgerBalance)} · Δ R{formatMoney(d.delta)}
                   </div>
                 </li>
               )}
@@ -1327,11 +1361,8 @@ export const CompliancePage = ({
 
 };
 // Helper for formatZAR in this file
-const formatZAR = (amount: number) =>
-new Intl.NumberFormat('en-ZA', {
-  style: 'currency',
-  currency: 'ZAR'
-}).format(amount);
+const formatZAR = (amount: import('../../money').MoneyInput) =>
+  `R ${formatMoney(amount)}`;
 
 const claimStatusBadge = (status: AdminInsuranceClaim['status']) => {
   switch (status) {
@@ -1361,15 +1392,27 @@ export const ClaimsReviewPage = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
 
   const loadClaims = useCallback(async (filter: typeof statusFilter) => {
     setLoading(true);
     setLoadError(null);
     try {
-      const { claims: rows } = await apiAdminListInsuranceClaims(
-        filter === 'all' ? undefined : filter,
-      );
+      const [{ claims: rows }, runtime] = await Promise.all([
+        apiAdminListInsuranceClaims(filter === 'all' ? undefined : filter),
+        apiGetRuntimeControls().catch(() => ({
+          controls: {
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          } satisfies RuntimeProductControls,
+        })),
+      ]);
       setClaims(rows);
+      setControls(runtime.controls);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not load claims');
       setClaims([]);
@@ -1382,10 +1425,16 @@ export const ClaimsReviewPage = ({
     void loadClaims(statusFilter);
   }, [loadClaims, statusFilter]);
 
+  const insuranceEnabled = controls?.insurance === true;
+
   const updateClaim = async (
     claimId: string,
     status: 'approved' | 'rejected' | 'paid',
   ) => {
+    if (!insuranceEnabled) {
+      toast.error('Insurance is disabled on this deployment.');
+      return;
+    }
     setBusyId(claimId);
     try {
       const { claim } = await apiAdminUpdateInsuranceClaim(claimId, {
@@ -1419,6 +1468,14 @@ export const ClaimsReviewPage = ({
             Insurance Claims
           </h2>
         </div>
+        {!insuranceEnabled ? (
+          <div className="-mx-6 mb-3">
+            <ProductDisabledNotice
+              title="Insurance is disabled"
+              detail="Claim decisions are blocked until INSURANCE_ENABLED is approved for this environment."
+            />
+          </div>
+        ) : null}
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           {(['all', 'submitted', 'approved', 'rejected', 'paid'] as const).map(
             (status) => (
@@ -1493,14 +1550,14 @@ export const ClaimsReviewPage = ({
                   <div className="flex gap-2">
                     <KPButton
                       className="flex-1 h-10 text-sm"
-                      disabled={busyId === claim.id}
+                      disabled={!insuranceEnabled || busyId === claim.id}
                       onClick={() => void updateClaim(claim.id, 'approved')}>
                       Approve
                     </KPButton>
                     <KPButton
                       variant="outline"
                       className="flex-1 h-10 text-sm text-red-600 border-red-200"
-                      disabled={busyId === claim.id}
+                      disabled={!insuranceEnabled || busyId === claim.id}
                       onClick={() => void updateClaim(claim.id, 'rejected')}>
                       Reject
                     </KPButton>
@@ -1510,7 +1567,7 @@ export const ClaimsReviewPage = ({
               {claim.status === 'approved' && (
                 <KPButton
                   className="w-full h-10 text-sm mt-4"
-                  disabled={busyId === claim.id}
+                  disabled={!insuranceEnabled || busyId === claim.id}
                   onClick={() => void updateClaim(claim.id, 'paid')}>
                   Mark as paid
                 </KPButton>
@@ -1637,7 +1694,9 @@ export const MerchantApprovalsPage = ({
         prev.map((m) => (m.id === merchantId ? { ...m, ...merchant } : m)),
       );
       toast.success(
-        status === 'approved' ? 'Merchant approved.' : 'Merchant rejected.',
+        status === 'approved'
+          ? 'Merchant approved.'
+          : 'Merchant rejected.',
       );
       if (statusFilter !== 'all' && statusFilter !== status) {
         setMerchants((prev) => prev.filter((m) => m.id !== merchantId));
@@ -1775,22 +1834,26 @@ export const MerchantApprovalsPage = ({
                     }
                     className="w-full bg-slate-100 rounded-xl p-3 text-sm min-h-[72px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
-                  <div className="flex gap-2">
-                    <KPButton
-                      className="flex-1 h-10 text-sm"
-                      disabled={busyId === m.id}
-                      onClick={() => void review(m.id, 'approved')}>
-                      {(m.documentsUploaded ?? 0) < 4
-                        ? 'Approve without all docs'
-                        : 'Approve'}
-                    </KPButton>
-                    <KPButton
-                      variant="outline"
-                      className="flex-1 h-10 text-sm text-red-600 border-red-200"
-                      disabled={busyId === m.id}
-                      onClick={() => void review(m.id, 'rejected')}>
-                      Reject
-                    </KPButton>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <KPButton
+                        className="flex-1 h-10 text-sm"
+                        disabled={
+                          busyId === m.id ||
+                          (m.documentsUploaded ?? 0) <
+                            (m.documentsRequired ?? 4)
+                        }
+                        onClick={() => void review(m.id, 'approved')}>
+                        Approve
+                      </KPButton>
+                      <KPButton
+                        variant="outline"
+                        className="flex-1 h-10 text-sm text-red-600 border-red-200"
+                        disabled={busyId === m.id}
+                        onClick={() => void review(m.id, 'rejected')}>
+                        Reject
+                      </KPButton>
+                    </div>
                   </div>
                 </div>
               )}

@@ -1,6 +1,14 @@
-# Ekasi Pay — prototype operations
+# Ekasi Pay — application operations
 
-Ekasi Pay is a Capacitor + React shop app with an Express/SQLite API. This README is the **field-test runbook** called out for pilot preparedness.
+Ekasi Pay is a Capacitor + React shop app with an Express API. PostgreSQL is
+required in deployed environments; SQLite is retained for local development and tests.
+
+Roadmap controls:
+
+- [Critical financial controls](backend/docs/critical-financial-controls.md)
+- [Phase 8 release readiness](backend/docs/phase8-release.md) (CI, production gate, rollback)
+- [Phase 6 settlement, provider, fee and reversal engineering](backend/docs/phase6-settlement-providers-fees.md)
+- [API versioning](backend/docs/api-versioning.md) (`/api` compatibility + `/api/v1`)
 
 ## 1. One-machine dev
 
@@ -55,13 +63,19 @@ Express uses `NODE_ENV === 'production'` CORS whitelist from:
 - `POST /api/pin-reset/confirm` validates the code, sets the new PIN, clears failed-PIN counters, and revokes all sessions.
 - `DELETE /api/me` soft-deletes the user (sets `deleted_at`, anonymises name/phone), closes the wallet if its balance is zero, revokes all sessions. Requires the current PIN **and** the literal phrase `DELETE MY ACCOUNT` as confirmation.
 
-## 6. Data & SQLite backup
+## 6. Data, migrations, and backup
 
 Cash Send flows persist ID-related fields in **`DATABASE_PATH`** (see `backend/.env.example`). Before any pilot:
 
 1. Decide retention with your sponsor.
 2. Schedule file copies of `ekasi-pay.db` (stop API briefly or use SQLite backup tooling for cleaner snapshots).
 3. Store backups encrypted at rest where possible.
+
+For staging/production, set `DATABASE_URL`, run `npm ci`, then
+`npm run migrate:validate && npm run migrate:up` in `backend/` before starting
+the release. The API refuses to start with pending or unknown schema versions.
+Existing Neon baseline and rollback guidance is in
+`backend/docs/postgresql-migrations.md`.
 
 ## 7. iOS camera (future)
 
@@ -97,18 +111,37 @@ When signed in as a user with role `admin`:
 
 Documented in-app under **Help → Field pilot — quick steps**. Prefer USB retail scanners for dense barcodes; use extra light for phone cameras.
 
-## 11. Ops dashboard (separate deployment)
+## 11. Ops dashboard (static UI → main API)
 
-Platform monitoring runs in **`ops-dashboard/`** — its own process (default port **8790**), not the main API. Read-only access to the same database.
+Platform monitoring is a **static Vite UI** in **`ops-dashboard/`**. It talks to
+the **same Express API** as the merchant app (`/api` or `/api/v1`). There is no
+separate ops database server.
 
 ```bash
+# Start ekasi-pay-api on port 8787 first, then:
 cd ops-dashboard
 cp .env.example .env
 npm install
 npm run dev
 ```
 
-See `ops-dashboard/README.md` for production deploy (separate host, `DATABASE_URL`, bcrypt operator password).
+Production serves the built static files (`npm start` on port **8790** by
+default) and points `API_HOST` / `VITE_API_URL` at the main API. See
+`ops-dashboard/README.md`.
+
+## 12. Production readiness gate
+
+Before enabling posting or gated products in production:
+
+```bash
+cd backend
+cp evidence/production-readiness.example.json evidence/production-readiness.json
+# Record real approvals + artifact digests only — never invent status=approved.
+NODE_ENV=production RELEASE_SHA=<git-sha> DATABASE_URL=postgresql://... \
+  npm run production:ready
+```
+
+Details: [phase8-release.md](backend/docs/phase8-release.md).
 
 ---
 

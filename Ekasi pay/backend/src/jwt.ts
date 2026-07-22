@@ -8,6 +8,8 @@ export type JwtPayload = {
   role: string;
   /** Server-side session row id (refresh + revoke). */
   sid: string;
+  /** Incremented whenever role, PIN/password, or active status changes. */
+  tv?: number;
 };
 
 export function signToken(payload: JwtPayload): string {
@@ -33,5 +35,6 @@ export function verifyToken(token: string): JwtPayload {
   if (!sid) {
     throw new Error('Missing session id in token');
   }
-  return { sub, phone, role, sid };
+  const tv = typeof obj.tv === 'number' ? obj.tv : undefined;
+  return { sub, phone, role, sid, tv };
 }

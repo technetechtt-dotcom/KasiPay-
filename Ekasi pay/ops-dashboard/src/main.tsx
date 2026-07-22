@@ -22,6 +22,16 @@ import {
   apiMerchants,
   apiOverview,
   apiPatchAppUser,
+  apiProductReadiness,
+  apiRuntimeControls,
+  apiRiskCases,
+  apiRiskHolds,
+  apiAddFraudCaseNote,
+  apiDecideRiskHold,
+  apiSetFinancialPosting,
+  apiSettlementOverview,
+  apiImportSettlementStatement,
+  apiFeeSchedules,
   apiReconciliation,
   apiReviewMerchant,
   apiRunReconciliation,
@@ -41,7 +51,19 @@ import {
   type OpsMerchantDoc,
   type OpsUser,
   type Overview,
+  type OpsFraudCase,
+  type OpsTransactionHold,
+  type RuntimeProductControls,
 } from './api';
+import { addMoney, formatMoney as fmtMoney } from './money';
+
+function ProductGateNotice({ title, detail }: { title: string; detail: string }) {
+  return (
+    <p className="error" role="status">
+      <strong>{title}</strong> — {detail}
+    </p>
+  );
+}
 
 type Tab =
   | 'overview'
@@ -54,7 +76,10 @@ type Tab =
   | 'compliance'
   | 'audit'
   | 'transactions'
-  | 'cashsend';
+  | 'cashsend'
+  | 'risk'
+  | 'settlement'
+  | 'readiness';
 
 const MERCHANT_DOC_LABELS: Record<string, string> = {
   cipc_14_3: 'CIPC 14.3',
@@ -62,10 +87,6 @@ const MERCHANT_DOC_LABELS: Record<string, string> = {
   municipal_business_reg: 'Municipal business registration',
   proof_of_bank: 'Proof of bank account',
 };
-
-function fmtMoney(n: number) {
-  return `R${n.toFixed(2)}`;
-}
 
 function fmtDate(iso: string) {
   try {
@@ -78,6 +99,7 @@ function fmtDate(iso: string) {
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   const [username, setUsername] = useState('IvanIJ');
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const apiUrl = apiBaseUrl() || '(dev proxy)';
@@ -88,7 +110,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     setError('');
     try {
       clearToken();
-      await apiLogin(username.trim(), password);
+      await apiLogin(username.trim(), password, totp);
       if (!getToken()) {
         throw new Error('Login did not store a session token.');
       }
@@ -106,7 +128,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       <form className="login-card" onSubmit={submit}>
         <h1>Ekasi Pay Ops</h1>
         <p className="muted">
-          Sign in with your ops username and password.
+          Sign in with your ops username, password, and authenticator code.
         </p>
         <p className="muted" style={{ fontSize: 12 }}>
           API: {apiUrl}
@@ -122,6 +144,17 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           />
         </label>
         <label>
+          Authenticator code
+          <input
+            type="text"
+            inputMode="numeric"
+            value={totp}
+            onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoComplete="one-time-code"
+            required
+          />
+        </label>
+        <label>
           Password
           <input
             type="password"
@@ -132,7 +165,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           />
         </label>
         {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={loading || !password}>
+        <button type="submit" disabled={loading || !password || totp.length !== 6}>
           {loading ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
@@ -567,7 +600,10 @@ function MerchantsTab() {
     }
   };
 
-  const review = async (id: string, next: 'approved' | 'rejected') => {
+  const review = async (
+    id: string,
+    next: 'approved' | 'rejected',
+  ) => {
     if (next === 'rejected' && !reasons[id]?.trim()) {
       setError('Add a rejection reason first.');
       return;
@@ -662,12 +698,18 @@ function MerchantsTab() {
                 <div className="row-actions">
                   <button
                     type="button"
-                    disabled={busyId === m.id}
+                    disabled={
+                      busyId === m.id ||
+                      (m.documentsUploaded ?? 0) < (m.documentsRequired ?? 4)
+                    }
+                    title={
+                      (m.documentsUploaded ?? 0) < (m.documentsRequired ?? 4)
+                        ? 'All required documents must be uploaded'
+                        : undefined
+                    }
                     onClick={() => void review(m.id, 'approved')}
                   >
-                    {(m.documentsUploaded ?? 0) < 4
-                      ? 'Approve without all docs'
-                      : 'Approve'}
+                    Approve
                   </button>
                   <button
                     type="button"
@@ -694,12 +736,26 @@ function ClaimsTab() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const r = await apiInsuranceClaims(status || undefined);
+      const [r, runtime] = await Promise.all([
+        apiInsuranceClaims(status || undefined),
+        apiRuntimeControls().catch(() => ({
+          controls: {
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          } satisfies RuntimeProductControls,
+        })),
+      ]);
       setClaims(r.claims);
+      setControls(runtime.controls);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load claims');
     }
@@ -709,7 +765,13 @@ function ClaimsTab() {
     void load();
   }, [load]);
 
+  const insuranceEnabled = controls?.insurance === true;
+
   const update = async (id: string, next: 'approved' | 'rejected' | 'paid') => {
+    if (!insuranceEnabled) {
+      setError('Insurance is disabled on this deployment.');
+      return;
+    }
     setBusyId(id);
     setError('');
     try {
@@ -737,6 +799,12 @@ function ClaimsTab() {
           Refresh
         </button>
       </div>
+      {!insuranceEnabled ? (
+        <ProductGateNotice
+          title="Insurance is disabled"
+          detail="Claim decisions are blocked until INSURANCE_ENABLED is approved for this environment."
+        />
+      ) : null}
       <div className="filters">
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="submitted">Submitted</option>
@@ -777,7 +845,7 @@ function ClaimsTab() {
                     <>
                       <button
                         type="button"
-                        disabled={busyId === c.id}
+                        disabled={!insuranceEnabled || busyId === c.id}
                         onClick={() => void update(c.id, 'approved')}
                       >
                         Approve
@@ -785,7 +853,7 @@ function ClaimsTab() {
                       <button
                         type="button"
                         className="danger"
-                        disabled={busyId === c.id}
+                        disabled={!insuranceEnabled || busyId === c.id}
                         onClick={() => void update(c.id, 'rejected')}
                       >
                         Reject
@@ -794,7 +862,7 @@ function ClaimsTab() {
                   ) : (
                     <button
                       type="button"
-                      disabled={busyId === c.id}
+                      disabled={!insuranceEnabled || busyId === c.id}
                       onClick={() => void update(c.id, 'paid')}
                     >
                       Mark paid
@@ -816,13 +884,27 @@ function LoansTab() {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const r = await apiLoans('pending');
+      const [r, runtime] = await Promise.all([
+        apiLoans('pending'),
+        apiRuntimeControls().catch(() => ({
+          controls: {
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          } satisfies RuntimeProductControls,
+        })),
+      ]);
       setLoans(r.loans);
+      setControls(runtime.controls);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load loans');
     } finally {
@@ -834,7 +916,13 @@ function LoansTab() {
     void load();
   }, [load]);
 
+  const lendingEnabled = controls?.lending === true;
+
   const disburse = async (loan: OpsLoan) => {
+    if (!lendingEnabled) {
+      setError('Lending is disabled on this deployment.');
+      return;
+    }
     setBusyId(loan.id);
     setError('');
     try {
@@ -855,6 +943,12 @@ function LoansTab() {
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
+      {!lendingEnabled ? (
+        <ProductGateNotice
+          title="Lending is disabled"
+          detail="Loan disbursement is blocked until LENDING_ENABLED is approved for this environment."
+        />
+      ) : null}
       {error ? <p className="error">{error}</p> : null}
       <div className="table-wrap">
         <table>
@@ -871,16 +965,20 @@ function LoansTab() {
             {loans.map((loan) => (
               <tr key={loan.id}>
                 <td>{fmtMoney(loan.amount)}</td>
-                <td>{(loan.interestRate * 100).toFixed(1)}%</td>
+                <td>{loan.interestRate} fractional rate</td>
                 <td className="mono">{loan.userId}</td>
                 <td>{loan.status}</td>
                 <td>
                   <button
                     type="button"
-                    disabled={busyId === loan.id}
+                    disabled={!lendingEnabled || busyId === loan.id}
                     onClick={() => void disburse(loan)}
                   >
-                    {busyId === loan.id ? 'Posting…' : 'Disburse'}
+                    {!lendingEnabled
+                      ? 'Disabled'
+                      : busyId === loan.id
+                        ? 'Posting…'
+                        : 'Disburse'}
                   </button>
                 </td>
               </tr>
@@ -985,17 +1083,135 @@ function LedgerTab() {
   );
 }
 
+function SettlementTab() {
+  const [overview, setOverview] = useState<Awaited<ReturnType<typeof apiSettlementOverview>> | null>(null);
+  const [feeCount, setFeeCount] = useState<number | null>(null);
+  const [provider, setProvider] = useState('simulator');
+  const [file, setFile] = useState<File | null>(null);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const [settlement, fees] = await Promise.all([
+        apiSettlementOverview(),
+        apiFeeSchedules(),
+      ]);
+      setOverview(settlement);
+      setFeeCount(fees.schedules.length);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load settlement controls');
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const importFile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const contentBase64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      const result = await apiImportSettlementStatement({
+        provider,
+        fileName: file.name,
+        contentBase64,
+      });
+      setMessage(
+        `Imported ${result.rowCount} rows: ${result.matches.matched ?? 0} matched, ` +
+        `${result.matches.partial ?? 0} partial, ${result.matches.unmatched ?? 0} unmatched.`,
+      );
+      setFile(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Statement import failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>Settlement & fee control</h2>
+        <span className="badge">{feeCount ?? '—'} fee schedules</span>
+      </div>
+      <p className="muted">
+        Imports require the Phase 6 canonical CSV schema. Hash duplicates are rejected
+        and every break is journaled to suspense.
+      </p>
+      <form onSubmit={importFile} className="filters">
+        <label>
+          Provider
+          <input value={provider} onChange={(e) => setProvider(e.target.value)} required />
+        </label>
+        <label>
+          Statement CSV
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            required
+          />
+        </label>
+        <button type="submit" disabled={busy || !file}>
+          {busy ? 'Reconciling…' : 'Import & reconcile'}
+        </button>
+      </form>
+      {error ? <p className="error">{error}</p> : null}
+      {message ? <p className="success">{message}</p> : null}
+      <div className="stat-grid">
+        <StatCard label="Imported files" value={String(overview?.files.length ?? 0)} />
+        <StatCard label="Open breaks" value={String(overview?.breaks.length ?? 0)} />
+        <StatCard label="Settlement batches" value={String(overview?.batches.length ?? 0)} />
+        <StatCard label="Daily closes" value={String(overview?.closes.length ?? 0)} />
+      </div>
+      {overview?.breaks.length ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Reference</th><th>Amount</th><th>Break</th><th>Journal</th><th>Opened</th></tr>
+            </thead>
+            <tbody>
+              {overview.breaks.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.provider_reference}</td>
+                  <td>{item.currency} {(Number(item.amount_cents) / 100).toFixed(2)}</td>
+                  <td><span className="badge">{item.reason_code}</span></td>
+                  <td className="mono">{item.journal_transaction_id}</td>
+                  <td>{fmtDate(item.opened_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted">No open settlement breaks.</p>}
+    </div>
+  );
+}
+
 function OperatorsTab({ me }: { me: OpsAdminUser }) {
+  type OperatorRole = 'admin' | 'operations' | 'compliance' | 'finance' | 'support';
   const [users, setUsers] = useState<OpsAdminUser[]>([]);
   const [error, setError] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'operator' | 'super_admin'>('operator');
+  const [role, setRole] = useState<OperatorRole>('support');
   const [busy, setBusy] = useState(false);
   const [resetPw, setResetPw] = useState<Record<string, string>>({});
 
-  const canManage = String(me.role).toLowerCase() === 'super_admin';
+  const canManage = String(me.role).toLowerCase() === 'admin';
 
   const load = useCallback(async () => {
     if (!canManage) return;
@@ -1025,7 +1241,7 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
       });
       setUsername('');
       setPassword('');
-      setRole('operator');
+      setRole('support');
       setOkMsg(`Created ${user.username} as ${user.role.replace(/_/g, ' ')}.`);
       await load();
     } catch (err) {
@@ -1037,7 +1253,7 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
 
   const setUserRole = async (
     u: OpsAdminUser,
-    nextRole: 'super_admin' | 'operator',
+    nextRole: OperatorRole,
   ) => {
     if (u.id === me.id) {
       setError('You cannot change your own role.');
@@ -1125,7 +1341,7 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
         <h2>Ops users</h2>
         <p className="muted">
           Signed in as <strong>{me.username}</strong> ({me.role}). Only the
-          super admin (IvanIJ) can create ops accounts and assign roles.
+          admin role can create ops accounts and assign capabilities.
         </p>
       </div>
     );
@@ -1140,8 +1356,8 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
         </button>
       </div>
       <p className="muted">
-        Super admin <strong>{me.username}</strong> can create ops logins and
-        assign <em>operator</em> or <em>super admin</em> roles.
+        Admin <strong>{me.username}</strong> can create ops logins and assign
+        deny-by-default operational roles.
       </p>
       {error ? <p className="error">{error}</p> : null}
       {okMsg ? <p className="ok-banner">{okMsg}</p> : null}
@@ -1178,13 +1394,12 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
           <select
             value={role}
             onChange={(e) =>
-              setRole(e.target.value as 'operator' | 'super_admin')
+              setRole(e.target.value as OperatorRole)
             }
           >
-            <option value="operator">Operator — monitoring &amp; reviews</option>
-            <option value="super_admin">
-              Super admin — can manage ops users
-            </option>
+            {(['support', 'operations', 'compliance', 'finance', 'admin'] as const).map((value) =>
+              <option key={value} value={value}>{value}</option>
+            )}
           </select>
         </label>
         <button type="submit" disabled={busy}>
@@ -1215,17 +1430,18 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
                 </td>
                 <td>
                   <select
-                    value={u.role === 'super_admin' ? 'super_admin' : 'operator'}
+                    value={u.role}
                     disabled={busy || u.id === me.id}
                     onChange={(e) =>
                       void setUserRole(
                         u,
-                        e.target.value as 'super_admin' | 'operator',
+                        e.target.value as OperatorRole,
                       )
                     }
                   >
-                    <option value="operator">operator</option>
-                    <option value="super_admin">super_admin</option>
+                    {(['support', 'operations', 'compliance', 'finance', 'admin'] as const).map((value) =>
+                      <option key={value} value={value}>{value}</option>
+                    )}
                   </select>
                 </td>
                 <td>{u.isActive ? 'yes' : 'no'}</td>
@@ -1321,25 +1537,39 @@ function CashSendTab() {
   const [search, setSearch] = useState('');
   const [vouchers, setVouchers] = useState<OpsCashSendVoucher[]>([]);
   const [total, setTotal] = useState(0);
-  const [amountSum, setAmountSum] = useState(0);
-  const [feeSum, setFeeSum] = useState(0);
+  const [amountSum, setAmountSum] = useState('0.00');
+  const [feeSum, setFeeSum] = useState('0.00');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const r = await apiCashSendVouchers({
-        status,
-        search: search || undefined,
-        limit: 200,
-      });
+      const [r, runtime] = await Promise.all([
+        apiCashSendVouchers({
+          status,
+          search: search || undefined,
+          limit: 200,
+        }),
+        apiRuntimeControls().catch(() => ({
+          controls: {
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          } satisfies RuntimeProductControls,
+        })),
+      ]);
       setVouchers(r.vouchers);
       setTotal(r.total);
-      setAmountSum(r.amountSum ?? 0);
-      setFeeSum(r.feeSum ?? 0);
+      setAmountSum(r.amountSum ?? '0.00');
+      setFeeSum(r.feeSum ?? '0.00');
+      setControls(runtime.controls);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load vouchers');
     } finally {
@@ -1351,12 +1581,20 @@ function CashSendTab() {
     void load();
   }, [load]);
 
+  const cashSendEnabled = controls?.cashSend === true;
+
   return (
     <div className="panel">
       <div className="panel-head">
         <h2>Cash Send vouchers</h2>
         <span className="badge">{total} records</span>
       </div>
+      {!cashSendEnabled ? (
+        <ProductGateNotice
+          title="Cash Send is disabled"
+          detail="Create, collect, and cancel are blocked until CASH_SEND_ENABLED is approved. This list remains available for investigation."
+        />
+      ) : null}
       <p className="muted">
         Full voucher details: sender KYC, beneficiary, fees, expiry, collection ID scan, and
         cancel/expire reasons.
@@ -1498,7 +1736,7 @@ function CashSendTab() {
                           </div>
                           <div>
                             <strong>Total held (amount + fee)</strong>
-                            <div>{fmtMoney(v.amount + v.fee)}</div>
+                            <div>{fmtMoney(addMoney(v.amount, v.fee))}</div>
                           </div>
                         </div>
                       </td>
@@ -1669,6 +1907,108 @@ function TransactionsTab() {
   );
 }
 
+function RiskReviewTab() {
+  const [cases, setCases] = useState<OpsFraudCase[]>([]);
+  const [holds, setHolds] = useState<OpsTransactionHold[]>([]);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    try {
+      const [caseResult, holdResult] = await Promise.all([apiRiskCases(), apiRiskHolds()]);
+      setCases(caseResult.cases);
+      setHolds(holdResult.holds);
+      setError('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load risk queue');
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const decide = async (id: string, decision: 'released' | 'rejected') => {
+    const reason = window.prompt('Decision reason (minimum 10 characters)');
+    if (!reason) return;
+    await apiDecideRiskHold(id, decision, reason);
+    await load();
+  };
+  return (
+    <div className="panel">
+      <div className="panel-head"><h2>Fraud and risk review</h2><button onClick={() => void load()}>Refresh</button></div>
+      {error ? <p className="error">{error}</p> : null}
+      <h3>Transaction holds</h3>
+      <div className="table-wrap"><table><thead><tr><th>Reference</th><th>Reason</th><th>State</th><th>Actions</th></tr></thead>
+        <tbody>{holds.map((hold) => <tr key={hold.id}><td className="mono">{hold.financial_reference}</td><td>{hold.reason_code}</td><td>{hold.state}</td>
+          <td>{hold.state === 'held' ? <><button onClick={() => void decide(hold.id, 'released')}>Release</button>{' '}<button onClick={() => void decide(hold.id, 'rejected')}>Reject</button></> : '—'}</td></tr>)}</tbody>
+      </table></div>
+      <h3>Fraud cases</h3>
+      <div className="table-wrap"><table><thead><tr><th>Case</th><th>Priority</th><th>State</th><th>Summary</th><th>Investigation</th></tr></thead>
+        <tbody>{cases.map((item) => <tr key={item.id}><td className="mono">{item.case_number}</td><td>{item.priority}</td><td>{item.state}</td><td>{item.safe_summary}</td>
+          <td><button onClick={() => { const note = window.prompt('Immutable investigation note'); if (note) void apiAddFraudCaseNote(item.id, note).then(load); }}>Add note</button></td></tr>)}</tbody>
+      </table></div>
+      <h3>Emergency posting control</h3>
+      <p className="muted">Pausing postings preserves reads, authentication, and investigations. Admin capability required.</p>
+      <button onClick={() => { const reason = window.prompt('Incident reason (minimum 15 characters)'); if (reason) void apiSetFinancialPosting(false, reason).catch((e) => setError(String(e))); }}>Pause new postings</button>{' '}
+      <button onClick={() => { const reason = window.prompt('Recovery reason (minimum 15 characters)'); if (reason) void apiSetFinancialPosting(true, reason).catch((e) => setError(String(e))); }}>Resume postings</button>
+    </div>
+  );
+}
+
+function ProductReadinessTab() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof apiProductReadiness>> | null>(null);
+  const [error, setError] = useState('');
+  const load = useCallback(() => {
+    void apiProductReadiness()
+      .then((result) => {
+        setData(result);
+        setError('');
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load readiness'));
+  }, []);
+  useEffect(() => load(), [load]);
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>Regulated product readiness</h2>
+          <p className="muted">
+            Evidence shown here is append-only. It records external decisions; it does not create legal or provider approval.
+          </p>
+        </div>
+        <button onClick={load}>Refresh</button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Environment</th><th>DB evidence</th><th>Config</th><th>Enabled</th><th>Missing</th></tr></thead>
+          <tbody>
+            {(data?.statuses ?? []).map((status) => (
+              <tr key={`${status.product}-${status.environment}`}>
+                <td>{status.product}</td><td>{status.environment}</td>
+                <td>{status.databaseApproved ? 'approved' : 'blocked'}</td>
+                <td>{status.configEnabled ? 'enabled' : 'off'}</td>
+                <td><strong>{status.enabled ? 'YES' : 'NO'}</strong></td>
+                <td>{status.missing.join(', ') || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h3>Immutable evidence register</h3>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Recorded</th><th>Product</th><th>Control</th><th>Decision</th><th>Authority</th><th>Digest</th></tr></thead>
+          <tbody>
+            {(data?.evidence ?? []).map((item) => (
+              <tr key={item.id}>
+                <td>{fmtDate(item.recorded_at)}</td><td>{item.product} / {item.environment}</td>
+                <td>{item.control}</td><td>{item.decision}</td><td>{item.authority}</td>
+                <td className="mono">{item.evidence_sha256.slice(0, 16)}…</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ me }: { me: OpsAdminUser }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -1697,7 +2037,10 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
     { id: 'claims', label: 'Claims' },
     { id: 'loans', label: 'Loans' },
     { id: 'ledger', label: 'Ledger' },
+    { id: 'settlement', label: 'Settlement' },
+    { id: 'readiness', label: 'Product Readiness' },
     { id: 'cashsend', label: 'Cash Send' },
+    { id: 'risk', label: 'Risk Review' },
     { id: 'compliance', label: 'Compliance' },
     { id: 'audit', label: 'Audit' },
     { id: 'transactions', label: 'Transactions' },
@@ -1738,7 +2081,10 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {tab === 'claims' ? <ClaimsTab /> : null}
         {tab === 'loans' ? <LoansTab /> : null}
         {tab === 'ledger' ? <LedgerTab /> : null}
+        {tab === 'settlement' ? <SettlementTab /> : null}
+        {tab === 'readiness' ? <ProductReadinessTab /> : null}
         {tab === 'cashsend' ? <CashSendTab /> : null}
+        {tab === 'risk' ? <RiskReviewTab /> : null}
         {tab === 'compliance' ? <ComplianceTab /> : null}
         {tab === 'operators' ? <OperatorsTab me={me} /> : null}
         {tab === 'audit' ? <AuditTab /> : null}

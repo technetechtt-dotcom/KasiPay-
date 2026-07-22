@@ -5,7 +5,6 @@ import {
   KPAmount,
   PageTransition,
   KPButton,
-  KPInput,
 } from '../../components/shared/UIComponents';
 import {
   ArrowLeft,
@@ -19,6 +18,17 @@ import {
 import { toast } from 'sonner';
 import type { Sale, Expense, Product, Merchant, Loan } from '../../types';
 import { apiGetIncomeStatement, apiGetExpenseStatement, type IncomeStatement, type ExpenseStatement } from '../../services/api';
+import {
+  addMoney,
+  compareMoney,
+  formatMoney,
+  moneyFromRate,
+  moneyRatioPercent,
+  multiplyMoney,
+  subtractMoney,
+  type Money,
+  type MoneyInput,
+} from '../../money';
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export const FinancialReportsPage = ({
   sales,
@@ -26,8 +36,8 @@ export const FinancialReportsPage = ({
   products,
   merchant,
   loans,
-  onRequestLoan,
-  onRepayLoan,
+  onRequestLoan: _onRequestLoan,
+  onRepayLoan: _onRepayLoan,
   navigate,
 }: {
   sales: Sale[];
@@ -35,16 +45,13 @@ export const FinancialReportsPage = ({
   products: Product[];
   merchant: Merchant;
   loans: Loan[];
-  onRequestLoan: (amount: number) => Promise<boolean>;
-  onRepayLoan?: (loanId: string, amount: number) => Promise<boolean>;
+  onRequestLoan: (amount: MoneyInput) => Promise<boolean>;
+  onRepayLoan?: (loanId: string, amount: MoneyInput) => Promise<boolean>;
   navigate: (p: string) => void;
 }) => {
+  void _onRequestLoan;
+  void _onRepayLoan;
   const [period, setPeriod] = useState<Period>('monthly');
-  const [loanAmt, setLoanAmt] = useState('');
-  const [loanBusy, setLoanBusy] = useState(false);
-  const [repayingId, setRepayingId] = useState<string | null>(null);
-  const [repayAmt, setRepayAmt] = useState('');
-  const [repayBusy, setRepayBusy] = useState(false);
   const [serverStatement, setServerStatement] = useState<IncomeStatement | null>(
     null,
   );
@@ -119,23 +126,35 @@ export const FinancialReportsPage = ({
   const periodSales = filterByPeriod(sales, period);
   const periodExpenses = filterByPeriod(expenses, period);
   // Revenue
-  const localRevenue = periodSales.reduce((sum, s) => sum + s.total, 0);
+  const localRevenue = periodSales.reduce(
+    (sum, sale) => addMoney(sum, sale.total),
+    '0.00',
+  );
   // COGS
   const localCOGS = periodSales.reduce((sum, s) => {
-    return (
-      sum +
+    return addMoney(
+      sum,
       s.items.reduce((itemSum, item) => {
         const product = products.find((p) => p.id === item.productId);
-        const costPrice = product?.costPrice ?? item.price * 0.7;
-        return itemSum + costPrice * item.quantity;
-      }, 0));
-
-  }, 0);
-  const localGrossProfit = localRevenue - localCOGS;
-  const localGrossMarginPct =
-  localRevenue > 0 ? localGrossProfit / localRevenue * 100 : 0;
-  const localExpenses = periodExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const localNetProfit = localGrossProfit - localExpenses;
+        const costPrice =
+          product?.costPrice ?? moneyFromRate(item.price, 7n, 10n);
+        return addMoney(
+          itemSum,
+          multiplyMoney(costPrice, item.quantity),
+        );
+      }, '0.00'),
+    );
+  }, '0.00');
+  const localGrossProfit = subtractMoney(localRevenue, localCOGS);
+  const localGrossMarginPct = moneyRatioPercent(
+    localGrossProfit,
+    localRevenue,
+  );
+  const localExpenses = periodExpenses.reduce(
+    (sum, expense) => addMoney(sum, expense.amount),
+    '0.00',
+  );
+  const localNetProfit = subtractMoney(localGrossProfit, localExpenses);
   const totalRevenue = serverStatement?.totalRevenue ?? localRevenue;
   const totalCOGS = serverStatement?.totalCOGS ?? localCOGS;
   const grossProfit = serverStatement?.grossProfit ?? localGrossProfit;
@@ -145,10 +164,13 @@ export const FinancialReportsPage = ({
   // Payment method breakdown
   const paymentMethods = periodSales.reduce(
     (acc, sale) => {
-      acc[sale.paymentMethod] = (acc[sale.paymentMethod] || 0) + sale.total;
+      acc[sale.paymentMethod] = addMoney(
+        acc[sale.paymentMethod] ?? '0.00',
+        sale.total,
+      );
       return acc;
     },
-    {} as Record<string, number>
+    {} as Record<string, Money>
   );
   // Top sellers
   const productSales = periodSales.
@@ -158,13 +180,16 @@ export const FinancialReportsPage = ({
       const existing = acc.find((p) => p.productId === item.productId);
       if (existing) {
         existing.quantity += item.quantity;
-        existing.revenue += item.price * item.quantity;
+        existing.revenue = addMoney(
+          existing.revenue,
+          multiplyMoney(item.price, item.quantity),
+        );
       } else {
         acc.push({
           productId: item.productId,
           productName: item.name,
           quantity: item.quantity,
-          revenue: item.price * item.quantity
+          revenue: multiplyMoney(item.price, item.quantity)
         });
       }
       return acc;
@@ -173,12 +198,12 @@ export const FinancialReportsPage = ({
       productId: string;
       productName: string;
       quantity: number;
-      revenue: number;
+      revenue: Money;
     }>
   ).
-  sort((a, b) => b.revenue - a.revenue).
+  sort((a, b) => compareMoney(b.revenue, a.revenue)).
   slice(0, 5);
-  const maxSellerRevenue = productSales[0]?.revenue || 1;
+  const maxSellerRevenue = productSales[0]?.revenue ?? '1.00';
   // Sales by category
   const categorySales = periodSales.
   flatMap((s) => s.items).
@@ -189,18 +214,21 @@ export const FinancialReportsPage = ({
       if (!acc[category]) {
         acc[category] = {
           units: 0,
-          revenue: 0
+          revenue: '0.00'
         };
       }
       acc[category].units += item.quantity;
-      acc[category].revenue += item.price * item.quantity;
+      acc[category].revenue = addMoney(
+        acc[category].revenue,
+        multiplyMoney(item.price, item.quantity),
+      );
       return acc;
     },
     {} as Record<
       string,
       {
         units: number;
-        revenue: number;
+        revenue: Money;
       }>
 
   );
@@ -208,30 +236,33 @@ export const FinancialReportsPage = ({
   map(([category, data]) => ({
     category,
     ...data,
-    pct: data.revenue / totalRevenue * 100
+    pct: moneyRatioPercent(data.revenue, totalRevenue),
   })).
-  sort((a, b) => b.revenue - a.revenue);
+  sort((a, b) => compareMoney(b.revenue, a.revenue));
   // Expense breakdown
   const expensesByCategory = periodExpenses.reduce(
     (acc, exp) => {
-      acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
+      acc[exp.category] = addMoney(
+        acc[exp.category] ?? '0.00',
+        exp.amount,
+      );
       return acc;
     },
-    {} as Record<string, number>
+    {} as Record<string, Money>
   );
   const localExpenseData = Object.entries(expensesByCategory).
   map(([category, amount]) => ({
     category,
     amount,
-    pct: amount / totalExpenses * 100
+    pct: moneyRatioPercent(amount, totalExpenses),
   })).
-  sort((a, b) => b.amount - a.amount);
+  sort((a, b) => compareMoney(b.amount, a.amount));
   const expenseData =
     serverStatement?.expensesByCategory?.length
       ? serverStatement.expensesByCategory.map((e) => ({
           category: e.category,
           amount: e.amount,
-          pct: totalExpenses > 0 ? (e.amount / totalExpenses) * 100 : 0,
+          pct: moneyRatioPercent(e.amount, totalExpenses),
         }))
       : localExpenseData;
   const getCategoryIcon = (cat: string) => {
@@ -255,14 +286,14 @@ export const FinancialReportsPage = ({
     ['Generated On', new Date().toLocaleString()],
     [],
     ['SUMMARY', ''],
-    ['Total Revenue', totalRevenue.toFixed(2)],
-    ['Cost of Goods Sold', totalCOGS.toFixed(2)],
-    ['Gross Profit', grossProfit.toFixed(2)],
-    ['Operating Expenses', totalExpenses.toFixed(2)],
-    ['Net Profit/Loss', netProfit.toFixed(2)],
+    ['Total Revenue', formatMoney(totalRevenue)],
+    ['Cost of Goods Sold', formatMoney(totalCOGS)],
+    ['Gross Profit', formatMoney(grossProfit)],
+    ['Operating Expenses', formatMoney(totalExpenses)],
+    ['Net Profit/Loss', formatMoney(netProfit)],
     [],
     ['EXPENSE BREAKDOWN', ''],
-    ...expenseData.map((e) => [e.category, e.amount.toFixed(2)]),
+    ...expenseData.map((e) => [e.category, formatMoney(e.amount)]),
     [],
     ['RECENT TRANSACTIONS (SALES)', ''],
     ['Date', 'Amount', 'Payment Method'],
@@ -270,7 +301,7 @@ export const FinancialReportsPage = ({
     slice(0, 50).
     map((s) => [
     new Date(s.createdAt).toLocaleString(),
-    s.total.toFixed(2),
+    formatMoney(s.total),
     s.paymentMethod]
     )];
 
@@ -304,20 +335,20 @@ export const FinancialReportsPage = ({
     [`Generated: ${new Date().toLocaleDateString()}`],
     [],
     ['REVENUE', ''],
-    ['Sales Revenue', totalRevenue.toFixed(2)],
+    ['Sales Revenue', formatMoney(totalRevenue)],
     [],
     ['COST OF GOODS SOLD', ''],
-    ['Product Costs', totalCOGS.toFixed(2)],
+    ['Product Costs', formatMoney(totalCOGS)],
     [],
-    ['GROSS PROFIT', grossProfit.toFixed(2)],
+    ['GROSS PROFIT', formatMoney(grossProfit)],
     [`Gross Margin`, `${grossMarginPct.toFixed(1)}%`],
     [],
     ['OPERATING EXPENSES', ''],
-    ...expenseData.map((e) => [e.category, e.amount.toFixed(2)]),
-    ['Total Operating Expenses', totalExpenses.toFixed(2)],
+    ...expenseData.map((e) => [e.category, formatMoney(e.amount)]),
+    ['Total Operating Expenses', formatMoney(totalExpenses)],
     [],
-    ['NET PROFIT (LOSS)', netProfit.toFixed(2)],
-    [`Net Margin`, `${(netProfit / totalRevenue * 100).toFixed(1)}%`]];
+    ['NET PROFIT (LOSS)', formatMoney(netProfit)],
+    [`Net Margin`, `${moneyRatioPercent(netProfit, totalRevenue).toFixed(1)}%`]];
 
     const csvContent = rows.map((e) => e.join(',')).join('\n');
     const blob = new Blob([csvContent], {
@@ -358,10 +389,10 @@ export const FinancialReportsPage = ({
       [`Generated: ${new Date().toLocaleDateString()}`],
       [],
       ['SUMMARY', ''],
-      ['Total Expenses', totalExpenses.toFixed(2)],
+      ['Total Expenses', formatMoney(totalExpenses)],
       [],
       ['BY CATEGORY', ''],
-      ...expenseData.map((e) => [e.category, e.amount.toFixed(2)]),
+      ...expenseData.map((e) => [e.category, formatMoney(e.amount)]),
       [],
       ['DETAIL', ''],
       ['Date', 'Category', 'Description', 'Amount'],
@@ -369,7 +400,7 @@ export const FinancialReportsPage = ({
         new Date(e.createdAt).toLocaleString(),
         e.category,
         'description' in e ? e.description : '',
-        e.amount.toFixed(2),
+        formatMoney(e.amount),
       ]),
     ];
     const csvContent = rows.map((e) => e.join(',')).join('\n');
@@ -452,147 +483,40 @@ export const FinancialReportsPage = ({
             Using local report math because the server statement API is unavailable.
           </KPCard>
         ) : null}
-        <KPCard className="p-5 border border-amber-100 bg-amber-50/40">
+                <KPCard className="p-5 border border-amber-100 bg-amber-50/40">
           <h3 className="text-sm font-bold text-amber-900 mb-1">Working capital</h3>
           <p className="text-xs text-amber-800/80 mb-3">
-            Submit a loan request you can track from the server.
+            Lending is disabled on the server until lender-of-record and National Credit Act gates are approved. Applications, disbursement, and repayments are blocked.
           </p>
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <KPInput
-                type="number"
-                placeholder="Amount (R)"
-                value={loanAmt}
-                onChange={(e) => setLoanAmt(e.target.value)}
-              />
-            </div>
-            <KPButton
-              type="button"
-              fullWidth={false}
-              className="!min-w-[120px] bg-amber-600"
-              disabled={loanBusy}
-              onClick={async () => {
-                const a = Number(loanAmt);
-                if (!(a > 0)) {
-                  toast.error('Enter a loan amount greater than R0.');
-                  return;
-                }
-                setLoanBusy(true);
-                try {
-                  const ok = await onRequestLoan(a);
-                  if (ok) {
-                    toast.success('Loan request sent');
-                    setLoanAmt('');
-                  } else toast.error('Request failed');
-                } finally {
-                  setLoanBusy(false);
-                }
-              }}>
-              {loanBusy ? '…' : 'Apply'}
-            </KPButton>
-          </div>
-
-          {loans.length > 0 ?
-            <div className="mt-5 space-y-3">
+          {loans.length > 0 ? (
+            <div className="mt-2 space-y-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-900/80">
-                My loans
+                Existing loans (read-only)
               </p>
               {loans.map((loan) => {
-                const outstanding = Math.max(0, loan.amount - loan.repaidAmount);
-                const canRepay =
-                  loan.status === 'disbursed' && outstanding > 0 && !!onRepayLoan;
-                const isRow = repayingId === loan.id;
+                const outstanding =
+                  compareMoney(loan.amount, loan.repaidAmount) > 0
+                    ? subtractMoney(loan.amount, loan.repaidAmount)
+                    : '0.00';
                 return (
                   <div
                     key={loan.id}
                     className="rounded-xl border border-amber-200/70 bg-white/70 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900">
-                          R{loan.amount.toFixed(2)}
-                          <span className="ml-2 text-[11px] font-medium uppercase tracking-wider text-amber-700">
-                            {loan.status}
-                          </span>
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          Repaid R{loan.repaidAmount.toFixed(2)} · Outstanding
-                          R{outstanding.toFixed(2)}
-                          {loan.dueDate ?
-                            <> · due {new Date(loan.dueDate).toLocaleDateString('en-ZA')}</>
-                          : null}
-                        </p>
-                      </div>
-                      {canRepay && !isRow ?
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRepayingId(loan.id);
-                            setRepayAmt(outstanding.toFixed(2));
-                          }}
-                          className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-lg">
-                          Repay
-                        </button>
-                      : null}
-                    </div>
-
-                    {isRow ?
-                      <div className="mt-3 flex gap-2 items-end">
-                        <div className="flex-1">
-                          <KPInput
-                            type="number"
-                            placeholder="Amount (R)"
-                            value={repayAmt}
-                            onChange={(e) => setRepayAmt(e.target.value)}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRepayingId(null);
-                            setRepayAmt('');
-                          }}
-                          className="px-3 py-3 text-xs font-medium text-slate-500 border border-slate-200 rounded-xl">
-                          Cancel
-                        </button>
-                        <KPButton
-                          type="button"
-                          fullWidth={false}
-                          className="!min-w-[100px]"
-                          disabled={repayBusy}
-                          onClick={async () => {
-                            if (!onRepayLoan) return;
-                            const a = Number(repayAmt);
-                            if (!(a > 0)) {
-                              toast.error('Enter a repayment greater than R0.');
-                              return;
-                            }
-                            if (a > outstanding + 0.01) {
-                              toast.error(
-                                `Repayment exceeds outstanding (R${outstanding.toFixed(2)}).`,
-                              );
-                              return;
-                            }
-                            setRepayBusy(true);
-                            try {
-                              const ok = await onRepayLoan(loan.id, a);
-                              if (ok) {
-                                toast.success('Repayment recorded');
-                                setRepayingId(null);
-                                setRepayAmt('');
-                              }
-                            } finally {
-                              setRepayBusy(false);
-                            }
-                          }}>
-                          {repayBusy ? '…' : 'Pay'}
-                        </KPButton>
-                      </div>
-                    : null}
+                    <p className="text-sm font-bold text-slate-900">
+                      R{formatMoney(loan.amount)}
+                      <span className="ml-2 text-[11px] font-medium uppercase tracking-wider text-amber-700">
+                        {loan.status}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Repaid R{formatMoney(loan.repaidAmount)} ? Outstanding
+                      R{formatMoney(outstanding)}
+                    </p>
                   </div>
                 );
               })}
             </div>
-          : null}
+          ) : null}
         </KPCard>
 
         {/* Income Statement Card */}
@@ -611,10 +535,7 @@ export const FinancialReportsPage = ({
                 <span className="text-slate-300">Revenue</span>
                 <span className="tabular-nums">
                   R{' '}
-                  {totalRevenue.toLocaleString('en-ZA', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
+                  {formatMoney(totalRevenue)}
                 </span>
               </div>
 
@@ -622,10 +543,7 @@ export const FinancialReportsPage = ({
                 <span className="text-slate-300">Less: Cost of Goods Sold</span>
                 <span className="tabular-nums text-red-400">
                   (R{' '}
-                  {totalCOGS.toLocaleString('en-ZA', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
+                  {formatMoney(totalCOGS)}
                   )
                 </span>
               </div>
@@ -635,10 +553,7 @@ export const FinancialReportsPage = ({
                 <div className="text-right">
                   <span className="tabular-nums text-emerald-400">
                     R{' '}
-                    {grossProfit.toLocaleString('en-ZA', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
+                    {formatMoney(grossProfit)}
                   </span>
                   <span className="text-xs text-slate-400 ml-2">
                     {grossMarginPct.toFixed(1)}%
@@ -650,10 +565,7 @@ export const FinancialReportsPage = ({
                 <span className="text-slate-300">Operating Expenses</span>
                 <span className="tabular-nums text-red-400">
                   (R{' '}
-                  {totalExpenses.toLocaleString('en-ZA', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
+                  {formatMoney(totalExpenses)}
                   )
                 </span>
               </div>
@@ -661,13 +573,10 @@ export const FinancialReportsPage = ({
               <div className="border-t-2 border-slate-600 pt-4 flex justify-between text-lg font-bold">
                 <span>NET PROFIT</span>
                 <span
-                  className={`tabular-nums ${netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  className={`tabular-nums ${compareMoney(netProfit, 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   
                   R{' '}
-                  {netProfit.toLocaleString('en-ZA', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
+                  {formatMoney(netProfit)}
                 </span>
               </div>
             </div>
@@ -682,7 +591,7 @@ export const FinancialReportsPage = ({
             </h3>
             <KPCard className="p-4 space-y-3">
               {Object.entries(paymentMethods).map(([method, amount]) => {
-              const pct = amount / totalRevenue * 100;
+              const pct = moneyRatioPercent(amount, totalRevenue);
               return (
                 <div key={method}>
                     <div className="flex justify-between text-sm mb-1">
@@ -747,7 +656,7 @@ export const FinancialReportsPage = ({
                       <div
                     className="h-full bg-emerald-500 rounded-full"
                     style={{
-                      width: `${item.revenue / maxSellerRevenue * 100}%`
+                      width: `${moneyRatioPercent(item.revenue, maxSellerRevenue)}%`
                     }} />
                   
                     </div>

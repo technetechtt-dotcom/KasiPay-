@@ -15,6 +15,7 @@ import { optionalSaIdBody, saIdBody } from '../cashSendSchemas.js';
 import { getDb, getEscrowWalletIdForPool } from '../db.js';
 import { toCashSendVoucher } from '../extraMappers.js';
 import { idempotent } from '../middleware/idempotency.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { hashPin, verifyPin } from '../password.js';
@@ -50,6 +51,7 @@ type CashSendVoucherDbRow = {
 const COMMISSION_FEE_SHARE = 0.5;
 
 export const cashSendRouter = Router();
+cashSendRouter.use(requireAuth, requireApprovedMerchant);
 
 const FEE = 10;
 const DAYS_VALID = 14;

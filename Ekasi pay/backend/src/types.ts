@@ -14,4 +14,5 @@ export type RowUser = {
   deleted_at?: string | null;
   /** Admin suspension marker. When set, login/refresh/auth refuse the row. */
   suspended_at?: string | null;
+  token_version?: number;
 };

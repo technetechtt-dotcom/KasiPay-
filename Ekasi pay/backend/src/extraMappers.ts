@@ -1,3 +1,5 @@
+import { formatCents, parseIntegerCents } from './money.js';
+
 export function toSupplier(row: {
   id: string;
   name: string;
@@ -20,6 +22,7 @@ export function toSupplierOrder(row: {
   supplier_id: string;
   items_json: string;
   total: number;
+  total_cents?: string;
   status: string;
   order_date: string;
   expected_delivery: string | null;
@@ -33,7 +36,12 @@ export function toSupplierOrder(row: {
       quantity: number;
       unitCost: number;
     }[],
-    total: row.total,
+    total:
+      row.total_cents === undefined
+        ? row.total
+        : formatCents(
+            parseIntegerCents(row.total_cents, { allowZero: true }),
+          ),
     status: row.status,
     orderDate: row.order_date,
     ...(row.expected_delivery ? { expectedDelivery: row.expected_delivery } : {}),
@@ -67,6 +75,8 @@ export function toStokvel(row: {
   members_json: string;
   target_amount: number;
   current_amount: number;
+  target_amount_cents?: string;
+  current_amount_cents?: string;
   frequency: string;
   next_payout_date: string;
   created_at: string;
@@ -79,8 +89,16 @@ export function toStokvel(row: {
       phone: string;
       contributed: number;
     }[],
-    targetAmount: row.target_amount,
-    currentAmount: row.current_amount,
+    targetAmount:
+      row.target_amount_cents === undefined
+        ? row.target_amount
+        : formatCents(parseIntegerCents(row.target_amount_cents)),
+    currentAmount:
+      row.current_amount_cents === undefined
+        ? row.current_amount
+        : formatCents(
+            parseIntegerCents(row.current_amount_cents, { allowZero: true }),
+          ),
     frequency: row.frequency,
     nextPayoutDate: row.next_payout_date,
     createdAt: row.created_at,
@@ -98,6 +116,9 @@ export function toStokvelLoan(row: {
   interest_rate_percent: number;
   interest_amount: number;
   total_due: number;
+  amount_cents?: string;
+  interest_amount_cents?: string;
+  total_due_cents?: string;
   from_pool: boolean | number;
   status: string;
   notes: string | null;
@@ -111,10 +132,21 @@ export function toStokvelLoan(row: {
     lenderPhone: row.lender_phone,
     borrowerName: row.borrower_name,
     borrowerPhone: row.borrower_phone,
-    amount: Number(row.amount),
+    amount:
+      row.amount_cents === undefined
+        ? Number(row.amount)
+        : formatCents(parseIntegerCents(row.amount_cents)),
     interestRatePercent: Number(row.interest_rate_percent),
-    interestAmount: Number(row.interest_amount),
-    totalDue: Number(row.total_due),
+    interestAmount:
+      row.interest_amount_cents === undefined
+        ? Number(row.interest_amount)
+        : formatCents(
+            parseIntegerCents(row.interest_amount_cents, { allowZero: true }),
+          ),
+    totalDue:
+      row.total_due_cents === undefined
+        ? Number(row.total_due)
+        : formatCents(parseIntegerCents(row.total_due_cents)),
     fromPool: Boolean(row.from_pool),
     status: row.status as 'active' | 'repaid',
     notes: row.notes ?? undefined,
@@ -141,6 +173,7 @@ export function toStokvelContribution(row: {
   member_name: string;
   member_phone: string;
   amount: number;
+  amount_cents?: string;
   period_month: string;
   notes: string | null;
   created_at: string;
@@ -150,7 +183,10 @@ export function toStokvelContribution(row: {
     stokvelId: row.stokvel_id,
     memberName: row.member_name,
     memberPhone: row.member_phone,
-    amount: Number(row.amount),
+    amount:
+      row.amount_cents === undefined
+        ? Number(row.amount)
+        : formatCents(parseIntegerCents(row.amount_cents)),
     periodMonth: row.period_month,
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
@@ -163,8 +199,10 @@ export function toLayby(row: {
   customer_name: string;
   customer_phone: string;
   item_name: string;
-  total_price: number;
-  amount_paid: number;
+  total_price?: number;
+  amount_paid?: number;
+  total_price_cents?: string;
+  amount_paid_cents?: string;
   installments_json: string;
   status: string;
   created_at: string;
@@ -175,10 +213,18 @@ export function toLayby(row: {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     itemName: row.item_name,
-    totalPrice: row.total_price,
-    amountPaid: row.amount_paid,
+    totalPrice:
+      row.total_price_cents === undefined
+        ? row.total_price
+        : formatCents(parseIntegerCents(row.total_price_cents)),
+    amountPaid:
+      row.amount_paid_cents === undefined
+        ? row.amount_paid
+        : formatCents(
+            parseIntegerCents(row.amount_paid_cents, { allowZero: true }),
+          ),
     installments: JSON.parse(row.installments_json) as {
-      amount: number;
+      amount: string | number;
       date: string;
     }[],
     status: row.status,
@@ -205,22 +251,32 @@ export function toLoadShedding(row: {
 export function toLoan(row: {
   id: string;
   user_id: string;
-  amount: number;
-  interest_rate: number;
+  amount?: number;
+  amount_cents?: string;
+  interest_rate: number | string;
   status: string;
   disbursed_at: string | null;
   due_date: string | null;
-  repaid_amount: number;
+  repaid_amount?: number;
+  repaid_amount_cents?: string;
 }) {
   return {
     id: row.id,
     userId: row.user_id,
-    amount: row.amount,
+    amount:
+      row.amount_cents === undefined
+        ? row.amount
+        : formatCents(parseIntegerCents(row.amount_cents)),
     interestRate: row.interest_rate,
     status: row.status,
     ...(row.disbursed_at ? { disbursedAt: row.disbursed_at } : {}),
     ...(row.due_date ? { dueDate: row.due_date } : {}),
-    repaidAmount: row.repaid_amount,
+    repaidAmount:
+      row.repaid_amount_cents === undefined
+        ? row.repaid_amount
+        : formatCents(
+            parseIntegerCents(row.repaid_amount_cents, { allowZero: true }),
+          ),
   };
 }
 
@@ -252,6 +308,10 @@ export function toPriceComparison(row: {
   avg_area_price: number;
   lowest_area_price: number;
   highest_area_price: number;
+  my_price_cents?: string;
+  avg_area_price_cents?: string;
+  lowest_area_price_cents?: string;
+  highest_area_price_cents?: string;
   competitors: number;
   last_updated: string;
 }) {
@@ -259,10 +319,30 @@ export function toPriceComparison(row: {
     id: row.id,
     merchantId: row.merchant_id,
     productName: row.product_name,
-    myPrice: row.my_price,
-    avgAreaPrice: row.avg_area_price,
-    lowestAreaPrice: row.lowest_area_price,
-    highestAreaPrice: row.highest_area_price,
+    myPrice:
+      row.my_price_cents === undefined
+        ? row.my_price
+        : formatCents(parseIntegerCents(row.my_price_cents, { allowZero: true })),
+    avgAreaPrice:
+      row.avg_area_price_cents === undefined
+        ? row.avg_area_price
+        : formatCents(
+            parseIntegerCents(row.avg_area_price_cents, { allowZero: true }),
+          ),
+    lowestAreaPrice:
+      row.lowest_area_price_cents === undefined
+        ? row.lowest_area_price
+        : formatCents(
+            parseIntegerCents(row.lowest_area_price_cents, { allowZero: true }),
+          ),
+    highestAreaPrice:
+      row.highest_area_price_cents === undefined
+        ? row.highest_area_price
+        : formatCents(
+            parseIntegerCents(row.highest_area_price_cents, {
+              allowZero: true,
+            }),
+          ),
     competitors: row.competitors,
     lastUpdated: row.last_updated,
   };
@@ -275,6 +355,8 @@ export function toInsurance(row: {
   type: string;
   coverage_amount: number;
   monthly_premium: number;
+  coverage_amount_cents?: string;
+  monthly_premium_cents?: string;
   status: string;
   next_payment_date: string;
 }) {
@@ -283,8 +365,14 @@ export function toInsurance(row: {
     merchantId: row.merchant_id,
     provider: row.provider,
     type: row.type as 'stock' | 'fire' | 'theft',
-    coverageAmount: row.coverage_amount,
-    monthlyPremium: row.monthly_premium,
+    coverageAmount:
+      row.coverage_amount_cents === undefined
+        ? row.coverage_amount
+        : formatCents(parseIntegerCents(row.coverage_amount_cents)),
+    monthlyPremium:
+      row.monthly_premium_cents === undefined
+        ? row.monthly_premium
+        : formatCents(parseIntegerCents(row.monthly_premium_cents)),
     status: row.status as 'active' | 'pending' | 'cancelled',
     nextPaymentDate: row.next_payment_date,
   };
@@ -368,8 +456,10 @@ export function toCashSendVoucher(
     recipient_first_name?: string;
     recipient_last_name?: string;
     recipient_id_document?: string;
-    amount: number;
-    fee: number;
+    amount?: number;
+    fee?: number;
+    amount_cents?: string;
+    fee_cents?: string;
     reference_number: string;
     status: string;
     created_at: string;
@@ -398,8 +488,16 @@ export function toCashSendVoucher(
       { recipientLastName: row.recipient_last_name }
     : {}),
     ...(recipientIdLast4 ? { recipientIdLast4 } : {}),
-    amount: row.amount,
-    fee: row.fee,
+    amount:
+      row.amount_cents === undefined
+        ? row.amount
+        : formatCents(parseIntegerCents(row.amount_cents)),
+    fee:
+      row.fee_cents === undefined
+        ? row.fee
+        : formatCents(
+            parseIntegerCents(row.fee_cents, { allowZero: true }),
+          ),
     atmPin: atmPinReveal ?? '****',
     referenceNumber: row.reference_number,
     status: row.status as
@@ -426,6 +524,7 @@ export function toStockMovement(row: {
   quantity: number;
   reason: string;
   cost_price_at_time: number | null;
+  cost_price_at_time_cents?: string | null;
   reference: string | null;
   notes: string | null;
   created_at: string;
@@ -445,7 +544,17 @@ export function toStockMovement(row: {
     type: row.type as 'in' | 'out' | 'adjustment',
     quantity: row.quantity,
     reason: row.reason as SMReason,
-    ...(row.cost_price_at_time != null ? { costPriceAtTime: row.cost_price_at_time } : {}),
+    ...(row.cost_price_at_time_cents != null
+      ? {
+          costPriceAtTime: formatCents(
+            parseIntegerCents(row.cost_price_at_time_cents, {
+              allowZero: true,
+            }),
+          ),
+        }
+      : row.cost_price_at_time != null
+        ? { costPriceAtTime: row.cost_price_at_time }
+        : {}),
     ...(row.reference ? { reference: row.reference } : {}),
     createdAt: row.created_at,
     ...(row.notes ? { notes: row.notes } : {}),

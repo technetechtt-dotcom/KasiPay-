@@ -8,21 +8,22 @@ import { postBetweenWallets } from './walletPosting.js';
 /**
  * Boots an in-memory DB with the minimum schema `postBetweenWallets` reads
  * and writes. Mirrors the real schema in db.ts (just the tables we need)
- * so the assertions are exactly what production sees.
+ * using INTEGER minor units. SQLite is local/test-only; deployed environments
+ * are required by production config validation to use PostgreSQL.
  */
 function bootDb() {
   const db = new Database(':memory:');
   db.exec(`
     CREATE TABLE wallets (
       id TEXT PRIMARY KEY,
-      balance REAL NOT NULL,
+      balance INTEGER NOT NULL,
       status TEXT NOT NULL
     );
     CREATE TABLE transactions (
       id TEXT PRIMARY KEY,
       from_wallet_id TEXT,
       to_wallet_id TEXT,
-      amount REAL NOT NULL,
+      amount INTEGER NOT NULL,
       type TEXT NOT NULL,
       status TEXT NOT NULL,
       reference TEXT NOT NULL,
@@ -34,19 +35,19 @@ function bootDb() {
       transaction_id TEXT NOT NULL,
       account_id TEXT NOT NULL,
       entry_type TEXT NOT NULL,
-      amount REAL NOT NULL,
-      balance_after REAL NOT NULL,
+      amount INTEGER NOT NULL,
+      balance_after INTEGER NOT NULL,
       created_at TEXT NOT NULL
     );
   `);
   db.prepare(`INSERT INTO wallets (id, balance, status) VALUES (?, ?, ?)`).run(
     'w-from',
-    200,
+    20_000,
     'active',
   );
   db.prepare(`INSERT INTO wallets (id, balance, status) VALUES (?, ?, ?)`).run(
     'w-to',
-    50,
+    5_000,
     'active',
   );
   return db;
@@ -64,20 +65,20 @@ describe('postBetweenWallets', () => {
     postBetweenWallets(db, {
       fromWalletId: 'w-from',
       toWalletId: 'w-to',
-      amount: 75,
+      amount: 7_500,
       type: 'transfer',
       referencePrefix: 'TST',
       description: 'unit test transfer',
     });
 
-    assert.equal(getWallet(db, 'w-from').balance, 125);
-    assert.equal(getWallet(db, 'w-to').balance, 125);
+    assert.equal(getWallet(db, 'w-from').balance, 12_500);
+    assert.equal(getWallet(db, 'w-to').balance, 12_500);
 
     const txns = db
       .prepare('SELECT * FROM transactions')
       .all() as { amount: number; type: string; status: string }[];
     assert.equal(txns.length, 1);
-    assert.equal(txns[0].amount, 75);
+    assert.equal(txns[0].amount, 7_500);
     assert.equal(txns[0].status, 'completed');
 
     const ledger = db
@@ -86,10 +87,10 @@ describe('postBetweenWallets', () => {
     assert.equal(ledger.length, 2);
     const credit = ledger.find((l) => l.entry_type === 'credit')!;
     const debit = ledger.find((l) => l.entry_type === 'debit')!;
-    assert.equal(credit.amount, 75);
-    assert.equal(debit.amount, 75);
-    assert.equal(credit.balance_after, 125);
-    assert.equal(debit.balance_after, 125);
+    assert.equal(credit.amount, 7_500);
+    assert.equal(debit.amount, 7_500);
+    assert.equal(credit.balance_after, 12_500);
+    assert.equal(debit.balance_after, 12_500);
   });
 
   it('rejects zero / NaN / negative amounts with a 400-flavored error', () => {
@@ -137,7 +138,7 @@ describe('postBetweenWallets', () => {
         postBetweenWallets(db, {
           fromWalletId: 'w-from',
           toWalletId: 'w-to',
-          amount: 9999,
+          amount: 99_990,
           type: 'transfer',
           referencePrefix: 'TST',
           description: 'overspend',
@@ -145,8 +146,8 @@ describe('postBetweenWallets', () => {
       /insufficient/i,
     );
     // No partial writes should remain.
-    assert.equal(getWallet(db, 'w-from').balance, 200);
-    assert.equal(getWallet(db, 'w-to').balance, 50);
+    assert.equal(getWallet(db, 'w-from').balance, 20_000);
+    assert.equal(getWallet(db, 'w-to').balance, 5_000);
     const txns = db.prepare('SELECT COUNT(*) as c FROM transactions').get() as { c: number };
     assert.equal(txns.c, 0);
   });

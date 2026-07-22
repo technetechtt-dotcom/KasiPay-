@@ -103,7 +103,7 @@ export const SettingsPage = ({
   };
   const handleSavePin = async (e: FormEvent) => {
     e.preventDefault();
-    if (newPin !== confirmPin || newPin.length !== 4) return;
+    if (newPin !== confirmPin || newPin.length < 6 || newPin.length > 12) return;
     const pinUpdated = await Promise.resolve(updatePin(currentPin, newPin));
     if (pinUpdated) {
       setSaved(true);
@@ -342,7 +342,7 @@ export const SettingsPage = ({
                 type="password"
                 label="Current PIN"
                 placeholder="••••"
-                maxLength={4}
+                maxLength={12}
                 value={currentPin}
                 onChange={(e) => setCurrentPin(e.target.value)} />
               
@@ -351,7 +351,7 @@ export const SettingsPage = ({
                   type="password"
                   label="New PIN"
                   placeholder="••••"
-                  maxLength={4}
+                  maxLength={12}
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value)} />
                 
@@ -359,7 +359,7 @@ export const SettingsPage = ({
                   type="password"
                   label="Confirm PIN"
                   placeholder="••••"
-                  maxLength={4}
+                  maxLength={12}
                   value={confirmPin}
                   onChange={(e) => setConfirmPin(e.target.value)} />
                 
@@ -367,7 +367,7 @@ export const SettingsPage = ({
                 <KPButton
                 type="submit"
                 disabled={
-                !currentPin || newPin.length !== 4 || newPin !== confirmPin
+                !currentPin || newPin.length < 6 || newPin !== confirmPin
                 }
                 className="mt-2">
                 

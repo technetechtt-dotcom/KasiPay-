@@ -4,7 +4,8 @@ import { Router } from 'express';
 
 import { getPgPool } from '../dbPg.js';
 import { toPublicUser } from '../mappers.js';
-import { requireAdminOrOps } from '../opsAuth.js';
+import { requireCapability } from '../security/authorization.js';
+import { createApprovalRequest, requireRecentStepUp } from '../security/approvalsPg.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
 import { revokeAllUserSessionsPg } from '../sessionAuthPg.js';
 import type { RowUser } from '../types.js';
@@ -12,9 +13,7 @@ import { adminUserPatchBodySchema } from '../validation.js';
 
 export const adminUsersRouterPg = Router();
 
-const gate = [requireAdminOrOps] as const;
-
-adminUsersRouterPg.get('/admin/users', ...gate, async (_req, res) => {
+adminUsersRouterPg.get('/admin/users', ...requireCapability('users:read'), async (_req, res) => {
   const pool = getPgPool();
   const r = await pool.query<RowUser>(
     `SELECT * FROM users
@@ -26,7 +25,11 @@ adminUsersRouterPg.get('/admin/users', ...gate, async (_req, res) => {
   return res.json({ users: r.rows.map(toPublicUser) });
 });
 
-adminUsersRouterPg.patch('/admin/users/:id', ...gate, async (req, res) => {
+adminUsersRouterPg.patch(
+  '/admin/users/:id',
+  ...requireCapability('user-roles:request'),
+  requireRecentStepUp,
+  async (req, res) => {
   const parsed = adminUserPatchBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -51,6 +54,53 @@ adminUsersRouterPg.patch('/admin/users/:id', ...gate, async (req, res) => {
   }
 
   const { role, suspended } = parsed.data;
+  const approvalRequestId =
+    typeof req.body?.approvalRequestId === 'string'
+      ? req.body.approvalRequestId
+      : null;
+
+  if (role !== undefined && role !== target.role && !approvalRequestId) {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : '';
+    const approvalId = await createApprovalRequest({
+      actionType: 'user_role_change',
+      resourceType: 'user',
+      resourceId: targetId,
+      payload: { fromRole: target.role, toRole: role },
+      reason,
+      evidence: Array.isArray(req.body?.evidence) ? req.body.evidence : [],
+      makerOperatorId: req.opsAuth!.operatorId,
+    });
+    return res.status(202).json({ approvalId, state: 'pending' });
+  }
+  if (role !== undefined && role !== target.role && approvalRequestId) {
+    const approved = await pool.query<{
+      state: string;
+      action_type: string;
+      resource_id: string;
+      payload: { toRole?: string };
+      maker_operator_id: string;
+      checker_operator_id: string | null;
+      expires_at: Date;
+    }>(
+      `SELECT state, action_type, resource_id, payload, maker_operator_id,
+              checker_operator_id, expires_at
+         FROM approval_requests WHERE id = $1`,
+      [approvalRequestId],
+    );
+    const row = approved.rows[0];
+    if (
+      !row ||
+      row.state !== 'approved' ||
+      row.action_type !== 'user_role_change' ||
+      row.resource_id !== targetId ||
+      row.payload.toRole !== role ||
+      !row.checker_operator_id ||
+      row.maker_operator_id === row.checker_operator_id ||
+      row.expires_at.getTime() <= Date.now()
+    ) {
+      return res.status(409).json({ error: 'A valid two-person role-change approval is required.' });
+    }
+  }
 
   if (role !== undefined && target.role === 'admin' && role !== 'admin') {
     const adminCountQ = await pool.query<{ c: string }>(
@@ -80,9 +130,19 @@ adminUsersRouterPg.patch('/admin/users/:id', ...gate, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    if (approvalRequestId) {
+      const locked = await client.query(
+        `SELECT 1 FROM approval_requests
+          WHERE id = $1 AND state = 'approved' AND expires_at > NOW() FOR UPDATE`,
+        [approvalRequestId],
+      );
+      if (!locked.rowCount) {
+        throw Object.assign(new Error('Approval was already used or expired.'), { status: 409 });
+      }
+    }
 
     if (role !== undefined && role !== target.role) {
-      await client.query(`UPDATE users SET role = $1 WHERE id = $2`, [
+      await client.query(`UPDATE users SET role = $1, token_version = token_version + 1 WHERE id = $2`, [
         role,
         targetId,
       ]);
@@ -108,7 +168,7 @@ adminUsersRouterPg.patch('/admin/users/:id', ...gate, async (req, res) => {
     }
 
     if (suspended !== undefined) {
-      await client.query(`UPDATE users SET suspended_at = $1 WHERE id = $2`, [
+      await client.query(`UPDATE users SET suspended_at = $1, token_version = token_version + 1 WHERE id = $2`, [
         suspended ? now : null,
         targetId,
       ]);
@@ -119,6 +179,19 @@ adminUsersRouterPg.patch('/admin/users/:id', ...gate, async (req, res) => {
       if (suspended) {
         await revokeAllUserSessionsPg(pool, targetId);
       }
+    }
+
+    if (approvalRequestId) {
+      await client.query(
+        `UPDATE approval_requests SET state = 'executed', executed_at = NOW() WHERE id = $1`,
+        [approvalRequestId],
+      );
+      await client.query(
+        `INSERT INTO approval_request_events
+          (id, approval_request_id, from_state, to_state, actor_operator_id, reason)
+         VALUES ($1,$2,'approved','executed',$3,'Approved user role change executed')`,
+        [randomUUID(), approvalRequestId, req.opsAuth!.operatorId],
+      );
     }
 
     await client.query('COMMIT');
@@ -152,4 +225,5 @@ adminUsersRouterPg.patch('/admin/users/:id', ...gate, async (req, res) => {
   });
 
   return res.json({ user: toPublicUser(updated) });
-});
+  },
+);

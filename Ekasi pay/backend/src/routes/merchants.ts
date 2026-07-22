@@ -45,8 +45,8 @@ merchantsRouter.post('/merchants/me', requireAuth, (req, res) => {
   }
 
   const user = database
-    .prepare('SELECT name, role FROM users WHERE id = ?')
-    .get(userId) as { name: string; role: string } | undefined;
+    .prepare('SELECT name FROM users WHERE id = ?')
+    .get(userId) as { name: string } | undefined;
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
@@ -60,7 +60,7 @@ merchantsRouter.post('/merchants/me', requireAuth, (req, res) => {
     body.businessName?.trim() || `${user.name}'s Shop`;
   const location = body.location?.trim() || 'South Africa';
   const category = body.category?.trim() || 'Retail';
-  const approvalStatus = user.role === 'merchant' ? 'pending_docs' : 'approved';
+  const approvalStatus = 'pending_docs';
 
   const id = randomUUID();
   database

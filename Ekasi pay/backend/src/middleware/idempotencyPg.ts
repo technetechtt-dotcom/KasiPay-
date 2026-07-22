@@ -1,99 +1,107 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { NextFunction, Request, Response } from 'express';
 
 import { getPgPool } from '../dbPg.js';
 
 const KEY_HEADER = 'idempotency-key';
-const RETENTION_HOURS = 24;
 const MAX_KEY_LEN = 64;
-/** In-flight claims older than this are treated as stale (crashed worker). */
-const IN_FLIGHT_STALE_MS = 2 * 60_000;
+const IN_FLIGHT_LEASE_MS = 2 * 60_000;
 
-function retentionFloorIso(): string {
-  return new Date(Date.now() - RETENTION_HOURS * 3600 * 1000).toISOString();
-}
+export type PaymentIdempotencyContext = {
+  actorId: string;
+  route: string;
+  key: string;
+  requestHash: string;
+};
+const paymentContext = new AsyncLocalStorage<PaymentIdempotencyContext>();
 
-async function gcOldKeys(): Promise<void> {
-  const pool = getPgPool();
-  try {
-    await pool.query(
-      `DELETE FROM idempotency_keys WHERE created_at < $1`,
-      [retentionFloorIso()],
-    );
-  } catch {
-    /* no-op */
-  }
+export function currentPaymentIdempotency(): PaymentIdempotencyContext | undefined {
+  return paymentContext.getStore();
 }
 
 type IdemRow = {
-  status: number;
-  response_body: string;
-  created_at: string;
+  lifecycle: 'in_flight' | 'completed' | 'failed';
+  request_hash: string;
+  response_status: number | null;
+  response_body: unknown;
+  locked_until: string;
 };
 
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalize(object[key])}`)
+    .join(',')}}`;
+}
+
+export function canonicalRequestHash(body: unknown): string {
+  return createHash('sha256').update(canonicalize(body)).digest('hex');
+}
+
 async function fetchIdemRow(
-  userId: string,
+  actorId: string,
   routeName: string,
   key: string,
 ): Promise<IdemRow | null> {
   const pool = getPgPool();
   const existing = await pool.query<IdemRow>(
-    `SELECT status, response_body, created_at
-       FROM idempotency_keys
-      WHERE user_id = $1
+    `SELECT lifecycle, request_hash, response_status, response_body, locked_until
+       FROM payment_idempotency
+      WHERE actor_id = $1
         AND route = $2
-        AND client_key = $3
-        AND created_at >= $4`,
-    [userId, routeName, key, retentionFloorIso()],
+        AND client_key = $3`,
+    [actorId, routeName, key],
   );
   return existing.rows[0] ?? null;
 }
 
 function replayCached(res: Response, hit: IdemRow): Response {
   res.setHeader('Idempotent-Replay', 'true');
-  try {
-    return res.status(hit.status).json(JSON.parse(hit.response_body));
-  } catch {
-    return res.status(hit.status).send(hit.response_body);
-  }
+  return res.status(hit.response_status ?? 200).json(hit.response_body);
 }
 
 async function claimIdempotencyKey(
-  userId: string,
+  actorId: string,
   routeName: string,
   key: string,
-): Promise<'claimed' | 'replay' | 'in_flight'> {
+  requestHash: string,
+): Promise<'claimed' | 'replay' | 'in_flight' | 'mismatch'> {
   const pool = getPgPool();
-  const nowIso = new Date().toISOString();
+  const lockedUntil = new Date(Date.now() + IN_FLIGHT_LEASE_MS).toISOString();
 
   const claimed = await pool.query<{ id: string }>(
-    `INSERT INTO idempotency_keys
-       (id, user_id, route, client_key, status, response_body, created_at)
-     VALUES ($1, $2, $3, $4, 0, '', $5)
-     ON CONFLICT (user_id, route, client_key) DO NOTHING
+    `INSERT INTO payment_idempotency
+       (id, actor_id, route, client_key, request_hash, lifecycle, locked_until)
+     VALUES ($1, $2, $3, $4, $5, 'in_flight', $6)
+     ON CONFLICT (actor_id, route, client_key) DO NOTHING
      RETURNING id`,
-    [randomUUID(), userId, routeName, key, nowIso],
+    [randomUUID(), actorId, routeName, key, requestHash, lockedUntil],
   );
   if (claimed.rows[0]) return 'claimed';
 
-  const hit = await fetchIdemRow(userId, routeName, key);
-  if (!hit) return 'claimed';
+  const hit = await fetchIdemRow(actorId, routeName, key);
+  if (!hit) return claimIdempotencyKey(actorId, routeName, key, requestHash);
+  if (hit.request_hash !== requestHash) return 'mismatch';
+  if (hit.lifecycle === 'completed') return 'replay';
 
-  if (hit.status === 0) {
-    const ageMs = Date.now() - new Date(hit.created_at).getTime();
-    if (ageMs > IN_FLIGHT_STALE_MS) {
-      await pool.query(
-        `DELETE FROM idempotency_keys
-          WHERE user_id = $1 AND route = $2 AND client_key = $3 AND status = 0`,
-        [userId, routeName, key],
-      );
-      return claimIdempotencyKey(userId, routeName, key);
-    }
-    return 'in_flight';
+  if (new Date(hit.locked_until).getTime() <= Date.now()) {
+    const reclaimed = await pool.query(
+      `UPDATE payment_idempotency
+          SET lifecycle = 'in_flight', locked_until = $1, updated_at = clock_timestamp(),
+              response_status = NULL, response_body = NULL
+        WHERE actor_id = $2 AND route = $3 AND client_key = $4
+          AND request_hash = $5 AND locked_until <= clock_timestamp()
+        RETURNING id`,
+      [lockedUntil, actorId, routeName, key, requestHash],
+    );
+    return reclaimed.rows[0] ? 'claimed' : 'in_flight';
   }
-
-  return 'replay';
+  return 'in_flight';
 }
 
 export function idempotentPg(routeName: string) {
@@ -102,12 +110,15 @@ export function idempotentPg(routeName: string) {
     res: Response,
     next: NextFunction,
   ) {
-    if (!req.auth) {
+    const actorId = req.auth?.userId ?? (req.opsAuth ? `ops:${req.opsAuth.operatorId}` : null);
+    if (!actorId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     const raw = req.headers[KEY_HEADER];
     const key = (Array.isArray(raw) ? raw[0] : raw ?? '').trim();
-    if (!key) return next();
+    if (!key) {
+      return res.status(400).json({ error: 'Idempotency-Key is required' });
+    }
     if (key.length > MAX_KEY_LEN) {
       return res
         .status(400)
@@ -115,9 +126,18 @@ export function idempotentPg(routeName: string) {
     }
 
     const pool = getPgPool();
-    await gcOldKeys();
-
-    const claim = await claimIdempotencyKey(req.auth.userId, routeName, key);
+    const requestHash = canonicalRequestHash(req.body);
+    const claim = await claimIdempotencyKey(
+      actorId,
+      routeName,
+      key,
+      requestHash,
+    );
+    if (claim === 'mismatch') {
+      return res.status(422).json({
+        error: 'Idempotency-Key was already used with a different request payload.',
+      });
+    }
     if (claim === 'in_flight') {
       res.setHeader('Retry-After', '2');
       return res.status(409).json({
@@ -125,7 +145,7 @@ export function idempotentPg(routeName: string) {
       });
     }
     if (claim === 'replay') {
-      const hit = await fetchIdemRow(req.auth.userId, routeName, key);
+      const hit = await fetchIdemRow(actorId, routeName, key);
       if (hit) return replayCached(res, hit);
       return res.status(409).json({
         error: 'Idempotency replay conflict. Retry with a new key.',
@@ -135,40 +155,51 @@ export function idempotentPg(routeName: string) {
     const originalJson = res.json.bind(res);
     let cached = false;
     res.json = function cachingJson(body: unknown) {
-      if (!cached && req.auth) {
+      if (!cached) {
         cached = true;
         const status = res.statusCode || 200;
+        let persistence: Promise<unknown> | undefined;
         if (status >= 200 && status < 500) {
-          void pool
-            .query(
-              `UPDATE idempotency_keys
-                  SET status = $1, response_body = $2
-                WHERE user_id = $3 AND route = $4 AND client_key = $5`,
+          persistence = pool.query(
+              `UPDATE payment_idempotency
+                  SET lifecycle = 'completed', response_status = $1,
+                      response_body = $2::jsonb, completed_at = clock_timestamp(),
+                      updated_at = clock_timestamp()
+                WHERE actor_id = $3 AND route = $4 AND client_key = $5
+                  AND request_hash = $6`,
               [
                 status,
                 JSON.stringify(body),
-                req.auth.userId,
+                actorId,
                 routeName,
                 key,
+                requestHash,
               ],
-            )
-            .catch(() => {
-              /* ignore */
-            });
+            );
         } else if (status >= 500) {
-          void pool
-            .query(
-              `DELETE FROM idempotency_keys
-                WHERE user_id = $1 AND route = $2 AND client_key = $3 AND status = 0`,
-              [req.auth.userId, routeName, key],
-            )
-            .catch(() => {
-              /* ignore */
-            });
+          persistence = pool.query(
+              `UPDATE payment_idempotency
+                  SET lifecycle = 'failed', locked_until = clock_timestamp(),
+                      updated_at = clock_timestamp()
+                WHERE actor_id = $1 AND route = $2 AND client_key = $3
+                  AND request_hash = $4`,
+              [actorId, routeName, key, requestHash],
+            );
+        }
+        if (persistence) {
+          // Do not expose a successful response before its replay record is durable.
+          void persistence.then(
+            () => originalJson(body),
+            () => originalJson(body),
+          );
+          return res;
         }
       }
       return originalJson(body);
     };
-    return next();
+    return paymentContext.run(
+      { actorId, route: routeName, key, requestHash },
+      next,
+    );
   };
 }

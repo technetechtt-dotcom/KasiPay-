@@ -23,17 +23,37 @@ import type {
   StokvelLoan,
 } from '../../types';
 import { toast } from 'sonner';
+import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
+import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import {
+  apiGetRuntimeControls,
+  type RuntimeProductControls,
+} from '../../services/api';
+import {
+  addMoney,
+  compareMoney,
+  formatMoney,
+  moneyFromRate,
+  moneyRatioPercent,
+  tryCanonicalMoney,
+  type Money,
+  type MoneyInput,
+} from '../../money';
 
-type Member = { name: string; phone: string; contributed: number };
+type Member = { name: string; phone: string; contributed: Money };
 type DetailTab = 'overview' | 'members' | 'contributions' | 'loans';
 
 const INTEREST_TIERS = [10, 20, 30, 40, 50] as const;
 
-function calcInterest(amount: number, ratePercent: number) {
-  const interestAmount = Number(((amount / 100) * ratePercent).toFixed(2));
+function calcInterest(amount: MoneyInput, ratePercent: number) {
+  const interestAmount = moneyFromRate(
+    amount,
+    BigInt(ratePercent),
+    100n,
+  );
   return {
     interestAmount,
-    totalDue: Number((amount + interestAmount).toFixed(2)),
+    totalDue: addMoney(amount, interestAmount),
   };
 }
 
@@ -64,8 +84,8 @@ export const StokvelPage = ({
   onCreateGroup: (payload: {
     name: string;
     members: Member[];
-    targetAmount: number;
-    currentAmount: number;
+    targetAmount: MoneyInput;
+    currentAmount: MoneyInput;
     frequency: 'weekly' | 'monthly';
     nextPayoutDate: string;
   }) => Promise<boolean>;
@@ -77,7 +97,7 @@ export const StokvelPage = ({
       lenderPhone: string;
       borrowerName: string;
       borrowerPhone: string;
-      amount: number;
+      amount: MoneyInput;
       interestRatePercent: number;
       fromPool?: boolean;
       notes?: string;
@@ -88,7 +108,7 @@ export const StokvelPage = ({
     stokvelId: string,
     payload: {
       memberPhone: string;
-      amount: number;
+      amount: MoneyInput;
       periodMonth: string;
       notes?: string;
     },
@@ -100,6 +120,32 @@ export const StokvelPage = ({
   const [showCreate, setShowCreate] = useState(false);
   const [showLoan, setShowLoan] = useState(false);
   const [showContribution, setShowContribution] = useState(false);
+  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    apiGetRuntimeControls()
+      .then((r) => {
+        if (active) setControls(r.controls);
+      })
+      .catch(() => {
+        if (active) {
+          setControls({
+            financialPosting: false,
+            lending: false,
+            insurance: false,
+            stokvelMoneyMovement: false,
+            cashSend: false,
+            liveUtilities: false,
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const moneyMovementEnabled = controls?.stokvelMoneyMovement === true;
 
   const selected = useMemo(
     () => groups.find((g) => g.id === selectedId) ?? null,
@@ -123,9 +169,12 @@ export const StokvelPage = ({
           setTab('overview');
         }}
         onUpdateMembers={onUpdateMembers}
-        onCreateLoan={onCreateLoan}
-        onRepayLoan={onRepayLoan}
-        onRecordContribution={onRecordContribution}
+        onCreateLoan={moneyMovementEnabled ? onCreateLoan : undefined}
+        onRepayLoan={moneyMovementEnabled ? onRepayLoan : undefined}
+        onRecordContribution={
+          moneyMovementEnabled ? onRecordContribution : undefined
+        }
+        moneyMovementEnabled={moneyMovementEnabled}
         showLoan={showLoan}
         setShowLoan={setShowLoan}
         showContribution={showContribution}
@@ -164,6 +213,13 @@ export const StokvelPage = ({
         </KPButton>
       </div>
 
+      <ProductReadinessNotice product="stokvel" />
+      {!moneyMovementEnabled ? (
+        <ProductDisabledNotice
+          title="Custodial stokvel money movement is disabled"
+          detail="Contributions, pool loans, and repayments that move custodial funds are blocked until STOKVEL_MONEY_MOVEMENT_ENABLED is approved for this environment."
+        />
+      ) : null}
       <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-3">
         {groups.length === 0 && (
           <p className="text-center text-slate-500 py-8">No stokvels yet.</p>
@@ -194,8 +250,8 @@ export const StokvelPage = ({
                       {group.members.length} members · {group.frequency}
                     </p>
                     <p className="text-sm text-emerald-700 font-medium mt-2">
-                      Pool R{group.currentAmount.toLocaleString()} / R
-                      {group.targetAmount.toLocaleString()}
+                      Pool R{formatMoney(group.currentAmount)} / R
+                      {formatMoney(group.targetAmount)}
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
                       This month: {monthPaid}/{group.members.length} paid
@@ -236,6 +292,7 @@ function GroupDetail({
   onCreateLoan,
   onRepayLoan,
   onRecordContribution,
+  moneyMovementEnabled,
   showLoan,
   setShowLoan,
   showContribution,
@@ -253,7 +310,7 @@ function GroupDetail({
       lenderPhone: string;
       borrowerName: string;
       borrowerPhone: string;
-      amount: number;
+      amount: MoneyInput;
       interestRatePercent: number;
       fromPool?: boolean;
       notes?: string;
@@ -264,20 +321,18 @@ function GroupDetail({
     stokvelId: string,
     payload: {
       memberPhone: string;
-      amount: number;
+      amount: MoneyInput;
       periodMonth: string;
       notes?: string;
     },
   ) => Promise<boolean>;
+  moneyMovementEnabled: boolean;
   showLoan: boolean;
   setShowLoan: (v: boolean) => void;
   showContribution: boolean;
   setShowContribution: (v: boolean) => void;
 }) {
-  const progress =
-    group.targetAmount > 0
-      ? (group.currentAmount / group.targetAmount) * 100
-      : 0;
+  const progress = moneyRatioPercent(group.currentAmount, group.targetAmount);
   const loans = group.loans ?? [];
   const contributions = group.contributions ?? [];
   const thisMonth = currentPeriodMonth();
@@ -332,7 +387,7 @@ function GroupDetail({
             <KPCard className="p-5 bg-purple-600 text-white border-none">
               <p className="text-purple-100 text-sm">Current pool</p>
               <p className="text-3xl font-bold mt-1">
-                R{group.currentAmount.toLocaleString()}
+                R{formatMoney(group.currentAmount)}
               </p>
               <div className="h-2 bg-purple-900/30 rounded-full overflow-hidden mt-4">
                 <div
@@ -342,7 +397,7 @@ function GroupDetail({
               </div>
               <div className="flex justify-between text-xs mt-2 text-purple-100">
                 <span>{progress.toFixed(0)}% to target</span>
-                <span>Target R{group.targetAmount.toLocaleString()}</span>
+                <span>Target R{formatMoney(group.targetAmount)}</span>
               </div>
             </KPCard>
             <div className="grid grid-cols-2 gap-3">
@@ -383,21 +438,31 @@ function GroupDetail({
               <KPButton
                 type="button"
                 className="bg-purple-600 flex-1"
+                disabled={!moneyMovementEnabled || !onRecordContribution}
                 onClick={() => {
+                  if (!moneyMovementEnabled) {
+                    toast.error('Stokvel money movement is disabled.');
+                    return;
+                  }
                   setTab('contributions');
                   setShowContribution(true);
                 }}>
-                Record contribution
+                {moneyMovementEnabled ? 'Record contribution' : 'Contributions disabled'}
               </KPButton>
               <KPButton
                 type="button"
                 variant="outline"
                 className="flex-1"
+                disabled={!moneyMovementEnabled || !onCreateLoan}
                 onClick={() => {
+                  if (!moneyMovementEnabled) {
+                    toast.error('Stokvel money movement is disabled.');
+                    return;
+                  }
                   setTab('loans');
                   setShowLoan(true);
                 }}>
-                Record loan
+                {moneyMovementEnabled ? 'Record loan' : 'Loans disabled'}
               </KPButton>
             </div>
           </div>
@@ -486,7 +551,7 @@ function MembersPanel({
     }
     setMembers((prev) => [
       ...prev,
-      { name: name.trim(), phone: cleanPhone, contributed: 0 },
+      { name: name.trim(), phone: cleanPhone, contributed: '0.00' },
     ]);
     setName('');
     setPhone('');
@@ -524,7 +589,7 @@ function MembersPanel({
             </div>
             <div className="text-right">
               <p className="text-sm font-bold text-emerald-600">
-                R{m.contributed.toLocaleString()}
+                R{formatMoney(m.contributed)}
               </p>
               <p className="text-[10px] text-slate-400">total</p>
             </div>
@@ -788,7 +853,7 @@ function ContributionModal({
   onClose: () => void;
   onSave: (payload: {
     memberPhone: string;
-    amount: number;
+    amount: MoneyInput;
     periodMonth: string;
     notes?: string;
   }) => Promise<boolean>;
@@ -808,12 +873,12 @@ function ContributionModal({
   }, [existing]);
 
   const submit = async () => {
-    const a = Number(amount);
+    const a = tryCanonicalMoney(amount);
     if (!memberPhone) {
       toast.error('Select a member');
       return;
     }
-    if (!(a > 0)) {
+    if (a === null || compareMoney(a, 0) <= 0) {
       toast.error('Enter contribution amount');
       return;
     }
@@ -916,8 +981,8 @@ function CreateGroupModal({
   onCreate: (payload: {
     name: string;
     members: Member[];
-    targetAmount: number;
-    currentAmount: number;
+    targetAmount: MoneyInput;
+    currentAmount: MoneyInput;
     frequency: 'weekly' | 'monthly';
     nextPayoutDate: string;
   }) => Promise<boolean>;
@@ -945,16 +1010,21 @@ function CreateGroupModal({
     }
     setDraftMembers((prev) => [
       ...prev,
-      { name: cleanName, phone: cleanPhone, contributed: 0 },
+      { name: cleanName, phone: cleanPhone, contributed: '0.00' },
     ]);
     setDraftMemberName('');
     setDraftMemberPhone('');
   };
 
   const submit = async () => {
-    const t = Number(targetAmount);
-    const c = Number(currentAmount);
-    if (!name.trim() || !(t > 0) || !nextPayout.trim()) {
+    const t = tryCanonicalMoney(targetAmount);
+    const c = tryCanonicalMoney(currentAmount);
+    if (
+      !name.trim() ||
+      t === null ||
+      compareMoney(t, 0) <= 0 ||
+      !nextPayout.trim()
+    ) {
       toast.error('Fill name, target, and payout date');
       return;
     }
@@ -964,7 +1034,7 @@ function CreateGroupModal({
         name: name.trim(),
         members: draftMembers,
         targetAmount: t,
-        currentAmount: Number.isFinite(c) ? c : 0,
+        currentAmount: c ?? '0.00',
         frequency,
         nextPayoutDate: nextPayout,
       });
@@ -1092,7 +1162,7 @@ function RecordLoanModal({
     lenderPhone: string;
     borrowerName: string;
     borrowerPhone: string;
-    amount: number;
+    amount: MoneyInput;
     interestRatePercent: number;
     fromPool?: boolean;
     notes?: string;
@@ -1113,13 +1183,13 @@ function RecordLoanModal({
   );
 
   const preview = useMemo(() => {
-    const a = Number(amount);
-    if (!(a > 0)) return null;
+    const a = tryCanonicalMoney(amount);
+    if (a === null || compareMoney(a, 0) <= 0) return null;
     return calcInterest(a, rate);
   }, [amount, rate]);
 
   const submit = async () => {
-    const a = Number(amount);
+    const a = tryCanonicalMoney(amount);
     if (!lender) {
       toast.error('Pick which member loaned the money.');
       return;
@@ -1128,7 +1198,7 @@ function RecordLoanModal({
       toast.error('Add borrower name and phone.');
       return;
     }
-    if (!(a > 0)) {
+    if (a === null || compareMoney(a, 0) <= 0) {
       toast.error('Enter a loan amount.');
       return;
     }

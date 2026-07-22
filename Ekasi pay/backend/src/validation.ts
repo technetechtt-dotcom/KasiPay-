@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 import { saIdBody } from './cashSendSchemas.js';
+import {
+  nonnegativeMoneyNumber,
+  positiveMoneyNumber,
+} from './money.js';
 
 export const roleSchema = z.enum(['customer', 'merchant', 'agent']);
 
@@ -63,7 +67,7 @@ export const expenseCategorySchema = z.enum([
 export const accountPin = z
   .string()
   .regex(/^\d+$/, 'PIN must be digits only')
-  .min(4, 'PIN must be at least 4 digits')
+  .min(6, 'PIN must be at least 6 digits')
   .max(12, 'PIN must be at most 12 digits')
   .refine((v) => !isWeakPin(v), {
     message:
@@ -107,14 +111,14 @@ export const transferBodySchema = z.object({
     .min(9)
     .max(20)
     .transform((v) => v.replace(/\s+/g, '')),
-  amount: z.coerce.number().positive(),
+  amount: positiveMoneyNumber,
   description: z.string().min(1).max(500),
 });
 
 export const productCreateSchema = z.object({
   name: z.string().min(1),
-  costPrice: z.coerce.number().nonnegative(),
-  price: z.coerce.number().nonnegative(),
+  costPrice: nonnegativeMoneyNumber,
+  price: nonnegativeMoneyNumber,
   stock: z.coerce.number().int().nonnegative(),
   category: z.string().min(1),
   barcode: z.string().optional(),
@@ -125,7 +129,7 @@ export const productUpdateSchema = productCreateSchema.partial();
 export const saleItemSchema = z.object({
   productId: z.string().min(1),
   quantity: z.coerce.number().int().positive(),
-  price: z.coerce.number().nonnegative(),
+  price: nonnegativeMoneyNumber,
 });
 
 export const saleCreateSchema = z.object({
@@ -142,15 +146,15 @@ export const saleCreateSchema = z.object({
 export const expenseCreateSchema = z.object({
   category: expenseCategorySchema,
   description: z.string().min(1),
-  amount: z.coerce.number().positive(),
+  amount: positiveMoneyNumber,
 });
 
 export const stockIntakeLineSchema = z.object({
   productId: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   quantity: z.coerce.number().int().positive(),
-  costPrice: z.coerce.number().nonnegative(),
-  sellingPrice: z.coerce.number().positive().optional(),
+  costPrice: nonnegativeMoneyNumber,
+  sellingPrice: positiveMoneyNumber.optional(),
   category: z.string().min(1).optional(),
   barcode: z.string().optional(),
 });
@@ -159,7 +163,7 @@ export const stockIntakeBodySchema = z
   .object({
     supplierName: z.string().max(120).optional(),
     slipReference: z.string().max(80).optional(),
-    slipTotal: z.coerce.number().positive().optional(),
+    slipTotal: positiveMoneyNumber.optional(),
     notes: z.string().max(500).optional(),
     recordExpense: z.boolean().optional().default(true),
     lines: z.array(stockIntakeLineSchema).min(1).max(50),
@@ -218,7 +222,7 @@ export const creditVerifyConfirmSchema = z.object({
 export const creditCustomerCreateSchema = z.object({
   name: z.string().min(1),
   phone: saPhoneDigits,
-  creditLimit: z.coerce.number().positive(),
+  creditLimit: positiveMoneyNumber,
   saIdDocument: saIdBody,
   verificationToken: z.string().uuid(),
 });
@@ -227,7 +231,7 @@ export const creditTxnSchema = z
   .object({
     customerId: z.string().min(1),
     type: z.enum(['purchase', 'payment']),
-    amount: z.coerce.number().positive(),
+    amount: positiveMoneyNumber,
     description: z.string().min(1),
     verificationToken: z.string().uuid().optional(),
     saIdDocument: saIdBody.optional(),

@@ -15,6 +15,7 @@ import {
 import { NODE_ENV } from '../config.js';
 import { getDb } from '../db.js';
 import { toCreditCustomer, toCreditTransaction } from '../mappers.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantId } from '../services/merchant.js';
 import { sendSms } from '../services/sms.js';
@@ -26,6 +27,7 @@ import {
 } from '../validation.js';
 
 export const creditRouter = Router();
+creditRouter.use(requireAuth, requireApprovedMerchant);
 
 type OtpRow = {
   id: string;

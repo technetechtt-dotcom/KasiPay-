@@ -6,6 +6,7 @@ import { getDb } from '../db.js';
 import { toTransaction } from '../mappers.js';
 import { idempotent } from '../middleware/idempotency.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { createComplianceFlag } from '../services/compliance.js';
 import { transferBodySchema } from '../validation.js';
@@ -15,6 +16,7 @@ export const transfersRouter = Router();
 transfersRouter.post(
   '/transfers',
   requireAuth,
+  requireApprovedMerchant,
   idempotent('POST /transfers'),
   (req, res) => {
   const parsed = transferBodySchema.safeParse(req.body);

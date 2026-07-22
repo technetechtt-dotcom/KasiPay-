@@ -1,23 +1,28 @@
+import { randomUUID } from 'node:crypto';
+
 import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
+import { formatCents, parseIntegerCents } from '../money.js';
 import { toComplianceFlag, toLoan } from '../extraMappers.js';
 import { toMerchant } from '../mappers.js';
-import { requireAdminOrOps } from '../opsAuth.js';
+import { idempotentPg } from '../middleware/idempotencyPg.js';
+import { requireCapability } from '../security/authorization.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { recordAuditEventPg } from '../services/auditPg.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
+import { MERCHANT_DOC_TYPES } from '../merchantDocuments.js';
 import {
   adminClaimListQuerySchema,
   adminClaimPatchBodySchema,
 } from '../validation.js';
+import { createKycDownloadUrl } from '../services/privateObjectStorage.js';
+import { createApprovalRequest, requireRecentStepUp } from '../security/approvalsPg.js';
 
 export const adminRouterPg = Router();
-
-const gate = [requireAdminOrOps] as const;
 
 /** App-admin user id when present; null for ops (FK to users). */
 function appActorUserId(req: Request): string | null {
@@ -36,7 +41,7 @@ const loanListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 
-adminRouterPg.get('/admin/loans', ...gate, async (req, res) => {
+adminRouterPg.get('/admin/loans', ...requireCapability('loans:read'), async (req, res) => {
   const parsed = loanListQuery.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -57,19 +62,61 @@ adminRouterPg.get('/admin/loans', ...gate, async (req, res) => {
 type LoanRow = {
   id: string;
   user_id: string;
-  amount: number;
-  interest_rate: number;
+  amount_cents: string;
+  interest_rate: string;
   status: string;
   disbursed_at: string | null;
   due_date: string | null;
-  repaid_amount: number;
+  repaid_amount_cents: string;
 };
 
 adminRouterPg.patch(
   '/admin/loans/:id/disburse',
-  ...gate,
+  ...requireCapability('loans:request-disbursement'),
+  requireRecentStepUp,
   async (req, res) => {
     const pool = getPgPool();
+    const approvalRequestId =
+      typeof req.body?.approvalRequestId === 'string'
+        ? req.body.approvalRequestId
+        : null;
+    if (!approvalRequestId) {
+      const approvalId = await createApprovalRequest({
+        actionType: 'loan_disbursement',
+        resourceType: 'loan',
+        resourceId: req.params.id,
+        payload: { loanId: req.params.id },
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : '',
+        evidence: Array.isArray(req.body?.evidence) ? req.body.evidence : [],
+        makerOperatorId: req.opsAuth!.operatorId,
+      });
+      return res.status(202).json({ approvalId, state: 'pending' });
+    }
+    const approval = await pool.query<{
+      state: string;
+      action_type: string;
+      resource_id: string;
+      maker_operator_id: string;
+      checker_operator_id: string | null;
+      expires_at: Date;
+    }>(
+      `SELECT state, action_type, resource_id, maker_operator_id,
+              checker_operator_id, expires_at
+         FROM approval_requests WHERE id = $1`,
+      [approvalRequestId],
+    );
+    const approved = approval.rows[0];
+    if (
+      !approved ||
+      approved.state !== 'approved' ||
+      approved.action_type !== 'loan_disbursement' ||
+      approved.resource_id !== req.params.id ||
+      !approved.checker_operator_id ||
+      approved.maker_operator_id === approved.checker_operator_id ||
+      approved.expires_at.getTime() <= Date.now()
+    ) {
+      return res.status(409).json({ error: 'A valid two-person approval is required.' });
+    }
     const rowQ = await pool.query<LoanRow>(
       `SELECT * FROM loans WHERE id = $1`,
       [req.params.id],
@@ -94,29 +141,49 @@ adminRouterPg.patch(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const executionLock = await client.query(
+        `SELECT 1 FROM approval_requests
+          WHERE id = $1 AND state = 'approved' AND expires_at > NOW()
+          FOR UPDATE`,
+        [approvalRequestId],
+      );
+      if (!executionLock.rowCount) {
+        throw Object.assign(new Error('Approval was already used or expired.'), { status: 409 });
+      }
       await postBetweenWalletsPg(client, {
         fromWalletId: escrowId,
         toWalletId: userWallet.id,
-        amount: row.amount,
+        amountCents: parseIntegerCents(row.amount_cents),
         type: 'loan_disbursement',
         referencePrefix: 'LOAN',
-        description: `Loan disbursement (${(row.interest_rate * 100).toFixed(1)}% rate)`,
+        description: `Loan disbursement (${row.interest_rate} fractional rate)`,
       });
       await client.query(
         `UPDATE loans SET status = 'disbursed', disbursed_at = $1 WHERE id = $2`,
         [new Date().toISOString(), row.id],
       );
+      await client.query(
+        `UPDATE approval_requests SET state = 'executed', executed_at = NOW()
+          WHERE id = $1`,
+        [approvalRequestId],
+      );
+      await client.query(
+        `INSERT INTO approval_request_events
+          (id, approval_request_id, from_state, to_state, actor_operator_id, reason)
+         VALUES ($1,$2,'approved','executed',$3,'Approved loan disbursement executed')`,
+        [randomUUID(), approvalRequestId, req.opsAuth!.operatorId],
+      );
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK');
       const msg = e instanceof Error ? e.message : 'Disbursement failed';
-      return res.status(500).json({ error: msg });
+      return res.status((e as { status?: number }).status ?? 500).json({ error: msg });
     } finally {
       client.release();
     }
     await recordAuditEventPg(pool, {
       type: 'admin.loan_disburse',
-      message: `Loan ${row.id} disbursed R${row.amount.toFixed(2)} by ${actorLabel(req)}`,
+      message: `Loan ${row.id} disbursed R${formatCents(parseIntegerCents(row.amount_cents))} by ${actorLabel(req)}`,
       actorUserId: appActorUserId(req),
     });
     const freshQ = await pool.query<LoanRow>(
@@ -133,7 +200,7 @@ const flagPatchBody = z.object({
 
 adminRouterPg.patch(
   '/admin/compliance/flags/:id',
-  ...gate,
+  ...requireCapability('compliance:write'),
   async (req, res) => {
     const parsed = flagPatchBody.safeParse(req.body);
     if (!parsed.success) {
@@ -162,7 +229,7 @@ adminRouterPg.patch(
 
 adminRouterPg.get(
   '/admin/compliance/flags',
-  requireAdminOrOps,
+  ...requireCapability('compliance:read'),
   async (req, res) => {
     const status =
       typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -200,7 +267,7 @@ type AdminClaimRow = {
   merchant_id: string;
   type: string;
   description: string;
-  claimed_amount: number;
+  claimed_amount_cents: string;
   status: string;
   created_at: string;
   reviewed_at: string | null;
@@ -219,7 +286,7 @@ function toAdminInsuranceClaim(row: AdminClaimRow) {
     merchantUserId: row.merchant_user_id ?? undefined,
     type: row.type,
     description: row.description,
-    claimedAmount: row.claimed_amount,
+    claimedAmount: formatCents(parseIntegerCents(row.claimed_amount_cents)),
     status: row.status,
     createdAt: row.created_at,
     reviewedAt: row.reviewed_at ?? undefined,
@@ -237,7 +304,7 @@ const CLAIM_TRANSITIONS: Record<string, string[]> = {
 
 adminRouterPg.get(
   '/admin/insurance/claims',
-  ...gate,
+    ...requireCapability('finance:approve'),
   async (req, res) => {
     const parsed = adminClaimListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -268,7 +335,8 @@ adminRouterPg.get(
 
 adminRouterPg.patch(
   '/admin/insurance/claims/:id',
-  ...gate,
+  ...requireCapability('finance:approve'),
+  idempotentPg('PATCH /admin/insurance/claims/:id'),
   async (req, res) => {
     const parsed = adminClaimPatchBodySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -297,15 +365,73 @@ adminRouterPg.patch(
     ].filter(Boolean);
     const adminNote =
       noteParts.length > 0 ? noteParts.join(' — ') : null;
-    await pool.query(
-      `UPDATE insurance_claims
-          SET status = $1,
-              reviewed_at = $2,
-              reviewed_by = COALESCE($3, reviewed_by),
-              admin_note = COALESCE($4, admin_note)
-        WHERE id = $5`,
-      [parsed.data.status, now, reviewer, adminNote, req.params.id],
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const locked = await client.query<AdminClaimRow>(
+        `SELECT * FROM insurance_claims WHERE id = $1 FOR UPDATE`,
+        [req.params.id],
+      );
+      const lockedClaim = locked.rows[0];
+      if (
+        !lockedClaim ||
+        !(CLAIM_TRANSITIONS[lockedClaim.status] ?? []).includes(parsed.data.status)
+      ) {
+        throw Object.assign(new Error('Claim state changed; reload and retry.'), {
+          status: 409,
+        });
+      }
+      if (parsed.data.status === 'paid') {
+        const merchantWallet = await client.query<{
+          id: string;
+          pool_id: string | null;
+        }>(
+          `SELECT w.id, w.pool_id
+             FROM merchants m JOIN wallets w ON w.user_id = m.user_id
+            WHERE m.id = $1 AND COALESCE(w.wallet_kind, 'user') = 'user'`,
+          [lockedClaim.merchant_id],
+        );
+        const destination = merchantWallet.rows[0];
+        if (!destination) {
+          throw Object.assign(new Error('Merchant wallet missing'), { status: 409 });
+        }
+        const escrowId = await getEscrowWalletIdForPoolPg(
+          client,
+          destination.pool_id ?? DEFAULT_POOL_ID,
+        );
+        if (!escrowId) {
+          throw Object.assign(new Error('Insurance settlement wallet missing'), {
+            status: 503,
+          });
+        }
+        await postBetweenWalletsPg(client, {
+          fromWalletId: escrowId,
+          toWalletId: destination.id,
+          amountCents: parseIntegerCents(lockedClaim.claimed_amount_cents),
+          type: 'insurance_payout',
+          referencePrefix: 'INS',
+          description: `Insurance claim payout ${lockedClaim.id}`,
+          actorId: actorLabel(req),
+        });
+      }
+      await client.query(
+        `UPDATE insurance_claims
+            SET status = $1, reviewed_at = $2,
+                reviewed_by = COALESCE($3, reviewed_by),
+                admin_note = COALESCE($4, admin_note)
+          WHERE id = $5`,
+        [parsed.data.status, now, reviewer, adminNote, req.params.id],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      const status = (error as { status?: number }).status ?? 500;
+      return res.status(status).json({
+        error: error instanceof Error ? error.message : 'Claim update failed',
+      });
+    } finally {
+      client.release();
+    }
     const rowQ = await pool.query<AdminClaimRow>(
       `SELECT c.*, m.business_name, m.user_id AS merchant_user_id
          FROM insurance_claims c
@@ -316,7 +442,7 @@ adminRouterPg.patch(
     const row = rowQ.rows[0];
     await recordAuditEventPg(pool, {
       type: 'admin.claim_review',
-      message: `Claim ${row.id} (${row.type}, R${row.claimed_amount.toFixed(2)}) -> ${parsed.data.status} by ${actorLabel(req)}`,
+      message: `Claim ${row.id} (${row.type}, R${formatCents(parseIntegerCents(row.claimed_amount_cents))}) -> ${parsed.data.status} by ${actorLabel(req)}`,
       actorUserId: reviewer,
     });
     return res.json({ claim: toAdminInsuranceClaim(row) });
@@ -325,7 +451,7 @@ adminRouterPg.patch(
 
 adminRouterPg.get(
   '/admin/audit-events',
-  requireAdminOrOps,
+  ...requireCapability('audit:read'),
   async (_req, res) => {
     const pool = getPgPool();
     const r = await pool.query<{
@@ -354,20 +480,20 @@ type ReconRow = {
   user_id: string;
   pool_id: string;
   wallet_kind: string;
-  balance: number;
-  ledger_credits: number;
-  ledger_debits: number;
-  ledger_balance: number;
+  balance_cents: string;
+  ledger_credits_cents: string;
+  ledger_debits_cents: string;
+  ledger_balance_cents: string;
 };
 
-adminRouterPg.post('/admin/reconciliation/run', ...gate, async (_req, res) => {
+adminRouterPg.post('/admin/reconciliation/run', ...requireCapability('reconciliation:run'), async (_req, res) => {
     const pool = getPgPool();
     const r = await pool.query<ReconRow>(
       `
       WITH ledger AS (
         SELECT account_id AS wallet_id,
-               SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END) AS credits,
-               SUM(CASE WHEN entry_type = 'debit'  THEN amount ELSE 0 END) AS debits
+               SUM(CASE WHEN entry_type = 'credit' THEN amount_cents ELSE 0 END) AS credits,
+               SUM(CASE WHEN entry_type = 'debit'  THEN amount_cents ELSE 0 END) AS debits
         FROM ledger_entries
         GROUP BY account_id
       )
@@ -375,27 +501,40 @@ adminRouterPg.post('/admin/reconciliation/run', ...gate, async (_req, res) => {
              w.user_id AS user_id,
              w.pool_id AS pool_id,
              w.wallet_kind AS wallet_kind,
-             w.balance AS balance,
-             COALESCE(l.credits, 0) AS ledger_credits,
-             COALESCE(l.debits, 0)  AS ledger_debits,
-             COALESCE(l.credits, 0) - COALESCE(l.debits, 0) AS ledger_balance
+             w.balance_cents AS balance_cents,
+             COALESCE(l.credits, 0) AS ledger_credits_cents,
+             COALESCE(l.debits, 0)  AS ledger_debits_cents,
+             COALESCE(l.credits, 0) - COALESCE(l.debits, 0) AS ledger_balance_cents
         FROM wallets w
         LEFT JOIN ledger l ON l.wallet_id = w.id
       `,
     );
 
-    const tolerance = 0.01;
     const discrepancies = r.rows
-      .filter((row) => Math.abs(row.balance - row.ledger_balance) > tolerance)
-      .map((row) => ({
-        walletId: row.wallet_id,
-        userId: row.user_id,
-        poolId: row.pool_id,
-        kind: row.wallet_kind,
-        walletBalance: Number(row.balance.toFixed(2)),
-        ledgerBalance: Number(row.ledger_balance.toFixed(2)),
-        delta: Number((row.balance - row.ledger_balance).toFixed(2)),
-      }));
+      .filter(
+        (row) =>
+          parseIntegerCents(row.balance_cents, { allowZero: true }) !==
+          parseIntegerCents(row.ledger_balance_cents, {
+            allowZero: true,
+            allowNegative: true,
+          }),
+      )
+      .map((row) => {
+        const wallet = parseIntegerCents(row.balance_cents, { allowZero: true });
+        const ledger = parseIntegerCents(row.ledger_balance_cents, {
+          allowZero: true,
+          allowNegative: true,
+        });
+        return {
+          walletId: row.wallet_id,
+          userId: row.user_id,
+          poolId: row.pool_id,
+          kind: row.wallet_kind,
+          walletBalance: formatCents(wallet),
+          ledgerBalance: formatCents(ledger),
+          delta: formatCents(wallet - ledger),
+        };
+      });
 
     return res.json({
       ranAt: new Date().toISOString(),
@@ -428,7 +567,7 @@ const merchantListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 
-adminRouterPg.get('/admin/merchants', ...gate, async (req, res) => {
+adminRouterPg.get('/admin/merchants', ...requireCapability('merchants:read'), async (req, res) => {
   const parsed = merchantListQuery.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -479,7 +618,7 @@ adminRouterPg.get('/admin/merchants', ...gate, async (req, res) => {
   });
 });
 
-adminRouterPg.get('/admin/merchants/:id', ...gate, async (req, res) => {
+adminRouterPg.get('/admin/merchants/:id', ...requireCapability('merchants:read'), async (req, res) => {
   const pool = getPgPool();
   const r = await pool.query<AdminMerchantRow>(
     `SELECT m.*, u.name AS owner_name, u.phone AS owner_phone
@@ -492,18 +631,27 @@ adminRouterPg.get('/admin/merchants/:id', ...gate, async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Merchant not found' });
 
   const docs = await pool.query<{
+    id: string;
     doc_type: string;
     file_name: string;
     content_type: string;
     size_bytes: number;
     uploaded_at: string | Date;
   }>(
-    `SELECT doc_type, file_name, content_type, size_bytes, uploaded_at
+    `SELECT id, doc_type, file_name, content_type, size_bytes, uploaded_at
        FROM merchant_documents
       WHERE merchant_id = $1
       ORDER BY doc_type`,
     [row.id],
   );
+  if (req.opsAuth && docs.rows.length > 0) {
+    await pool.query(
+      `INSERT INTO kyc_document_audit (id, document_id, operator_id, action, reason)
+       SELECT gen_random_uuid(), id, $2, 'metadata_read', 'Merchant KYC case review'
+         FROM merchant_documents WHERE merchant_id = $1 AND deleted_at IS NULL`,
+      [row.id, req.opsAuth.operatorId],
+    );
+  }
 
   return res.json({
     merchant: {
@@ -526,27 +674,48 @@ adminRouterPg.get('/admin/merchants/:id', ...gate, async (req, res) => {
 
 adminRouterPg.get(
   '/admin/merchants/:id/documents/:docType',
-  ...gate,
+  ...requireCapability('kyc:download'),
   async (req, res) => {
     const pool = getPgPool();
+    if (req.opsAuth!.role !== 'admin') {
+      const assignment = await pool.query(
+        `SELECT 1 FROM kyc_cases
+          WHERE merchant_id = $1 AND assigned_operator_id = $2
+            AND state IN ('assigned','in_review')`,
+        [req.params.id, req.opsAuth!.operatorId],
+      );
+      if (!assignment.rowCount) {
+        return res.status(403).json({ error: 'KYC case is not assigned to this operator.' });
+      }
+    }
     const r = await pool.query<{
+      id: string;
       file_name: string;
       content_type: string;
-      file_data: Buffer;
+      object_key: string | null;
+      scan_state: string;
     }>(
-      `SELECT file_name, content_type, file_data
+      `SELECT id, file_name, content_type, object_key, scan_state
          FROM merchant_documents
-        WHERE merchant_id = $1 AND doc_type = $2`,
+        WHERE merchant_id = $1 AND doc_type = $2 AND deleted_at IS NULL`,
       [req.params.id, req.params.docType],
     );
     const row = r.rows[0];
     if (!row) return res.status(404).json({ error: 'Document not found' });
-    res.setHeader('Content-Type', row.content_type);
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${row.file_name.replace(/"/g, '')}"`,
+    if (!row.object_key || row.scan_state !== 'clean') {
+      return res.status(409).json({ error: 'Document is unavailable until a clean malware scan completes.' });
+    }
+    await pool.query(
+      `INSERT INTO kyc_document_audit
+        (id, document_id, operator_id, action, reason)
+       VALUES ($1,$2,$3,'download_url_issued','Operator requested KYC evidence')`,
+      [randomUUID(), row.id, req.opsAuth!.operatorId],
     );
-    return res.send(row.file_data);
+    return res.json({
+      fileName: row.file_name,
+      contentType: row.content_type,
+      download: createKycDownloadUrl(row.object_key),
+    });
   },
 );
 
@@ -555,9 +724,33 @@ const merchantApprovalBody = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
+adminRouterPg.put(
+  '/admin/merchants/:id/kyc-assignment',
+  ...requireCapability('kyc:assign'),
+  async (req, res) => {
+    const parsed = z.object({ operatorId: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const eligible = await getPgPool().query(
+      `SELECT 1 FROM ops_admin_users
+        WHERE id = $1 AND is_active = TRUE AND role IN ('admin','compliance')`,
+      [parsed.data.operatorId],
+    );
+    if (!eligible.rowCount) return res.status(400).json({ error: 'Assignee lacks KYC capability.' });
+    await getPgPool().query(
+      `INSERT INTO kyc_cases (id, merchant_id, assigned_operator_id, state)
+       VALUES ($1,$2,$3,'assigned')
+       ON CONFLICT (merchant_id) DO UPDATE SET
+         assigned_operator_id=EXCLUDED.assigned_operator_id,
+         state='assigned', updated_at=NOW()`,
+      [randomUUID(), req.params.id, parsed.data.operatorId],
+    );
+    return res.json({ ok: true });
+  },
+);
+
 adminRouterPg.patch(
   '/admin/merchants/:id/approval',
-  ...gate,
+  ...requireCapability('merchants:review'),
   async (req, res) => {
     const parsed = merchantApprovalBody.safeParse(req.body);
     if (!parsed.success) {
@@ -588,7 +781,22 @@ adminRouterPg.patch(
       });
     }
 
-    // Admins/ops may approve even when documents are incomplete.
+    if (parsed.data.status === 'approved') {
+      const docsQ = await pool.query<{ doc_type: string }>(
+        `SELECT doc_type FROM merchant_documents WHERE merchant_id = $1`,
+        [existing.id],
+      );
+      const uploaded = new Set(docsQ.rows.map((r) => r.doc_type));
+      const missing = MERCHANT_DOC_TYPES.filter((t) => !uploaded.has(t));
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error:
+            'Merchant must upload all required documents before approval.',
+          missingDocuments: missing,
+        });
+      }
+    }
+
     const now = new Date().toISOString();
     const reviewer =
       appActorUserId(req) ??

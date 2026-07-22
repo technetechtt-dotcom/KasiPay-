@@ -11,7 +11,7 @@ walletsRouterPg.get('/wallets/me', requireAuth, async (req, res) => {
   const q = await pool.query<{
     id: string;
     user_id: string;
-    balance: number;
+    balance_cents: string;
     currency: string;
     status: string;
     pool_id: string;

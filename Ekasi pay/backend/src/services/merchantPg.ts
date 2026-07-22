@@ -42,8 +42,9 @@ export async function ensureMerchantIdPg(
 
   const id = randomUUID();
   await pool.query(
-    `INSERT INTO merchants (id, user_id, business_name, location, category)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO merchants (
+       id, user_id, business_name, location, category, approval_status
+     ) VALUES ($1, $2, $3, $4, $5, 'pending_docs')`,
     [id, userId, `${row.name}'s Shop`, 'South Africa', 'Retail'],
   );
   return id;

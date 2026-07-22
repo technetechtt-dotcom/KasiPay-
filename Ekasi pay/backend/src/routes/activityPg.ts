@@ -22,14 +22,15 @@ activityRouterPg.get('/transactions/me', requireAuth, async (req, res) => {
     id: string;
     from_wallet_id: string | null;
     to_wallet_id: string | null;
-    amount: number;
+    amount_cents: string;
     type: string;
     status: string;
     reference: string;
     description: string;
     created_at: string;
   }>(
-    `SELECT *
+    `SELECT id, from_wallet_id, to_wallet_id, amount_cents, type, status,
+            reference, description, created_at
        FROM transactions
       WHERE from_wallet_id = $1 OR to_wallet_id = $1
       ORDER BY created_at DESC
@@ -56,11 +57,12 @@ activityRouterPg.get('/ledger/me', requireAuth, async (req, res) => {
     transaction_id: string;
     account_id: string;
     entry_type: string;
-    amount: number;
-    balance_after: number;
+    amount_cents: string;
+    balance_after_cents: string;
     created_at: string;
   }>(
-    `SELECT *
+    `SELECT id, transaction_id, account_id, entry_type, amount_cents,
+            balance_after_cents, created_at
        FROM ledger_entries
       WHERE account_id = $1
       ORDER BY created_at DESC

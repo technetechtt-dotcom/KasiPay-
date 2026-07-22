@@ -1,4 +1,10 @@
 import type { Product } from '../types';
+import {
+  centsToMoney,
+  compareMoney,
+  formatMoney,
+  type Money,
+} from '../money';
 
 export type GroceryBarcodeFormat =
   | 'ean13'
@@ -23,7 +29,7 @@ export type ParsedGroceryScan = {
   /** Embedded weight from scales or GS1 AI 310x (kilograms). */
   weightKg?: number;
   /** Embedded price from price-embedded weighed labels (ZAR). */
-  priceZar?: number;
+  priceZar?: Money;
   expiryYYMMDD?: string;
   batch?: string;
   /** QR/Data Matrix that looks like a URL or coupon — not a retail GTIN. */
@@ -83,8 +89,8 @@ function parseWeightedEan13(digits: string): Partial<ParsedGroceryScan> | null {
     };
   }
 
-  const priceZar = valueNum / 100;
-  if (priceZar > 0 && priceZar <= 10_000) {
+  const priceZar = centsToMoney(BigInt(valueField));
+  if (valueNum > 0 && valueNum <= 1_000_000) {
     return {
       format: 'weighted_ean13',
       lookupCode,
@@ -313,8 +319,8 @@ export function groceryScanDetail(parsed: ParsedGroceryScan): string {
   if (parsed.weightKg != null && parsed.weightKg > 0) {
     return ` (${parsed.weightKg.toFixed(3)} kg)`;
   }
-  if (parsed.priceZar != null && parsed.priceZar > 0) {
-    return ` (R${parsed.priceZar.toFixed(2)})`;
+  if (parsed.priceZar != null && compareMoney(parsed.priceZar, 0) > 0) {
+    return ` (R${formatMoney(parsed.priceZar)})`;
   }
   return '';
 }

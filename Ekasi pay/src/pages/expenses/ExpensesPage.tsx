@@ -20,6 +20,14 @@ import {
 'lucide-react';
 import { toast } from 'sonner';
 import type { Expense, ExpenseCategory, Sale, Product } from '../../types';
+import {
+  addMoney,
+  canonicalMoney,
+  compareMoney,
+  moneyFromRate,
+  multiplyMoney,
+  subtractMoney,
+} from '../../money';
 const CATEGORY_ICONS: Record<ExpenseCategory, ElementType> = {
   electricity: Zap,
   paraffin: Flame,
@@ -57,17 +65,24 @@ export const ExpensesPage = ({
   const [category, setCategory] = useState<ExpenseCategory>('supplier');
   const [busy, setBusy] = useState(false);
   const totalGrossMargin = sales.reduce((sum, s) => {
-    return (
-      sum +
+    return addMoney(
+      sum,
       s.items.reduce((itemSum, item) => {
         const product = products.find((p) => p.id === item.productId);
-        const costPrice = product?.costPrice ?? item.price * 0.7;
-        return itemSum + (item.price - costPrice) * item.quantity;
-      }, 0));
-
-  }, 0);
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const netProfit = totalGrossMargin - totalExpenses;
+        const costPrice =
+          product?.costPrice ?? moneyFromRate(item.price, 7n, 10n);
+        return addMoney(
+          itemSum,
+          multiplyMoney(subtractMoney(item.price, costPrice), item.quantity),
+        );
+      }, '0.00'),
+    );
+  }, '0.00');
+  const totalExpenses = expenses.reduce(
+    (sum, e) => addMoney(sum, e.amount),
+    '0.00',
+  );
+  const netProfit = subtractMoney(totalGrossMargin, totalExpenses);
   const resetForm = () => {
     setAmount('');
     setDescription('');
@@ -82,7 +97,7 @@ export const ExpensesPage = ({
       try {
         const result = await Promise.resolve(
           onAddExpense({
-            amount: Number(amount),
+            amount: canonicalMoney(amount),
             description,
             category,
           }),
@@ -142,7 +157,7 @@ export const ExpensesPage = ({
             <KPAmount
               amount={netProfit}
               showSign
-              className={netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'} />
+              className={compareMoney(netProfit, 0) >= 0 ? 'text-emerald-400' : 'text-red-400'} />
             
           </div>
           <div className="flex justify-between items-center text-sm border-t border-slate-800 pt-3">

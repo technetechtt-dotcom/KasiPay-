@@ -15,6 +15,12 @@ import {
 import { NODE_ENV } from '../config.js';
 import { getPgPool } from '../dbPg.js';
 import { toCreditCustomer, toCreditTransaction } from '../mappers.js';
+import {
+  parseIntegerCents,
+  parseZarToCents,
+  type Cents,
+} from '../money.js';
+import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
@@ -61,8 +67,8 @@ async function loadCustomerForMerchant(
     merchant_id: string;
     phone: string;
     sa_id_hash: string | null;
-    total_owed: number;
-    credit_limit: number;
+    total_owed_cents: string;
+    credit_limit_cents: string;
   }>(`SELECT * FROM credit_customers WHERE id = $1`, [customerId]);
   const customer = customerQ.rows[0];
   if (!customer || customer.merchant_id !== merchantId) return null;
@@ -273,8 +279,6 @@ creditRouterPg.get('/credit/customers', requireAuth, async (req, res) => {
     merchant_id: string;
     name: string;
     phone: string;
-    total_owed: number;
-    credit_limit: number;
     last_payment_date: string | null;
     created_at: string;
     sa_id_hash: string | null;
@@ -298,7 +302,7 @@ creditRouterPg.get('/credit/transactions', requireAuth, async (req, res) => {
     id: string;
     customer_id: string;
     type: string;
-    amount: number;
+    amount_cents: string;
     description: string;
     created_at: string;
   }>(
@@ -352,17 +356,26 @@ creditRouterPg.post('/credit/customers', requireAuth, async (req, res) => {
   const saIdHash = hashSaIdForStorage(c.saIdDocument);
   await pool.query(
     `INSERT INTO credit_customers (
-      id, merchant_id, name, phone, total_owed, credit_limit, created_at, sa_id_hash, id_verified_at
+      id, merchant_id, name, phone, total_owed_cents, credit_limit_cents, created_at, sa_id_hash, id_verified_at
     ) VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8)`,
-    [id, merchantId, c.name, c.phone, c.creditLimit, now, saIdHash, now],
+    [
+      id,
+      merchantId,
+      c.name,
+      c.phone,
+      parseZarToCents(c.creditLimit).toString(),
+      now,
+      saIdHash,
+      now,
+    ],
   );
   const row = await pool.query<{
     id: string;
     merchant_id: string;
     name: string;
     phone: string;
-    total_owed: number;
-    credit_limit: number;
+    total_owed_cents: string;
+    credit_limit_cents: string;
     last_payment_date: string | null;
     created_at: string;
     sa_id_hash: string | null;
@@ -371,7 +384,11 @@ creditRouterPg.post('/credit/customers', requireAuth, async (req, res) => {
   return res.status(201).json({ customer: toCreditCustomer(row.rows[0]) });
 });
 
-creditRouterPg.post('/credit/transactions', requireAuth, async (req, res) => {
+creditRouterPg.post(
+  '/credit/transactions',
+  requireAuth,
+  idempotentPg('POST /credit/transactions'),
+  async (req, res) => {
   const parsed = creditTxnSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -385,11 +402,12 @@ creditRouterPg.post('/credit/transactions', requireAuth, async (req, res) => {
   }
 
   const { customerId, type, amount, description } = parsed.data;
+  const amountCents = parseZarToCents(amount);
   const customerQ = await pool.query<{
     id: string;
     merchant_id: string;
-    total_owed: number;
-    credit_limit: number;
+    total_owed_cents: string;
+    credit_limit_cents: string;
     sa_id_hash: string | null;
   }>(`SELECT * FROM credit_customers WHERE id = $1`, [customerId]);
   const customer = customerQ.rows[0];
@@ -424,37 +442,43 @@ creditRouterPg.post('/credit/transactions', requireAuth, async (req, res) => {
 
   const id = randomUUID();
   const now = new Date().toISOString();
-  let nextTotal = customer.total_owed;
+  const owedCents = parseIntegerCents(customer.total_owed_cents, {
+    allowZero: true,
+  });
+  const creditLimitCents = parseIntegerCents(customer.credit_limit_cents);
+  let nextTotalCents: Cents = owedCents;
   if (type === 'purchase') {
-    nextTotal += amount;
-    if (nextTotal > customer.credit_limit) {
+    nextTotalCents = (owedCents + amountCents) as Cents;
+    if (nextTotalCents > creditLimitCents) {
       return res.status(400).json({ error: 'Would exceed credit limit' });
     }
   } else {
-    nextTotal = Math.max(0, customer.total_owed - amount);
+    nextTotalCents = (amountCents >= owedCents
+      ? 0n
+      : owedCents - amountCents) as Cents;
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      `INSERT INTO credit_transactions (id, customer_id, type, amount, description, created_at)
+      `INSERT INTO credit_transactions (id, customer_id, type, amount_cents, description, created_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, customerId, type, amount, description, now],
+      [id, customerId, type, amountCents.toString(), description, now],
     );
     if (type === 'payment') {
       await client.query(
-        `UPDATE credit_customers SET total_owed = $1, last_payment_date = $2 WHERE id = $3`,
-        [nextTotal, now, customerId],
+        `UPDATE credit_customers SET total_owed_cents = $1, last_payment_date = $2 WHERE id = $3`,
+        [nextTotalCents.toString(), now, customerId],
       );
     } else {
       await client.query(
         `UPDATE credit_customers
-            SET total_owed = $1,
+            SET total_owed_cents = $1,
                 sa_id_hash = COALESCE(sa_id_hash, $2),
                 id_verified_at = COALESCE(id_verified_at, $3)
           WHERE id = $4`,
-        [nextTotal, verifiedSaIdHash, now, customerId],
+        [nextTotalCents.toString(), verifiedSaIdHash, now, customerId],
       );
     }
     await client.query('COMMIT');
@@ -470,8 +494,8 @@ creditRouterPg.post('/credit/transactions', requireAuth, async (req, res) => {
     merchant_id: string;
     name: string;
     phone: string;
-    total_owed: number;
-    credit_limit: number;
+    total_owed_cents: string;
+    credit_limit_cents: string;
     last_payment_date: string | null;
     created_at: string;
     sa_id_hash: string | null;
@@ -481,7 +505,7 @@ creditRouterPg.post('/credit/transactions', requireAuth, async (req, res) => {
     id: string;
     customer_id: string;
     type: string;
-    amount: number;
+    amount_cents: string;
     description: string;
     created_at: string;
   }>(`SELECT * FROM credit_transactions WHERE id = $1`, [id]);
@@ -489,4 +513,5 @@ creditRouterPg.post('/credit/transactions', requireAuth, async (req, res) => {
     transaction: toCreditTransaction(txnRow.rows[0]),
     customer: toCreditCustomer(updated.rows[0]),
   });
-});
+  },
+);

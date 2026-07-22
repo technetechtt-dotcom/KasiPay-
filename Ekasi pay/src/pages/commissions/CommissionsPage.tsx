@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { compareMoney, type Money } from '../../money';
 
 import {
   KPCard,
@@ -26,7 +27,10 @@ export const CommissionsPage = ({
   navigate: (p: string) => void;
 }) => {
   const [postings, setPostings] = useState<CommissionPosting[]>([]);
-  const [totals, setTotals] = useState({ lifetime: 0, thisMonth: 0 });
+  const [totals, setTotals] = useState<{ lifetime: Money; thisMonth: Money }>({
+    lifetime: '0.00',
+    thisMonth: '0.00',
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -115,7 +119,7 @@ export const CommissionsPage = ({
         ) : (
           <div className="space-y-3">
             {postings.map((p, i) => {
-              const incoming = p.amount >= 0;
+              const incoming = compareMoney(p.amount, 0) >= 0;
               return (
                 <motion.div
                   key={p.id}

@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "description": "Template only. Copy to evidence/production-readiness.json and replace placeholders after real approvals. Do not invent status=approved entries.",
+  "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+  "controls": [
+    {
+      "control": "migrations",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/migrations.txt",
+      "sha256": null,
+      "notes": "Record after migrate:validate + migrate:status against the target database."
+    },
+    {
+      "control": "configuration",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/configuration.txt",
+      "sha256": null,
+      "notes": "Record after production config review against configuration-matrix.md."
+    },
+    {
+      "control": "tests",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/tests.txt",
+      "sha256": null,
+      "notes": "CI or local test log for the exact RELEASE_SHA."
+    },
+    {
+      "control": "security_scan",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/security-scan.txt",
+      "sha256": null,
+      "notes": "gitleaks + npm audit (and any external pen-test summary URI)."
+    },
+    {
+      "control": "sbom",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/sbom.json",
+      "sha256": null,
+      "notes": "Generated SBOM for the release artifacts."
+    },
+    {
+      "control": "provenance",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/provenance.txt",
+      "sha256": null,
+      "notes": "Build provenance / image digest attestation."
+    },
+    {
+      "control": "legal",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/legal.txt",
+      "sha256": null,
+      "notes": "External legal sign-off reference (URI to private storage)."
+    },
+    {
+      "control": "provider",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/provider.txt",
+      "sha256": null,
+      "notes": "Provider/underwriter certification evidence."
+    },
+    {
+      "control": "backup",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/backup.txt",
+      "sha256": null,
+      "notes": "Backup provider marker and verification output."
+    },
+    {
+      "control": "restore_drill",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/restore-drill.txt",
+      "sha256": null,
+      "notes": "Output of npm run restore:drill on an isolated clone."
+    },
+    {
+      "control": "failure_drill",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/failure-drill.txt",
+      "sha256": null,
+      "notes": "Output of npm run drill with the approved adapter."
+    },
+    {
+      "control": "smoke",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/smoke.txt",
+      "sha256": null,
+      "notes": "Staging smoke against the candidate build."
+    },
+    {
+      "control": "rollback",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/rollback.txt",
+      "sha256": null,
+      "notes": "Named rollback owner and rehearsed FINANCIAL_POSTING_ENABLED=false procedure."
+    }
+  ],
+  "productFlags": [
+    {
+      "flag": "CASH_SEND_ENABLED",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/product-cash-send.txt",
+      "sha256": null,
+      "notes": "Required only when CASH_SEND_ENABLED=true. Leave pending or omit while the flag is false."
+    },
+    {
+      "flag": "LENDING_ENABLED",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/product-lending.txt",
+      "sha256": null,
+      "notes": "Required only when LENDING_ENABLED=true."
+    },
+    {
+      "flag": "INSURANCE_ENABLED",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/product-insurance.txt",
+      "sha256": null,
+      "notes": "Required only when INSURANCE_ENABLED=true."
+    },
+    {
+      "flag": "STOKVEL_MONEY_MOVEMENT_ENABLED",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/product-stokvel.txt",
+      "sha256": null,
+      "notes": "Required only when STOKVEL_MONEY_MOVEMENT_ENABLED=true."
+    }
+  ]
+}

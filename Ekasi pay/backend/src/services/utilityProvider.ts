@@ -5,12 +5,13 @@ import {
   UTILITY_VENDOR_API_KEY,
   UTILITY_VENDOR_WEBHOOK_URL,
 } from '../config.js';
+import { formatCents, parseZarToCents } from '../money.js';
 
 export type UtilityPurchaseInput = {
-  category: 'airtime' | 'data' | 'electricity' | 'dstv';
+  category: 'airtime' | 'data' | 'electricity' | 'water' | 'dstv';
   provider: string;
   beneficiary: string;
-  amount: number;
+  amount: string;
   reference: string;
   userId: string;
 };
@@ -24,7 +25,7 @@ export type UtilityPurchaseResult = {
 export type UtilityProviderStatus = {
   available: boolean;
   mode: 'mock' | 'http' | 'disabled';
-  maxAmount: number;
+  maxAmount: string;
   mocked: boolean;
 };
 
@@ -33,7 +34,7 @@ export function getUtilityProviderStatus(): UtilityProviderStatus {
   return {
     available: mode !== 'disabled',
     mode,
-    maxAmount: UTILITY_MAX_AMOUNT,
+    maxAmount: formatCents(parseZarToCents(UTILITY_MAX_AMOUNT)),
     mocked: mode === 'mock',
   };
 }
@@ -43,6 +44,9 @@ function fakeVoucher(category: string): string {
     return Array.from({ length: 5 }, () =>
       Math.floor(1000 + Math.random() * 9000).toString(),
     ).join('-');
+  }
+  if (category === 'water') {
+    return `WTR-${Math.floor(100000 + Math.random() * 900000)}`;
   }
   if (category === 'dstv') {
     return `DSTV-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -120,9 +124,14 @@ async function purchaseViaHttp(
 export async function fulfillUtilityPurchase(
   input: UtilityPurchaseInput,
 ): Promise<UtilityPurchaseResult> {
-  if (input.amount > UTILITY_MAX_AMOUNT) {
+  if (
+    parseZarToCents(input.amount) >
+    parseZarToCents(UTILITY_MAX_AMOUNT)
+  ) {
     throw Object.assign(
-      new Error(`Amount exceeds maximum of R${UTILITY_MAX_AMOUNT}`),
+      new Error(
+        `Amount exceeds maximum of R${formatCents(parseZarToCents(UTILITY_MAX_AMOUNT))}`,
+      ),
       { status: 400 },
     );
   }

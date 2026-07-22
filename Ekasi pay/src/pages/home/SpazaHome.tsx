@@ -1,5 +1,12 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
+import {
+  addMoney,
+  compareMoney,
+  moneyFromRate,
+  multiplyMoney,
+  subtractMoney,
+} from '../../money';
 import { motion } from 'framer-motion';
 import {
   KPCard,
@@ -240,23 +247,33 @@ export const SpazaHome = ({
   const todaySales = sales.filter(
     (s) => new Date(s.createdAt).toDateString() === new Date().toDateString()
   );
-  const todaySalesTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
+  const todaySalesTotal = todaySales.reduce(
+    (sum, s) => addMoney(sum, s.total),
+    '0.00',
+  );
   // Calculate gross margin from sales using product cost prices
   const todayGrossMargin = todaySales.reduce((sum, s) => {
-    return (
-      sum +
+    return addMoney(
+      sum,
       s.items.reduce((itemSum, item) => {
         const product = products.find((p) => p.id === item.productId);
-        const costPrice = product?.costPrice ?? item.price * 0.7;
-        return itemSum + (item.price - costPrice) * item.quantity;
-      }, 0));
-
-  }, 0);
+        const costPrice =
+          product?.costPrice ?? moneyFromRate(item.price, 7n, 10n);
+        return addMoney(
+          itemSum,
+          multiplyMoney(subtractMoney(item.price, costPrice), item.quantity),
+        );
+      }, '0.00'),
+    );
+  }, '0.00');
   const todayExpenses = expenses.filter(
     (e) => new Date(e.createdAt).toDateString() === new Date().toDateString()
   );
-  const todayExpensesTotal = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const todayProfit = todayGrossMargin - todayExpensesTotal;
+  const todayExpensesTotal = todayExpenses.reduce(
+    (sum, e) => addMoney(sum, e.amount),
+    '0.00',
+  );
+  const todayProfit = subtractMoney(todayGrossMargin, todayExpensesTotal);
   const todayTransfers = transactions.filter(
     (t) =>
     new Date(t.createdAt).toDateString() === new Date().toDateString() &&
@@ -357,7 +374,7 @@ export const SpazaHome = ({
         </div>
 
         {/* Daily Summary Notification */}
-        {showDailySummary && todaySalesTotal > 0 &&
+        {showDailySummary && compareMoney(todaySalesTotal, 0) > 0 &&
         <motion.div
           initial={{
             opacity: 0,
@@ -441,7 +458,7 @@ export const SpazaHome = ({
                     {t('home.todaysProfit')}
                   </p>
                   <p
-                    className={`font-medium text-sm ${todayProfit < 0 ? 'text-red-200' : ''}`}>
+                    className={`font-medium text-sm ${compareMoney(todayProfit, 0) < 0 ? 'text-red-200' : ''}`}>
                     
                     <KPAmount amount={todayProfit} />
                   </p>
@@ -662,7 +679,7 @@ export const SpazaHome = ({
                         </div>
                       </div>
                       <KPAmount
-                        amount={isOutgoing ? -Math.abs(tx.amount) : Math.abs(tx.amount)}
+                        amount={isOutgoing ? subtractMoney('0.00', tx.amount) : tx.amount}
                         showSign
                         className={`shrink-0 text-right tabular-nums ${
                           isOutgoing ? 'text-slate-900' : 'text-emerald-600'

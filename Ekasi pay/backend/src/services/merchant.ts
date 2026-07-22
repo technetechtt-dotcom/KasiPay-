@@ -35,8 +35,9 @@ export function ensureMerchantId(userId: string): string {
   const id = randomUUID();
   database
     .prepare(
-      `INSERT INTO merchants (id, user_id, business_name, location, category)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO merchants (
+         id, user_id, business_name, location, category, approval_status
+       ) VALUES (?, ?, ?, ?, ?, 'pending_docs')`,
     )
     .run(id, userId, `${user.name}'s Shop`, 'South Africa', 'Retail');
   return id;

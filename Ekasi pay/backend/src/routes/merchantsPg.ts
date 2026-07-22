@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { Router } from 'express';
 import { z } from 'zod';
@@ -14,8 +14,64 @@ import {
   type MerchantDocType,
 } from '../merchantDocuments.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import {
+  createKycUploadUrl,
+  MAX_KYC_BYTES,
+  validateDocumentSignature,
+} from '../services/privateObjectStorage.js';
+import { encryptSensitive } from '../security/totp.js';
 
 export const merchantsRouterPg = Router();
+
+merchantsRouterPg.post('/internal/kyc/scan-callback', async (req, res) => {
+  const expected = process.env.MALWARE_SCANNER_CALLBACK_SECRET ?? '';
+  const supplied =
+    typeof req.headers['x-scanner-signature'] === 'string'
+      ? req.headers['x-scanner-signature']
+      : '';
+  if (
+    expected.length < 32 ||
+    expected.length !== supplied.length ||
+    !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))
+  ) {
+    return res.status(401).json({ error: 'Invalid scanner callback.' });
+  }
+  const parsed = z.object({
+    objectKey: z.string().min(10).max(1000),
+    verdict: z.enum(['clean', 'infected', 'failed']),
+    detectedContentType: z.string().min(1).max(100),
+    sizeBytes: z.number().int().positive().max(MAX_KYC_BYTES),
+    signatureSampleBase64: z.string().min(4).max(4096),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const signatureValid = validateDocumentSignature(
+    parsed.data.detectedContentType,
+    parsed.data.signatureSampleBase64,
+  );
+  const nextState =
+    parsed.data.verdict === 'clean' && signatureValid ? 'clean' : 'quarantined';
+  const updated = await getPgPool().query(
+    `UPDATE merchant_documents SET scan_state = $1, scan_completed_at = NOW(),
+       content_type = $3, size_bytes = $4,
+       quarantined_at = CASE WHEN $1 = 'quarantined' THEN NOW() ELSE NULL END
+     WHERE object_key = $2 AND scan_state = 'pending' RETURNING id`,
+    [
+      nextState,
+      parsed.data.objectKey,
+      parsed.data.detectedContentType.toLowerCase(),
+      parsed.data.sizeBytes,
+    ],
+  );
+  if (!updated.rowCount) return res.status(404).json({ error: 'Pending document not found.' });
+  if (nextState === 'quarantined') {
+    await getPgPool().query(
+      `INSERT INTO kyc_retention_jobs (id, document_id, action, not_before)
+       VALUES ($1,$2,'quarantine',NOW())`,
+      [randomUUID(), updated.rows[0].id],
+    );
+  }
+  return res.json({ ok: true, scanState: nextState });
+});
 
 type MerchantRow = {
   id: string;
@@ -73,8 +129,8 @@ merchantsRouterPg.post('/merchants/me', requireAuth, async (req, res) => {
   const existing = existingQ.rows[0];
   if (existing) return res.json({ merchant: toMerchant(existing) });
 
-  const userQ = await pool.query<{ name: string; role: string }>(
-    `SELECT name, role FROM users WHERE id = $1`,
+  const userQ = await pool.query<{ name: string }>(
+    `SELECT name FROM users WHERE id = $1`,
     [userId],
   );
   const user = userQ.rows[0];
@@ -88,8 +144,7 @@ merchantsRouterPg.post('/merchants/me', requireAuth, async (req, res) => {
   const businessName = body.businessName?.trim() || `${user.name}'s Shop`;
   const location = body.location?.trim() || 'South Africa';
   const category = body.category?.trim() || 'Retail';
-  // Merchants need compliance docs; agents/admins creating a shop start approved.
-  const approvalStatus = user.role === 'merchant' ? 'pending_docs' : 'approved';
+  const approvalStatus = 'pending_docs';
 
   const id = randomUUID();
   await pool.query(
@@ -185,10 +240,93 @@ const uploadBody = z.object({
   dataBase64: z.string().min(1),
 });
 
+const signedUploadBody = z.object({
+  docType: z.string(),
+  fileName: z.string().trim().min(1).max(200),
+  contentType: z.string().trim().min(1).max(100),
+  sizeBytes: z.number().int().positive().max(MAX_KYC_BYTES),
+});
+
+merchantsRouterPg.post('/merchants/me/documents/upload-url', requireAuth, async (req, res) => {
+  const parsed = signedUploadBody.safeParse(req.body);
+  if (!parsed.success || !isMerchantDocType(parsed.data?.docType ?? '')) {
+    return res.status(400).json({ error: 'Invalid document upload request.' });
+  }
+  const merchant = await getPgPool().query<MerchantRow>(
+    `SELECT * FROM merchants WHERE user_id = $1`,
+    [req.auth!.userId],
+  );
+  if (!merchant.rows[0]) return res.status(404).json({ error: 'Merchant profile not found.' });
+  if (!['pending_docs', 'rejected'].includes(merchant.rows[0].approval_status)) {
+    return res.status(409).json({ error: 'Documents cannot be changed during or after review.' });
+  }
+  const signed = createKycUploadUrl(
+    merchant.rows[0].id,
+    parsed.data.docType,
+    parsed.data.contentType,
+  );
+  return res.json({ upload: signed });
+});
+
+const completeUploadBody = signedUploadBody.extend({
+  objectKey: z.string().regex(/^kyc\/[a-zA-Z0-9-]+\/[a-z_]+\/[a-zA-Z0-9-]+$/u),
+  signatureSampleBase64: z.string().min(4).max(4096),
+  encryptionKeyRef: z.string().min(1).max(200),
+});
+
+merchantsRouterPg.post('/merchants/me/documents/complete', requireAuth, async (req, res) => {
+  const parsed = completeUploadBody.safeParse(req.body);
+  if (!parsed.success || !isMerchantDocType(parsed.data?.docType ?? '')) {
+    return res.status(400).json({ error: 'Invalid document completion request.' });
+  }
+  const merchant = await getPgPool().query<MerchantRow>(
+    `SELECT * FROM merchants WHERE user_id = $1`,
+    [req.auth!.userId],
+  );
+  const row = merchant.rows[0];
+  if (!row || !parsed.data.objectKey.startsWith(`kyc/${row.id}/${parsed.data.docType}/`)) {
+    return res.status(403).json({ error: 'Document object is outside this merchant scope.' });
+  }
+  if (!validateDocumentSignature(parsed.data.contentType, parsed.data.signatureSampleBase64)) {
+    return res.status(400).json({ error: 'File signature does not match its MIME type.' });
+  }
+  await getPgPool().query(
+    `INSERT INTO merchant_documents
+      (id, merchant_id, doc_type, file_name, content_type, size_bytes, file_data,
+       uploaded_at, object_key, storage_provider, encryption_key_ref, scan_state)
+     VALUES ($1,$2,$3,$4,$5,$6,''::bytea,NOW(),$7,$8,$9,'pending')
+     ON CONFLICT (merchant_id, doc_type) DO UPDATE SET
+       id=EXCLUDED.id, file_name=EXCLUDED.file_name, content_type=EXCLUDED.content_type,
+       size_bytes=EXCLUDED.size_bytes, file_data=''::bytea, uploaded_at=NOW(),
+       object_key=EXCLUDED.object_key, storage_provider=EXCLUDED.storage_provider,
+       encryption_key_ref=EXCLUDED.encryption_key_ref, scan_state='pending',
+       scan_completed_at=NULL, quarantined_at=NULL`,
+    [
+      randomUUID(), row.id, parsed.data.docType, `${parsed.data.docType}.document`,
+      parsed.data.contentType.toLowerCase(), parsed.data.sizeBytes,
+      parsed.data.objectKey, process.env.PRIVATE_STORAGE_PROVIDER ?? 'external',
+      parsed.data.encryptionKeyRef,
+    ],
+  );
+  await getPgPool().query(
+    `UPDATE merchant_documents SET metadata_encrypted = $1 WHERE object_key = $2`,
+    [
+      encryptSensitive(JSON.stringify({ originalFileName: parsed.data.fileName })),
+      parsed.data.objectKey,
+    ],
+  );
+  return res.status(202).json({ ok: true, scanState: 'pending' });
+});
+
 merchantsRouterPg.post(
   '/merchants/me/documents',
   requireAuth,
   async (req, res) => {
+    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_LEGACY_DB_KYC_UPLOAD !== 'true') {
+      return res.status(410).json({
+        error: 'Legacy database document uploads are disabled. Use signed private-storage upload.',
+      });
+    }
     const parsed = uploadBody.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
@@ -311,15 +449,18 @@ merchantsRouterPg.post(
       return res.json({ merchant: toMerchant(merchant) });
     }
 
-    const docsQ = await pool.query<{ doc_type: string }>(
-      `SELECT doc_type FROM merchant_documents WHERE merchant_id = $1`,
+    const docsQ = await pool.query<{ doc_type: string; scan_state: string }>(
+      `SELECT doc_type, scan_state FROM merchant_documents
+        WHERE merchant_id = $1 AND deleted_at IS NULL`,
       [merchant.id],
     );
-    const have = new Set(docsQ.rows.map((r) => r.doc_type));
+    const have = new Set(
+      docsQ.rows.filter((r) => r.scan_state === 'clean').map((r) => r.doc_type),
+    );
     const missing = MERCHANT_DOC_TYPES.filter((t) => !have.has(t));
     if (missing.length > 0) {
       return res.status(400).json({
-        error: 'Upload all required documents before submitting.',
+        error: 'All required documents must be uploaded and pass malware scanning before submission.',
         missing,
       });
     }

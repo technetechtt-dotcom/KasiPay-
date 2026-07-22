@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -20,7 +21,7 @@ const dbFile = path.join(
 const base = `http://127.0.0.1:${port}`;
 
 /** Non-trivial PIN that passes accountPin validation in smoke runs. */
-const SMOKE_PIN = '59247';
+const SMOKE_PIN = '592473';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,7 +51,7 @@ async function fetchHealth() {
  * Helper: register a new merchant, return token + refreshToken + userId.
  * Each caller gets a freshly generated phone so test runs never collide.
  */
-async function registerMerchant(label = 'M') {
+async function registerMerchant(label = 'M', { approve = true } = {}) {
   const phone = `07${Date.now().toString().slice(-7)}${Math.floor(
     Math.random() * 90 + 10,
   )}`;
@@ -73,12 +74,139 @@ async function registerMerchant(label = 'M') {
       `register failed ${res.status}: ${JSON.stringify(body).slice(0, 200)}`,
     );
   }
+  if (approve) {
+    // The smoke database is isolated test data. Approve its synthetic merchant
+    // so merchant-only lifecycle checks exercise their business routes.
+    const smokeDb = new Database(dbFile);
+    try {
+      smokeDb.prepare(
+        `UPDATE merchants SET approval_status = 'approved' WHERE user_id = ?`,
+      ).run(body.user.id);
+    } finally {
+      smokeDb.close();
+    }
+  }
   return {
     phone,
     token: body.token,
     refreshToken: body.refreshToken,
     userId: body.user.id,
   };
+}
+
+async function smokeUnapprovedMerchantBlocked() {
+  const m = await registerMerchant('Pending', { approve: false });
+  const res = await apiFetch(`${base}/api/products`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'Blocked Bread',
+      costPrice: 8,
+      price: 15,
+      stock: 1,
+      category: 'Food',
+    }),
+  });
+  const body = await res.json();
+  if (res.status !== 403 || body?.code !== 'MERCHANT_NOT_APPROVED') {
+    throw new Error(
+      `expected MERCHANT_NOT_APPROVED, got ${res.status}: ${JSON.stringify(body)}`,
+    );
+  }
+}
+
+async function smokeRuntimeControlsAndDisabledProducts() {
+  const m = await registerMerchant('Controls');
+  let res = await apiFetch(`${base}/api/runtime-controls`, {
+    headers: { Authorization: `Bearer ${m.token}` },
+  });
+  let body = await res.json();
+  if (!res.ok || !body?.controls) {
+    throw new Error(`runtime-controls failed ${res.status}: ${JSON.stringify(body)}`);
+  }
+  const c = body.controls;
+  if (
+    c.cashSend !== false ||
+    c.lending !== false ||
+    c.insurance !== false ||
+    c.stokvelMoneyMovement !== false
+  ) {
+    throw new Error(
+      `expected regulated products off in smoke, got ${JSON.stringify(c)}`,
+    );
+  }
+
+  res = await apiFetch(`${base}/api/cash-send`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': `smoke-cs-${Date.now()}`,
+    },
+    body: JSON.stringify({
+      amount: 50,
+      recipientPhone: '0820000000',
+      recipientIdNumber: '9001015800088',
+    }),
+  });
+  body = await res.json();
+  if (res.status !== 503 || body?.code !== 'CASH_SEND_DISABLED') {
+    throw new Error(
+      `expected CASH_SEND_DISABLED, got ${res.status}: ${JSON.stringify(body)}`,
+    );
+  }
+
+  res = await apiFetch(`${base}/api/loans`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ amount: 100, interestRate: 0.1 }),
+  });
+  body = await res.json();
+  if (res.status !== 503 || body?.code !== 'LENDING_DISABLED') {
+    throw new Error(
+      `expected LENDING_DISABLED, got ${res.status}: ${JSON.stringify(body)}`,
+    );
+  }
+
+  res = await apiFetch(`${base}/api/insurance`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ type: 'stock', coverageAmount: 1000 }),
+  });
+  body = await res.json();
+  if (res.status !== 503 || body?.code !== 'INSURANCE_DISABLED') {
+    throw new Error(
+      `expected INSURANCE_DISABLED, got ${res.status}: ${JSON.stringify(body)}`,
+    );
+  }
+
+  res = await apiFetch(`${base}/api/stokvel/smoke-group/contributions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${m.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      memberPhone: '0820000000',
+      amount: 50,
+      periodMonth: '2026-07',
+    }),
+  });
+  body = await res.json();
+  if (res.status !== 503 || body?.code !== 'STOKVEL_MONEY_MOVEMENT_DISABLED') {
+    throw new Error(
+      `expected STOKVEL_MONEY_MOVEMENT_DISABLED, got ${res.status}: ${JSON.stringify(body)}`,
+    );
+  }
 }
 
 async function smokeAuthLifecycle() {
@@ -271,120 +399,23 @@ async function smokeStockReports() {
   }
 }
 
-async function smokeCreditFlow() {
+async function smokeCreditGatedWithoutPostgres() {
+  // SQLite smoke has no Phase 7 readiness rows. Merchant credit mutations must
+  // fail closed rather than posting book debt without controls.
   const m = await registerMerchant('Credit');
-  const saId = '8001015009087';
-  const phone = '0820001234';
-
-  let res = await apiFetch(`${base}/api/credit/verify/request`, {
+  const res = await apiFetch(`${base}/api/credit/verify/request`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${m.token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ phone, purpose: 'onboard' }),
+    body: JSON.stringify({ phone: '0820001234', purpose: 'onboard' }),
   });
-  let body = await res.json();
-  if (!res.ok) {
-    throw new Error(`credit otp request failed ${res.status}: ${JSON.stringify(body)}`);
-  }
-  const onboardCode = body.devCode;
-  if (!onboardCode) {
-    throw new Error('credit otp request missing devCode in smoke environment');
-  }
-
-  res = await apiFetch(`${base}/api/credit/verify/confirm`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${m.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      phone,
-      purpose: 'onboard',
-      code: onboardCode,
-      saIdDocument: saId,
-    }),
-  });
-  body = await res.json();
-  if (!res.ok || !body?.verificationToken) {
-    throw new Error(`credit otp confirm failed ${res.status}: ${JSON.stringify(body)}`);
-  }
-  const onboardToken = body.verificationToken;
-
-  res = await apiFetch(`${base}/api/credit/customers`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${m.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: 'Smoke Customer',
-      phone,
-      creditLimit: 500,
-      saIdDocument: saId,
-      verificationToken: onboardToken,
-    }),
-  });
-  body = await res.json();
-  if (!res.ok || !body?.customer?.id) {
-    throw new Error(`credit customer failed ${res.status}: ${JSON.stringify(body)}`);
-  }
-  const customer = body.customer;
-
-  res = await apiFetch(`${base}/api/credit/verify/request`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${m.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      phone,
-      purpose: 'purchase',
-      customerId: customer.id,
-    }),
-  });
-  body = await res.json();
-  if (!res.ok || !body?.devCode) {
-    throw new Error(`credit purchase otp request failed ${res.status}: ${JSON.stringify(body)}`);
-  }
-
-  res = await apiFetch(`${base}/api/credit/verify/confirm`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${m.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      phone,
-      purpose: 'purchase',
-      customerId: customer.id,
-      code: body.devCode,
-      saIdDocument: saId,
-    }),
-  });
-  body = await res.json();
-  if (!res.ok || !body?.verificationToken) {
-    throw new Error(`credit purchase otp confirm failed ${res.status}: ${JSON.stringify(body)}`);
-  }
-
-  res = await apiFetch(`${base}/api/credit/transactions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${m.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      customerId: customer.id,
-      type: 'purchase',
-      amount: 25,
-      description: '1x Bread on credit',
-      verificationToken: body.verificationToken,
-    }),
-  });
-  body = await res.json();
-  if (!res.ok || !body?.transaction?.id) {
-    throw new Error(`credit txn failed ${res.status}: ${JSON.stringify(body)}`);
+  const body = await res.json();
+  if (res.status !== 423 || body?.code !== 'PRODUCT_NOT_READY') {
+    throw new Error(
+      `expected PRODUCT_NOT_READY for credit on SQLite smoke, got ${res.status}: ${JSON.stringify(body)}`,
+    );
   }
 }
 
@@ -398,7 +429,7 @@ async function smokePinRateLimit() {
     const res = await apiFetch(`${base}/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: m.phone, pin: '9999' }),
+      body: JSON.stringify({ phone: m.phone, pin: '999999' }),
     });
     lastStatus = res.status;
     if (res.status === 423) break;
@@ -418,8 +449,16 @@ const proc = spawn('node', ['dist/index.js'], {
     DATABASE_PATH: dbFile,
     DATABASE_URL: '',
     NODE_ENV: 'test',
+    SMS_PROVIDER: 'console',
+    UTILITY_PROVIDER: 'mock',
     FRONTEND_ORIGIN: smokeOrigin,
     FRONTEND_ORIGINS: '',
+    // Regulated money products stay fail-closed even in local smoke.
+    CASH_SEND_ENABLED: '0',
+    LENDING_ENABLED: '0',
+    LENDING_DISBURSEMENT_ENABLED: '0',
+    INSURANCE_ENABLED: '0',
+    STOKVEL_MONEY_MOVEMENT_ENABLED: '0',
   },
   stdio: 'inherit',
 });
@@ -456,9 +495,11 @@ try {
     console.log(`smoke ok: GET ${base}/health`);
     const steps = [
       ['auth lifecycle (register → me → refresh → logout)', smokeAuthLifecycle],
+      ['unapproved merchant blocked from products', smokeUnapprovedMerchantBlocked],
+      ['runtime-controls + disabled regulated products', smokeRuntimeControlsAndDisabledProducts],
       ['sales (product → sale → income statement)', smokeSalesFlow],
       ['stock intake + inventory + expense reports', smokeStockReports],
-      ['credit book (customer → credit txn)', smokeCreditFlow],
+      ['credit book gated without Postgres readiness', smokeCreditGatedWithoutPostgres],
       ['per-user PIN lockout', smokePinRateLimit],
     ];
     exitCode = 0;

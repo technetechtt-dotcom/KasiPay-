@@ -249,15 +249,21 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
     assert.equal(locked.status, 423);
   });
 
-  it('collects a voucher with matching PIN and SA ID', async () => {
+  it('allows only one concurrent collection and rejects replay', async () => {
     assert.ok(voucherRefForCollect);
-    const res = await httpJson(baseUrl, 'POST', '/cash-send/collect', collectorToken, {
+    const collect = () => httpJson(baseUrl, 'POST', '/cash-send/collect', collectorToken, {
       referenceNumber: voucherRefForCollect,
       pin: voucherPin,
       scannedIdDocument: recipientSaId,
     });
-    assert.ok(res.status >= 200 && res.status < 300);
-    const body = res.json as { voucher?: { status?: string } };
+    const concurrent = await Promise.all([collect(), collect()]);
+    const statuses = concurrent.map((result) => result.status).sort();
+    assert.equal(statuses.filter((status) => status >= 200 && status < 300).length, 1);
+    assert.equal(statuses.filter((status) => status === 400 || status === 409).length, 1);
+    const success = concurrent.find((result) => result.status >= 200 && result.status < 300)!;
+    const body = success.json as { voucher?: { status?: string } };
     assert.equal(body.voucher?.status, 'collected');
+    const replay = await collect();
+    assert.equal(replay.status, 400);
   });
 });

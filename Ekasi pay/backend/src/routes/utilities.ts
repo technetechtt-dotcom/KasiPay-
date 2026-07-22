@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getDb, getEscrowWalletIdForPool } from '../db.js';
 import { toTransaction } from '../mappers.js';
 import { idempotent } from '../middleware/idempotency.js';
+import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { postBetweenWallets } from '../services/walletPosting.js';
@@ -15,6 +16,7 @@ import {
 } from '../services/utilityProvider.js';
 
 export const utilitiesRouter = Router();
+utilitiesRouter.use(requireAuth, requireApprovedMerchant);
 
 const buyBody = z.object({
   category: z.enum(['airtime', 'data', 'electricity', 'dstv']),
@@ -79,7 +81,7 @@ utilitiesRouter.post(
         error: 'Utility purchases are not available on this deployment.',
       });
     }
-    if (parsed.data.amount > providerStatus.maxAmount) {
+    if (parsed.data.amount > Number(providerStatus.maxAmount)) {
       return res.status(400).json({
         error: `Amount exceeds maximum of R${providerStatus.maxAmount}`,
       });
@@ -116,7 +118,7 @@ utilitiesRouter.post(
         category: parsed.data.category,
         provider: parsed.data.provider,
         beneficiary: parsed.data.beneficiary,
-        amount: parsed.data.amount,
+        amount: parsed.data.amount.toFixed(2),
         reference,
         userId: req.auth!.userId,
       });

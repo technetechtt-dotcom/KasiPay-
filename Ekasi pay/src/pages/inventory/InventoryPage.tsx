@@ -20,6 +20,12 @@ import { openProductScanner } from '../../lib/scannerSession';
 import type { Product } from '../../types';
 import { FloatingScanButton } from '../../components/shared/FloatingScanButton';
 import { apiGetInventoryReport } from '../../services/api';
+import {
+  addMoney,
+  formatMoney,
+  multiplyMoney,
+  subtractMoney,
+} from '../../money';
 export const InventoryPage = ({
   products,
   onRestock,
@@ -76,8 +82,8 @@ export const InventoryPage = ({
         ['Generated', new Date(report.generatedAt).toLocaleString()],
         ['Total SKUs', String(report.totalSkus)],
         ['Total units', String(report.totalUnits)],
-        ['Stock value (cost)', report.totalCostValue.toFixed(2)],
-        ['Potential revenue', report.totalRetailValue.toFixed(2)],
+        ['Stock value (cost)', formatMoney(report.totalCostValue)],
+        ['Potential revenue', formatMoney(report.totalRetailValue)],
         [],
         ['Name', 'Category', 'Barcode', 'Stock', 'Cost', 'Sell', 'Cost value', 'Retail value'],
         ...report.items.map((i) => [
@@ -85,10 +91,10 @@ export const InventoryPage = ({
           i.category,
           i.barcode ?? '',
           String(i.stock),
-          i.costPrice.toFixed(2),
-          i.sellingPrice.toFixed(2),
-          i.costValue.toFixed(2),
-          i.retailValue.toFixed(2),
+          formatMoney(i.costPrice),
+          formatMoney(i.sellingPrice),
+          formatMoney(i.costValue),
+          formatMoney(i.retailValue),
         ]),
       ];
       const csv = rows.map((r) => r.join(',')).join('\n');
@@ -112,9 +118,9 @@ export const InventoryPage = ({
           p.category,
           p.barcode ?? '',
           String(p.stock),
-          (p.costPrice || 0).toFixed(2),
-          p.price.toFixed(2),
-          ((p.costPrice || 0) * p.stock).toFixed(2),
+          formatMoney(p.costPrice),
+          formatMoney(p.price),
+          formatMoney(multiplyMoney(p.costPrice, p.stock)),
         ]),
       ];
       const csv = rows.map((r) => r.join(',')).join('\n');
@@ -130,12 +136,12 @@ export const InventoryPage = ({
     }
   };
   const totalCostValue = products.reduce(
-    (sum, p) => sum + (p.costPrice || 0) * p.stock,
-    0
+    (sum, p) => addMoney(sum, multiplyMoney(p.costPrice, p.stock)),
+    '0.00',
   );
   const totalPotentialRevenue = products.reduce(
-    (sum, p) => sum + p.price * p.stock,
-    0
+    (sum, p) => addMoney(sum, multiplyMoney(p.price, p.stock)),
+    '0.00',
   );
   return (
     <PageTransition className="min-h-0 h-full bg-slate-50">
@@ -281,9 +287,9 @@ export const InventoryPage = ({
                               {product.costPrice != null &&
                         <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">
                                   +R
-                                  {(product.price - product.costPrice).toFixed(
-                            2
-                          )}
+                                  {formatMoney(
+                                    subtractMoney(product.price, product.costPrice),
+                                  )}
                                 </span>
                         }
                             </div>
