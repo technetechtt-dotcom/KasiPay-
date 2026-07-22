@@ -23,7 +23,6 @@ jobs:
   # - Branch protection: require PR reviews before merge
   # - Required status checks: this workflow's jobs (validate, secret-scan, etc.)
   # - Deployment environments: staging (and production) with required reviewers / wait timer
-  # Do not invent org-specific settings here; operators must match their GitHub plan and policy.
   github-controls-reminder:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -47,20 +46,79 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # MIT gitleaks CLI (not gitleaks-action) so org repos do not need GITLEAKS_LICENSE.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-      - name: Install gitleaks
+      - name: Install gitleaks (checksum-verified)
         working-directory: .
+        env:
+          GITLEAKS_VERSION: 8.21.2
+          # sha256 of gitleaks_8.21.2_linux_x64.tar.gz from GitHub Releases
+          GITLEAKS_SHA256: 5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba
         run: |
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
+          set -euo pipefail
+          ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}" -o "${ARCHIVE}"
+          echo "${GITLEAKS_SHA256}  ${ARCHIVE}" | sha256sum -c -
+          tar -xzf "${ARCHIVE}" -C /usr/local/bin gitleaks
           gitleaks version
       - name: Scan repository for secrets
         working-directory: .
         run: gitleaks detect --source . --verbose --redact --exit-code 1
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/dependency-review-action@3b139cfc5fae8b618d3eae3675e383bb1769c019 # v4.5.0
+        with:
+          fail-on-severity: high
+
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: github/codeql-action/init@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            Ekasi pay/package-lock.json
+            Ekasi pay/backend/package-lock.json
+            Ekasi pay/ops-dashboard/package-lock.json
+      - name: Generate npm SBOMs
+        working-directory: .
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          (cd "Ekasi pay" && npm ci --omit=dev && npx --yes @cyclonedx/cyclonedx-npm --output-file ../sbom/frontend.cdx.json)
+          (cd "Ekasi pay/backend" && npm ci --omit=dev && npx --yes @cyclonedx/cyclonedx-npm --output-file ../../sbom/backend.cdx.json)
+          (cd "Ekasi pay/ops-dashboard" && npm ci --omit=dev && npx --yes @cyclonedx/cyclonedx-npm --output-file ../../sbom/ops.cdx.json)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom/*.cdx.json
 
   validate:
     runs-on: ubuntu-latest
@@ -80,8 +138,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
@@ -105,11 +163,13 @@ jobs:
           npm run smoke
         env:
           NODE_ENV: test
-      - name: Validate PostgreSQL migrations
+      - name: Validate PostgreSQL migrations + reconcile + PG tests
         working-directory: Ekasi pay/backend
         run: |
           npm run migrate:up
           npm run migrate:status
+          npm run cash-send:backfill-pii
+          npm run money:reconcile
           npm run ledger:reconcile
           npm run voucher:reconcile
           npm run test:postgres
@@ -117,6 +177,12 @@ jobs:
           DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
           TEST_DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
           PG_INTEGRATION_TESTS: '1'
+          NODE_ENV: test
+          CASH_SEND_ENABLED: '0'
+          LENDING_ENABLED: '0'
+          INSURANCE_ENABLED: '0'
+          STOKVEL_MONEY_MOVEMENT_ENABLED: '0'
+          LIVE_UTILITIES_ENABLED: '0'
 
   mobile-web-build:
     runs-on: ubuntu-latest
@@ -124,8 +190,8 @@ jobs:
     env:
       VITE_API_URL: https://api.ci.example
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
@@ -142,8 +208,8 @@ jobs:
     env:
       VITE_API_URL: https://api.ci.example
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
@@ -157,8 +223,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm

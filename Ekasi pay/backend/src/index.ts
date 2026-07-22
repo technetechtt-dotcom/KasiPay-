@@ -16,6 +16,7 @@ import { getDb } from './db.js';
 import { getPgPool } from './dbPg.js';
 import { closeDataStore, initDataStore, isPostgresMode } from './dbRuntime.js';
 import { validateProductionConfig } from './validateProductionConfig.js';
+import { initMonitoring } from './monitoring.js';
 import { activityRouter } from './routes/activity.js';
 import { activityRouterPg } from './routes/activityPg.js';
 import { adminRouter } from './routes/admin.js';
@@ -62,6 +63,7 @@ import { walletsRouterPg } from './routes/walletsPg.js';
 import { recordAuditEvent } from './services/audit.js';
 import { recordAuditEventPg } from './services/auditPg.js';
 import { enforceProductionControls } from './middleware/productionControls.js';
+import { sharedRateLimitStore } from './middleware/sharedRateLimit.js';
 import { approvalsRouterPg } from './security/approvalsPg.js';
 import { privacyRouterPg } from './routes/privacyPg.js';
 import { riskOpsRouterPg } from './routes/riskOpsPg.js';
@@ -80,6 +82,7 @@ import {
 } from './routes/customerProtectionPg.js';
 
 validateProductionConfig();
+initMonitoring();
 await initDataStore();
 await ensureOpsAuthStore();
 
@@ -244,6 +247,7 @@ const authBurstLimiter = rateLimit({
   max: LOGIN_RATE_LIMIT_PER_MIN,
   standardHeaders: true,
   legacyHeaders: false,
+  ...sharedRateLimitStore(),
   message: {
     error: 'Too many attempts from this network. Wait a minute and try again.',
   },
@@ -258,6 +262,7 @@ const refreshLimiter = rateLimit({
   max: Math.max(60, LOGIN_RATE_LIMIT_PER_MIN * 6),
   standardHeaders: true,
   legacyHeaders: false,
+  ...sharedRateLimitStore(),
   message: {
     error: 'Too many session refreshes — please reload the app.',
   },
@@ -269,6 +274,7 @@ const pinResetLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  ...sharedRateLimitStore(),
   message: {
     error: 'Too many PIN-reset attempts — please wait a minute.',
   },

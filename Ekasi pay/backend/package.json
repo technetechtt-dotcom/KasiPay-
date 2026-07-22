@@ -33,6 +33,7 @@
     "perf:recovery": "k6 run performance/phase8-recovery.k6.js",
     "drill": "node scripts/run-failure-drill.mjs",
     "ledger:backfill": "node scripts/backfill-ledger.mjs",
+    "cash-send:backfill-pii": "node --import tsx scripts/backfill-cash-send-pii.mjs",
     "lint": "eslint . --ext .ts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "test:integration": "node --import tsx --test \"src/**/*.integration.test.ts\"",

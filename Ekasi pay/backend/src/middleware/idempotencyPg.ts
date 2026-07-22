@@ -27,6 +27,8 @@ type IdemRow = {
   response_status: number | null;
   response_body: unknown;
   locked_until: string;
+  posting_id: string | null;
+  financial_reference: string | null;
 };
 
 function canonicalize(value: unknown): string {
@@ -50,7 +52,8 @@ async function fetchIdemRow(
 ): Promise<IdemRow | null> {
   const pool = getPgPool();
   const existing = await pool.query<IdemRow>(
-    `SELECT lifecycle, request_hash, response_status, response_body, locked_until
+    `SELECT lifecycle, request_hash, response_status, response_body, locked_until,
+            posting_id, financial_reference
        FROM payment_idempotency
       WHERE actor_id = $1
         AND route = $2
@@ -60,9 +63,54 @@ async function fetchIdemRow(
   return existing.rows[0] ?? null;
 }
 
+function recoveryBody(hit: IdemRow): Record<string, unknown> {
+  if (
+    hit.response_body &&
+    typeof hit.response_body === 'object' &&
+    !Array.isArray(hit.response_body)
+  ) {
+    return hit.response_body as Record<string, unknown>;
+  }
+  return {
+    recovered: true,
+    transactionId: hit.posting_id,
+    reference: hit.financial_reference,
+  };
+}
+
 function replayCached(res: Response, hit: IdemRow): Response {
   res.setHeader('Idempotent-Replay', 'true');
-  return res.status(hit.response_status ?? 200).json(hit.response_body);
+  return res.status(hit.response_status ?? 200).json(recoveryBody(hit));
+}
+
+/**
+ * If money already posted under this key but the HTTP response was never
+ * persisted (crash after commit), seal the row as completed and replay.
+ * Never reclaim a lease that already has a posting_id.
+ */
+async function recoverPostedWithoutResponse(
+  actorId: string,
+  routeName: string,
+  key: string,
+  requestHash: string,
+  hit: IdemRow,
+): Promise<IdemRow | null> {
+  if (!hit.posting_id) return null;
+  const pool = getPgPool();
+  const body = recoveryBody(hit);
+  const status = hit.response_status && hit.response_status >= 200 ? hit.response_status : 200;
+  await pool.query(
+    `UPDATE payment_idempotency
+        SET lifecycle = 'completed',
+            response_status = COALESCE(response_status, $1),
+            response_body = COALESCE(response_body, $2::jsonb),
+            completed_at = COALESCE(completed_at, clock_timestamp()),
+            updated_at = clock_timestamp()
+      WHERE actor_id = $3 AND route = $4 AND client_key = $5
+        AND request_hash = $6 AND posting_id IS NOT NULL`,
+    [status, JSON.stringify(body), actorId, routeName, key, requestHash],
+  );
+  return fetchIdemRow(actorId, routeName, key);
 }
 
 async function claimIdempotencyKey(
@@ -89,13 +137,29 @@ async function claimIdempotencyKey(
   if (hit.request_hash !== requestHash) return 'mismatch';
   if (hit.lifecycle === 'completed') return 'replay';
 
+  // Crash-after-post: money moved, response missing — recover, never re-post.
+  if (hit.posting_id) {
+    const recovered = await recoverPostedWithoutResponse(
+      actorId,
+      routeName,
+      key,
+      requestHash,
+      hit,
+    );
+    if (recovered?.lifecycle === 'completed') return 'replay';
+    return 'in_flight';
+  }
+
   if (new Date(hit.locked_until).getTime() <= Date.now()) {
+    // Only reclaim leases that never produced a financial posting.
     const reclaimed = await pool.query(
       `UPDATE payment_idempotency
           SET lifecycle = 'in_flight', locked_until = $1, updated_at = clock_timestamp(),
               response_status = NULL, response_body = NULL
         WHERE actor_id = $2 AND route = $3 AND client_key = $4
-          AND request_hash = $5 AND locked_until <= clock_timestamp()
+          AND request_hash = $5
+          AND locked_until <= clock_timestamp()
+          AND posting_id IS NULL
         RETURNING id`,
       [lockedUntil, actorId, routeName, key, requestHash],
     );
@@ -161,36 +225,56 @@ export function idempotentPg(routeName: string) {
         let persistence: Promise<unknown> | undefined;
         if (status >= 200 && status < 500) {
           persistence = pool.query(
-              `UPDATE payment_idempotency
-                  SET lifecycle = 'completed', response_status = $1,
-                      response_body = $2::jsonb, completed_at = clock_timestamp(),
-                      updated_at = clock_timestamp()
-                WHERE actor_id = $3 AND route = $4 AND client_key = $5
-                  AND request_hash = $6`,
-              [
-                status,
-                JSON.stringify(body),
-                actorId,
-                routeName,
-                key,
-                requestHash,
-              ],
-            );
+            `UPDATE payment_idempotency
+                SET lifecycle = 'completed', response_status = $1,
+                    response_body = $2::jsonb, completed_at = clock_timestamp(),
+                    updated_at = clock_timestamp()
+              WHERE actor_id = $3 AND route = $4 AND client_key = $5
+                AND request_hash = $6`,
+            [
+              status,
+              JSON.stringify(body),
+              actorId,
+              routeName,
+              key,
+              requestHash,
+            ],
+          );
         } else if (status >= 500) {
           persistence = pool.query(
-              `UPDATE payment_idempotency
-                  SET lifecycle = 'failed', locked_until = clock_timestamp(),
-                      updated_at = clock_timestamp()
-                WHERE actor_id = $1 AND route = $2 AND client_key = $3
-                  AND request_hash = $4`,
-              [actorId, routeName, key, requestHash],
-            );
+            `UPDATE payment_idempotency
+                SET lifecycle = 'failed', locked_until = clock_timestamp(),
+                    updated_at = clock_timestamp()
+              WHERE actor_id = $1 AND route = $2 AND client_key = $3
+                AND request_hash = $4
+                AND posting_id IS NULL`,
+            [actorId, routeName, key, requestHash],
+          );
         }
         if (persistence) {
-          // Do not expose a successful response before its replay record is durable.
+          // Fail closed: never expose success before the replay record is durable.
           void persistence.then(
             () => originalJson(body),
-            () => originalJson(body),
+            async () => {
+              try {
+                await pool.query(
+                  `UPDATE payment_idempotency
+                      SET lifecycle = 'failed', locked_until = clock_timestamp(),
+                          updated_at = clock_timestamp()
+                    WHERE actor_id = $1 AND route = $2 AND client_key = $3
+                      AND request_hash = $4 AND posting_id IS NULL`,
+                  [actorId, routeName, key, requestHash],
+                );
+              } catch {
+                /* best-effort */
+              }
+              res.statusCode = 503;
+              return originalJson({
+                error:
+                  'Request may have succeeded but the idempotency record could not be saved. Retry with the same Idempotency-Key.',
+                code: 'IDEMPOTENCY_PERSIST_FAILED',
+              });
+            },
           );
           return res;
         }

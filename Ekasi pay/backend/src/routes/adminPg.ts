@@ -20,7 +20,7 @@ import {
   adminClaimPatchBodySchema,
 } from '../validation.js';
 import { createKycDownloadUrl } from '../services/privateObjectStorage.js';
-import { createApprovalRequest, requireRecentStepUp } from '../security/approvalsPg.js';
+import { createApprovalRequest, lockApprovedRequest, markApprovalExecuted, requireRecentStepUp } from '../security/approvalsPg.js';
 
 export const adminRouterPg = Router();
 
@@ -141,15 +141,13 @@ adminRouterPg.patch(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const executionLock = await client.query(
-        `SELECT 1 FROM approval_requests
-          WHERE id = $1 AND state = 'approved' AND expires_at > NOW()
-          FOR UPDATE`,
-        [approvalRequestId],
-      );
-      if (!executionLock.rowCount) {
-        throw Object.assign(new Error('Approval was already used or expired.'), { status: 409 });
-      }
+      await lockApprovedRequest(client, {
+        approvalRequestId,
+        actionType: 'loan_disbursement',
+        resourceType: 'loan',
+        resourceId: req.params.id,
+        executorOperatorId: req.opsAuth!.operatorId,
+      });
       await postBetweenWalletsPg(client, {
         fromWalletId: escrowId,
         toWalletId: userWallet.id,
@@ -162,16 +160,11 @@ adminRouterPg.patch(
         `UPDATE loans SET status = 'disbursed', disbursed_at = $1 WHERE id = $2`,
         [new Date().toISOString(), row.id],
       );
-      await client.query(
-        `UPDATE approval_requests SET state = 'executed', executed_at = NOW()
-          WHERE id = $1`,
-        [approvalRequestId],
-      );
-      await client.query(
-        `INSERT INTO approval_request_events
-          (id, approval_request_id, from_state, to_state, actor_operator_id, reason)
-         VALUES ($1,$2,'approved','executed',$3,'Approved loan disbursement executed')`,
-        [randomUUID(), approvalRequestId, req.opsAuth!.operatorId],
+      await markApprovalExecuted(
+        client,
+        approvalRequestId,
+        req.opsAuth!.operatorId,
+        'Approved loan disbursement executed',
       );
       await client.query('COMMIT');
     } catch (e) {
@@ -336,6 +329,7 @@ adminRouterPg.get(
 adminRouterPg.patch(
   '/admin/insurance/claims/:id',
   ...requireCapability('finance:approve'),
+  requireRecentStepUp,
   idempotentPg('PATCH /admin/insurance/claims/:id'),
   async (req, res) => {
     const parsed = adminClaimPatchBodySchema.safeParse(req.body);
@@ -357,6 +351,38 @@ adminRouterPg.patch(
         error: `Cannot move claim from "${existing.status}" to "${parsed.data.status}".`,
       });
     }
+
+    let approvalRequestId: string | null =
+      typeof req.body?.approvalRequestId === 'string'
+        ? req.body.approvalRequestId
+        : null;
+    if (parsed.data.status === 'paid') {
+      if (!req.opsAuth) {
+        return res.status(403).json({
+          error: 'Insurance payouts require an operator session with maker-checker approval.',
+          code: 'OPS_REQUIRED',
+        });
+      }
+      if (!approvalRequestId) {
+        const approvalId = await createApprovalRequest({
+          actionType: 'insurance_claim_payout',
+          resourceType: 'insurance_claim',
+          resourceId: req.params.id,
+          payload: {
+            claimId: req.params.id,
+            amountCents: existing.claimed_amount_cents,
+          },
+          reason:
+            typeof req.body?.reason === 'string' && req.body.reason.trim().length >= 10
+              ? req.body.reason
+              : `Pay insurance claim ${req.params.id}`,
+          evidence: Array.isArray(req.body?.evidence) ? req.body.evidence : [],
+          makerOperatorId: req.opsAuth.operatorId,
+        });
+        return res.status(202).json({ approvalId, state: 'pending' });
+      }
+    }
+
     const now = new Date().toISOString();
     const reviewer = appActorUserId(req);
     const noteParts = [
@@ -382,6 +408,18 @@ adminRouterPg.patch(
         });
       }
       if (parsed.data.status === 'paid') {
+        if (!approvalRequestId || !req.opsAuth) {
+          throw Object.assign(new Error('A valid two-person approval is required.'), {
+            status: 409,
+          });
+        }
+        await lockApprovedRequest(client, {
+          approvalRequestId,
+          actionType: 'insurance_claim_payout',
+          resourceType: 'insurance_claim',
+          resourceId: req.params.id,
+          executorOperatorId: req.opsAuth.operatorId,
+        });
         const merchantWallet = await client.query<{
           id: string;
           pool_id: string | null;
@@ -413,6 +451,12 @@ adminRouterPg.patch(
           description: `Insurance claim payout ${lockedClaim.id}`,
           actorId: actorLabel(req),
         });
+        await markApprovalExecuted(
+          client,
+          approvalRequestId,
+          req.opsAuth.operatorId,
+          'Insurance claim payout executed',
+        );
       }
       await client.query(
         `UPDATE insurance_claims
@@ -428,6 +472,7 @@ adminRouterPg.patch(
       const status = (error as { status?: number }).status ?? 500;
       return res.status(status).json({
         error: error instanceof Error ? error.message : 'Claim update failed',
+        code: (error as { code?: string }).code,
       });
     } finally {
       client.release();
@@ -782,17 +827,28 @@ adminRouterPg.patch(
     }
 
     if (parsed.data.status === 'approved') {
-      const docsQ = await pool.query<{ doc_type: string }>(
-        `SELECT doc_type FROM merchant_documents WHERE merchant_id = $1`,
+      const docsQ = await pool.query<{ doc_type: string; scan_state: string }>(
+        `SELECT doc_type, scan_state
+           FROM merchant_documents
+          WHERE merchant_id = $1 AND deleted_at IS NULL`,
         [existing.id],
       );
-      const uploaded = new Set(docsQ.rows.map((r) => r.doc_type));
-      const missing = MERCHANT_DOC_TYPES.filter((t) => !uploaded.has(t));
+      const cleanByType = new Map(
+        docsQ.rows
+          .filter((r) => r.scan_state === 'clean')
+          .map((r) => [r.doc_type, r]),
+      );
+      const missing = MERCHANT_DOC_TYPES.filter((t) => !cleanByType.has(t));
       if (missing.length > 0) {
+        const presentButNotClean = docsQ.rows
+          .filter((r) => MERCHANT_DOC_TYPES.includes(r.doc_type as (typeof MERCHANT_DOC_TYPES)[number]) && r.scan_state !== 'clean')
+          .map((r) => ({ docType: r.doc_type, scanState: r.scan_state }));
         return res.status(400).json({
           error:
-            'Merchant must upload all required documents before approval.',
+            'Merchant must have all required KYC documents present, malware-scanned clean, and not deleted before approval.',
           missingDocuments: missing,
+          uncleanDocuments: presentButNotClean,
+          code: 'KYC_DOCS_NOT_CLEAN',
         });
       }
     }

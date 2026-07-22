@@ -6,7 +6,6 @@ import { parseIntegerCents, type Cents } from '../money.js';
 import { currentPaymentIdempotency } from '../middleware/idempotencyPg.js';
 import { observeMetric } from '../observability.js';
 
-type DbClient = Pool | PoolClient;
 const RETRYABLE_PG_CODES = new Set(['40001', '40P01']);
 const MAX_POSTING_ATTEMPTS = 3;
 
@@ -38,7 +37,7 @@ function accountId(walletId: string): string {
 }
 
 async function ensureWalletAccount(
-  database: DbClient,
+  database: PoolClient,
   wallet: WalletRow,
 ): Promise<string> {
   const id = accountId(wallet.id);
@@ -64,7 +63,7 @@ async function ensureWalletAccount(
 }
 
 async function lockWallets(
-  database: DbClient,
+  database: PoolClient,
   walletIds: readonly string[],
 ): Promise<Map<string, WalletRow>> {
   const result = await database.query<WalletRow>(
@@ -82,7 +81,7 @@ async function lockWallets(
 }
 
 async function postLocked(
-  database: DbClient,
+  database: PoolClient,
   opts: WalletPostingOptions,
 ): Promise<{ transactionId: string; reference: string }> {
   const amountCents = parseIntegerCents(opts.amountCents);
@@ -247,11 +246,12 @@ async function postLocked(
 }
 
 /**
- * Atomic wallet-to-wallet posting with mirrored `transactions` + `ledger_entries`.
- * Uses conditional UPDATE so concurrent debits cannot overdraw the source wallet.
+ * Atomic wallet-to-wallet posting inside an open transaction.
+ * Callers must pass a PoolClient after BEGIN — never a Pool — so FOR UPDATE
+ * locks and journal writes share one transaction.
  */
 export async function postBetweenWalletsPg(
-  database: DbClient,
+  database: PoolClient,
   opts: WalletPostingOptions,
 ): Promise<{ transactionId: string; reference: string }> {
   return postLocked(database, opts);
@@ -282,7 +282,7 @@ export async function postBetweenWalletsWithRetryPg(
 }
 
 export async function reverseWalletPostingPg(
-  database: DbClient,
+  database: PoolClient,
   opts: {
     originalTransactionId: string;
     amountCents?: Cents;

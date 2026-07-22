@@ -321,25 +321,25 @@ cashSendRouterPg.post(
       await client.query(
         `INSERT INTO cash_send_vouchers (
           id, sender_user_id, sender_phone, sender_name,
-          sender_first_name, sender_last_name, sender_id_document, sender_address,
+          sender_first_name, sender_last_name,
           recipient_phone, recipient_name,
-          recipient_first_name, recipient_last_name, recipient_id_document,
+          recipient_first_name, recipient_last_name,
           amount_cents, fee_cents, pin_hash, reference_number, status, created_at, expires_at,
-          collector_scanned_id, collected_with_id_verified,
+          collected_with_id_verified,
           beneficiary_binding_hash, hold_transaction_id,
           sender_id_hash, recipient_id_hash,
           sender_id_document_encrypted, recipient_id_document_encrypted,
           sender_address_encrypted
         ) VALUES (
           $1, $2, $3, $4,
-          $5, $6, $7, $8,
+          $5, $6,
+          $7, $8,
           $9, $10,
-          $11, $12, $13,
-          $14, $15, $16, $17, 'active', $18, $19,
-          NULL, 0, $20, $21,
-          $22, $23,
-          $24, $25,
-          $26
+          $11, $12, $13, $14, 'active', $15, $16,
+          0, $17, $18,
+          $19, $20,
+          $21, $22,
+          $23
         )`,
         [
           id,
@@ -348,13 +348,10 @@ cashSendRouterPg.post(
           senderDisplay,
           parsed.data.senderFirstName,
           parsed.data.senderLastName,
-          '', // never store plaintext SA ID
-          '', // never store plaintext address
           parsed.data.recipientPhone,
           recipientDisplay || null,
           parsed.data.recipientFirstName,
           parsed.data.recipientLastName,
-          '', // never store plaintext beneficiary SA ID
           amountCents.toString(),
           feeCents.toString(),
           pinHash,
@@ -596,16 +593,8 @@ cashSendRouterPg.post(
 
     await clearCollectPinFailuresPg(pool, voucherRef);
 
-    const storedRecipientHash =
-      row.recipient_id_hash ||
-      (row.recipient_id_document
-        ? hashSensitiveIdentifier(normalizeCashSendId(row.recipient_id_document))
-        : '');
-    const storedSenderHash =
-      row.sender_id_hash ||
-      (row.sender_id_document
-        ? hashSensitiveIdentifier(normalizeCashSendId(row.sender_id_document))
-        : '');
+    const storedRecipientHash = row.recipient_id_hash || '';
+    const storedSenderHash = row.sender_id_hash || '';
     const scannedNorm = normalizeCashSendId(parsed.data.scannedIdDocument);
     if (!validateSaIdDigits(scannedNorm)) {
       return res.status(400).json({
@@ -685,12 +674,10 @@ cashSendRouterPg.post(
       await client.query(
         `UPDATE cash_send_vouchers
             SET status = 'collected', collected_at = $1,
-                collector_scanned_id = '',
                 collector_scanned_id_encrypted = $2,
                 collector_scanned_id_hash = $3,
                 collected_with_id_verified = 1,
                 lifecycle_version = lifecycle_version + 1,
-                recipient_id_document = '',
                 recipient_id_document_encrypted = COALESCE(
                   NULLIF(recipient_id_document_encrypted, ''),
                   $2

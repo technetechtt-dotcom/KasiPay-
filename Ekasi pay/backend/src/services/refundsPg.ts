@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 
 import { parseIntegerCents, type Cents } from '../money.js';
+import { lockApprovedRequest } from '../security/approvalsPg.js';
 import { reverseWalletPostingPg } from './walletPostingPg.js';
 
 export const REFUND_CHECKER_THRESHOLD_CENTS = 100_000n as Cents;
@@ -43,6 +44,66 @@ export async function postRefundPg(
   },
 ): Promise<{ refundId: string; transactionId: string; reference: string }> {
   const amount = parseIntegerCents(input.amountCents);
+
+  const originalMeta = await database.query<{
+    transaction_type: string;
+    from_wallet_id: string | null;
+    to_wallet_id: string | null;
+  }>(
+    `SELECT j.transaction_type, t.from_wallet_id, t.to_wallet_id
+       FROM journal_transactions j
+       LEFT JOIN transactions t ON t.id = j.id
+      WHERE j.id = $1 AND j.state IN ('posted','settled')`,
+    [input.originalTransactionId],
+  );
+  const meta = originalMeta.rows[0];
+  if (!meta) {
+    throw Object.assign(new Error('Original transaction not found'), { status: 404 });
+  }
+
+  const typeToProduct: Record<string, typeof input.product> = {
+    transfer: 'transfer',
+    p2p_transfer: 'transfer',
+    wallet_sale: 'wallet_sale',
+    sale: 'wallet_sale',
+    utility: 'utility',
+    utility_purchase: 'utility',
+    cash_send: 'cash_send',
+    cash_send_hold: 'cash_send',
+    loan_disbursement: 'loan',
+    loan_repayment: 'loan',
+    commission: 'commission',
+    insurance_payout: 'insurance',
+  };
+  const inferred = typeToProduct[meta.transaction_type];
+  if (inferred && inferred !== input.product) {
+    throw Object.assign(
+      new Error(
+        `Refund product '${input.product}' does not match original transaction type '${meta.transaction_type}'.`,
+      ),
+      { status: 422, code: 'REFUND_PRODUCT_MISMATCH' },
+    );
+  }
+
+  // P2P transfers: sender must not unilaterally claw funds from the recipient.
+  // Only operators with an approved maker-checker request may reverse transfers.
+  if (input.product === 'transfer') {
+    if (input.requestedByType === 'user') {
+      throw Object.assign(
+        new Error(
+          'Peer-to-peer transfer refunds require an operator dispute approval; senders cannot claw back unilaterally.',
+        ),
+        { status: 403, code: 'TRANSFER_REFUND_REQUIRES_OPS' },
+      );
+    }
+    if (!input.approvalRequestId) {
+      throw Object.assign(new Error('Approved maker-checker request required for transfer refunds'), {
+        status: 403,
+        code: 'APPROVAL_REQUIRED',
+      });
+    }
+  }
+
   const ceiling = await refundableCeilingPg(database, input.originalTransactionId);
   if (amount > ceiling) {
     throw Object.assign(new Error('Refund exceeds remaining refundable ceiling'), { status: 409 });
@@ -54,13 +115,13 @@ export async function postRefundPg(
     });
   }
   if (input.approvalRequestId) {
-    const approved = await database.query(
-      `SELECT 1 FROM approval_requests
-        WHERE id = $1 AND action_type = 'refund_reversal' AND state = 'approved'
-          AND expires_at > clock_timestamp()`,
-      [input.approvalRequestId],
-    );
-    if (!approved.rowCount) throw Object.assign(new Error('Approval is not valid'), { status: 409 });
+    await lockApprovedRequest(database, {
+      approvalRequestId: input.approvalRequestId,
+      actionType: 'refund_reversal',
+      resourceType: 'journal_transaction',
+      resourceId: input.originalTransactionId,
+      executorOperatorId: input.requestedById,
+    });
   }
 
   const existing = await database.query<{ id: string; compensating_journal_transaction_id: string }>(
@@ -124,6 +185,16 @@ export async function postRefundPg(
       `UPDATE approval_requests SET state = 'executed', executed_at = clock_timestamp()
         WHERE id = $1 AND state = 'approved'`,
       [input.approvalRequestId],
+    );
+    await database.query(
+      `INSERT INTO approval_request_events
+        (id, approval_request_id, from_state, to_state, actor_operator_id, reason)
+       VALUES ($1,$2,'approved','executed',$3,'Refund reversal executed')`,
+      [
+        randomUUID(),
+        input.approvalRequestId,
+        input.requestedById,
+      ],
     );
   }
   return { refundId, ...reversal };

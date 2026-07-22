@@ -239,6 +239,13 @@ export const CASH_SEND_COLLECT_HINT =
 export const MONITORING_PROVIDER =
   process.env.MONITORING_PROVIDER?.trim().toLowerCase() ?? '';
 export const MONITORING_DSN = process.env.MONITORING_DSN?.trim() ?? '';
+
+/**
+ * Optional Redis URL for shared rate-limit counters across API instances.
+ * When unset, express-rate-limit uses in-memory stores (single-instance only).
+ */
+export const RATE_LIMIT_REDIS_URL =
+  process.env.RATE_LIMIT_REDIS_URL?.trim() ?? '';
 export const BACKUP_PROVIDER =
   process.env.BACKUP_PROVIDER?.trim().toLowerCase() ?? '';
 export const BACKUP_RETENTION_DAYS = positiveNumber(
