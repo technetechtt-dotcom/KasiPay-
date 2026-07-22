@@ -328,7 +328,7 @@ export const up = (pgm) => {
       authenticated_session_id TEXT NOT NULL REFERENCES auth_sessions(id) ON DELETE RESTRICT,
       accepted_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
     );
-    CREATE TABLE loans (
+    CREATE TABLE regulated_loans (
       id UUID PRIMARY KEY,
       application_id UUID NOT NULL UNIQUE REFERENCES lending_applications(id) ON DELETE RESTRICT,
       principal_cents BIGINT NOT NULL CHECK (principal_cents > 0),
@@ -348,7 +348,7 @@ export const up = (pgm) => {
     );
     CREATE TABLE loan_schedule_items (
       id UUID PRIMARY KEY,
-      loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+      loan_id UUID NOT NULL REFERENCES regulated_loans(id) ON DELETE RESTRICT,
       sequence INTEGER NOT NULL CHECK (sequence > 0),
       due_date DATE NOT NULL,
       principal_cents BIGINT NOT NULL CHECK (principal_cents >= 0),
@@ -360,7 +360,7 @@ export const up = (pgm) => {
     );
     CREATE TABLE loan_repayments (
       id UUID PRIMARY KEY,
-      loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+      loan_id UUID NOT NULL REFERENCES regulated_loans(id) ON DELETE RESTRICT,
       amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
       journal_transaction_id UUID NOT NULL UNIQUE REFERENCES journal_transactions(id) ON DELETE RESTRICT,
       received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
@@ -376,7 +376,7 @@ export const up = (pgm) => {
     );
     CREATE TABLE loan_state_events (
       id UUID PRIMARY KEY,
-      loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+      loan_id UUID NOT NULL REFERENCES regulated_loans(id) ON DELETE RESTRICT,
       from_state TEXT,
       to_state TEXT NOT NULL,
       reason TEXT NOT NULL,
@@ -388,7 +388,7 @@ export const up = (pgm) => {
     );
     CREATE TABLE loan_settlement_quotes (
       id UUID PRIMARY KEY,
-      loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE RESTRICT,
+      loan_id UUID NOT NULL REFERENCES regulated_loans(id) ON DELETE RESTRICT,
       principal_cents BIGINT NOT NULL,
       interest_cents BIGINT NOT NULL,
       fee_cents BIGINT NOT NULL,
@@ -693,7 +693,7 @@ export const up = (pgm) => {
         RETURN NEW;
       END $$;
     CREATE TRIGGER loan_maker_checker
-      BEFORE UPDATE ON loans
+      BEFORE UPDATE ON regulated_loans
       FOR EACH ROW EXECUTE FUNCTION enforce_loan_maker_checker();
 
     CREATE TRIGGER product_readiness_evidence_immutable

@@ -131,7 +131,7 @@ export type AuthStep = 'login' | 'register' | 'pin';
 
 const OLD_STATE_KEY = 'kasiPay.state.v1';
 const OLD_SESSION_KEY = 'kasiPay.session.v1';
-const PREFS_KEY = 'kasiPay.prefs.v1';
+const PREFS_STORAGE = 'kasiPay.prefs.v1';
 
 export type WorkspaceMode = 'merchant' | 'wallet';
 
@@ -169,7 +169,7 @@ type AuditEvent = {
 function readPrefs(): PersistedPrefs {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.localStorage.getItem(PREFS_KEY);
+    const raw = window.localStorage.getItem(PREFS_STORAGE);
     if (!raw) return {};
     return JSON.parse(raw) as PersistedPrefs;
   } catch {
@@ -303,7 +303,7 @@ export function useAppState() {
   useEffect(() => {
     if (!isBrowser) return;
     window.localStorage.setItem(
-      PREFS_KEY,
+      PREFS_STORAGE,
       JSON.stringify({ language, hasSeenOnboarding, workspaceMode })
     );
   }, [language, hasSeenOnboarding, workspaceMode]);

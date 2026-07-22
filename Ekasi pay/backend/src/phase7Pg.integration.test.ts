@@ -22,7 +22,7 @@ test('Phase 7 PostgreSQL controls', { skip: !connectionString }, async (suite) =
       'stokvel_accounts',
       'stokvel_contribution_records',
       'lending_product_versions',
-      'loans',
+      'regulated_loans',
       'merchant_credit_obligations',
       'merchant_credit_events',
       'insurance_product_versions',

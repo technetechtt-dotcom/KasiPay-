@@ -73,7 +73,9 @@ function runnerOptions(extra = {}) {
     migrationsSchema,
     direction: 'up',
     checkOrder: true,
-    singleTransaction: true,
+    // Commit each migration file separately so intervening data backfills
+    // (e.g. cash-send PII before 011) can run between versions.
+    singleTransaction: false,
     advisoryLockMode: 'wait',
     lockValue,
     ...extra,

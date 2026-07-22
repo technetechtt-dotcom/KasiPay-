@@ -26,7 +26,7 @@ async function main() {
   const client = await pool.connect();
   let updated = 0;
   try {
-    const cols = await client.query<{ column_name: string }>(
+    const cols = await client.query(
       `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'cash_send_vouchers'`,
     );

@@ -173,7 +173,7 @@ phase7ProductsRouterPg.post('/lending/applications', async (req, res) => {
 phase7ProductsRouterPg.get('/lending/loans/:id/statement', async (req, res) => {
   const loan = await getPgPool().query(
     `SELECT l.*,a.user_id,p.code,p.version
-       FROM loans l JOIN lending_applications a ON a.id = l.application_id
+       FROM regulated_loans l JOIN lending_applications a ON a.id = l.application_id
        JOIN lending_product_versions p ON p.id = a.product_version_id
       WHERE l.id = $1 AND a.user_id = $2`,
     [req.params.id, req.auth!.userId],

@@ -247,7 +247,7 @@ const authBurstLimiter = rateLimit({
   max: LOGIN_RATE_LIMIT_PER_MIN,
   standardHeaders: true,
   legacyHeaders: false,
-  ...sharedRateLimitStore(),
+  ...sharedRateLimitStore('auth-burst'),
   message: {
     error: 'Too many attempts from this network. Wait a minute and try again.',
   },
@@ -262,7 +262,7 @@ const refreshLimiter = rateLimit({
   max: Math.max(60, LOGIN_RATE_LIMIT_PER_MIN * 6),
   standardHeaders: true,
   legacyHeaders: false,
-  ...sharedRateLimitStore(),
+  ...sharedRateLimitStore('auth-refresh'),
   message: {
     error: 'Too many session refreshes — please reload the app.',
   },
@@ -274,7 +274,7 @@ const pinResetLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  ...sharedRateLimitStore(),
+  ...sharedRateLimitStore('pin-reset'),
   message: {
     error: 'Too many PIN-reset attempts — please wait a minute.',
   },

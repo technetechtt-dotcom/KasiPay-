@@ -1,0 +1,10 @@
+title = "KasiPay gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "LocalStorage preference key constants (not secrets)"
+regexes = [
+  '''(?i)kasipay\.prefs\.v1''',
+]
