@@ -13,6 +13,7 @@ before enabling regulated products or live customer funds.
 | Immutable audit sink live destination | Platform ops | HTTP sink + `npm run audit:deliver` wired; needs real `AUDIT_SINK_*` |
 | Settlement end-to-end with live provider statements | Finance ops | Synthetic proof: `npm run settlement:e2e-proof`; live bank files still blocked |
 | Production money contract sign-off | Finance + engineering | Run `npm run money:drift-inventory` on staging/prod-like DB; contract only after written sign-off |
+| Host `pg_dump`/`pg_restore` restore drill | Platform ops | Use Neon branch fork + PITR evidence when `BACKUP_PROVIDER=neon` (`RESTORE_MODE=neon_branch`) |
 | Shared Redis in production | Platform ops | `RATE_LIMIT_REDIS_URL` required outside dev/test; key added to `render.yaml` (sync:false) |
 
 ## Engineering scaffolding added (2026-07-22)
