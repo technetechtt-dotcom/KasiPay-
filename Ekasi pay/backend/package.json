@@ -29,6 +29,7 @@
     "money:drift-inventory": "node scripts/inventory-wallet-ledger-drift.mjs",
     "money:remediate-drift": "node --import tsx scripts/remediate-wallet-ledger-drift.mjs",
     "money:prove-zero-drift": "node scripts/prove-zero-drift.mjs",
+    "reconcile:scheduled": "node --import tsx scripts/run-scheduled-reconcile.mjs",
     "migrate:deploy": "node scripts/deploy-migrate.mjs",
     "github:configure-controls": "node scripts/configure-github-controls.mjs",
     "voucher:expire": "npm run build && node scripts/expire-vouchers.mjs",

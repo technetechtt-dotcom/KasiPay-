@@ -1,10 +1,10 @@
 /**
- * Configure GitHub branch protection + production environment approvals.
+ * Configure GitHub branch protection + staging/production environments.
  *
- * Requires: gh auth with admin:repo_hook / repo administration scope.
+ * Requires: gh auth with admin scope.
  *
  *   npm run github:configure-controls
- *   GITHUB_REPO=owner/name npm run github:configure-controls
+ *   REQUIRED_REVIEWERS=2 npm run github:configure-controls
  */
 import { spawnSync } from 'node:child_process';
 
@@ -17,6 +17,11 @@ const repo =
 if (!repo) {
   throw new Error('Could not resolve GITHUB_REPO. Pass GITHUB_REPO=owner/name.');
 }
+
+const reviewCount = Math.min(
+  2,
+  Math.max(1, Number(process.env.REQUIRED_REVIEWERS?.trim() || '1') || 1),
+);
 
 const contexts = [
   'github-controls-reminder',
@@ -37,10 +42,11 @@ const protection = {
   enforce_admins: true,
   required_pull_request_reviews: {
     dismiss_stale_reviews: true,
-    require_code_owner_reviews: false,
-    required_approving_review_count: 1,
+    require_code_owner_reviews: true,
+    required_approving_review_count: reviewCount,
   },
   restrictions: null,
+  required_linear_history: true,
   allow_force_pushes: false,
   allow_deletions: false,
   block_creations: false,
@@ -65,32 +71,40 @@ function ghApi(method, path, body) {
 
 console.log(`Configuring controls for ${repo}…`);
 
-ghApi(
-  'PUT',
-  `repos/${repo}/branches/main/protection`,
-  protection,
+ghApi('PUT', `repos/${repo}/branches/main/protection`, protection);
+console.log(
+  `Branch protection on main: ${reviewCount} PR review(s), code owners, required checks, no force push.`,
 );
-console.log('Branch protection on main: required checks + PR review + no force push.');
 
 try {
-  ghApi('PUT', `repos/${repo}/environments/production`, {
-    wait_timer: 0,
-    reviewers: [],
-    deployment_branch_policy: {
-      protected_branches: true,
-      custom_branch_policies: false,
-    },
-  });
-  console.log(
-    'Environment "production" created/updated (protected branches only). Add required reviewers in the GitHub UI.',
-  );
+  ghApi('POST', `repos/${repo}/branches/main/protection/required_signatures`, {});
+  console.log('Required signed commits enabled on main (where supported).');
 } catch (error) {
   console.warn(
-    String(error instanceof Error ? error.message : error),
+    'Signed commits not enabled (org/plan may disallow):',
+    error instanceof Error ? error.message : error,
   );
-  console.warn(
-    'If environments API is unavailable on this plan, create Environment "production" with required reviewers in Settings → Environments.',
-  );
+}
+
+for (const name of ['staging', 'production']) {
+  try {
+    ghApi('PUT', `repos/${repo}/environments/${name}`, {
+      wait_timer: name === 'production' ? 0 : 0,
+      reviewers: [],
+      deployment_branch_policy: {
+        protected_branches: true,
+        custom_branch_policies: false,
+      },
+    });
+    console.log(
+      `Environment "${name}" upserted (protected branches). Add required reviewers in GitHub UI.`,
+    );
+  } catch (error) {
+    console.warn(
+      `Environment ${name}:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
 
 console.log(
@@ -99,7 +113,9 @@ console.log(
       ok: true,
       repo,
       requiredChecks: contexts,
-      note: 'dependency-review remains PR-only and is not listed as a push required check.',
+      requiredReviewers: reviewCount,
+      codeOwners: true,
+      note: 'Restrict workflow edits via CODEOWNERS on .github/ and org rulesets if available.',
     },
     null,
     2,

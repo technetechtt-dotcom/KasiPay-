@@ -1,26 +1,54 @@
-# Brownfield Cash Send PII deployment sequence
+# Brownfield production database migration sequence
 
-Migration `011` refuses to drop plaintext columns while any plaintext remains.
-Render previously ran `npm run migrate:up` directly, which could reach `011`
-before backfill on an existing database.
+This is the only supported path for an existing database that may still hold
+Cash Send plaintext PII. Do **not** rely on a bare `npm run migrate:up` as the
+sole production deploy command.
 
-## Required sequence
+Render `preDeployCommand` is `npm run migrate:deploy`.
 
-Use `npm run migrate:deploy` (wired as Render `preDeployCommand`):
+## Preconditions
 
-1. Apply migrations through `010_encrypt_cash_send_pii`.
-2. Optional: set `BACKUP_BEFORE_PII_DROP=1` to run `backup:postgres` before drop.
-3. Run `cash-send:backfill-pii` when plaintext rows remain.
-4. Confirm **zero** plaintext rows.
-5. Apply migrations `011`–`013+`.
-6. Verify plaintext columns are gone.
+- `FINANCIAL_POSTING_ENABLED=false` and all regulated product flags remain false.
+- Disposable Neon branch (or restored clone) available for rehearsal.
+- Encryption key and `PII_HASH_PEPPER` configured (distinct secrets).
 
-Manual equivalent:
+## Exact sequence
 
-```bash
-npm run migrate:up          # stops with exception if 011 sees plaintext
-npm run cash-send:backfill-pii
-npm run migrate:up          # applies 011+
-```
+1. **Backup**
+   - `BACKUP_BEFORE_PII_DROP=1` (deploy script) or `npm run backup:postgres`
+   - Record backup URI / Neon PITR timestamp in evidence.
+2. **Restore drill**
+   - `RESTORE_MODE=neon_branch` (or `pg_restore`) via `npm run restore:drill`
+   - Verify row counts and migration status on the restored copy.
+3. **Apply through migration 010**
+   - `npm run migrate:up` (or `migrate:deploy` first pass)
+   - Confirm `010_encrypt_cash_send_pii` is in `schema_migrations`.
+4. **PII backfill**
+   - `npm run cash-send:backfill-pii`
+   - Confirm every sensitive field has an encrypted copy / hash.
+5. **Confirm zero plaintext**
+   - Query must return 0 rows with non-empty plaintext PII columns.
+6. **Apply migrations 011–014+**
+   - `npm run migrate:up` (drops plaintext in 011, journal trigger 012, KYC evidence 013, reconcile queue 014)
+7. **Confirm plaintext columns gone**
+   - `information_schema.columns` must not list the dropped Cash Send plaintext columns.
+8. **Reconcile**
+   - `npm run money:reconcile`
+   - `npm run ledger:reconcile`
+   - `npm run money:drift-inventory` → `money:remediate-drift` (maker-checker) → `money:prove-zero-drift`
+9. **Rollback / recovery rehearsal**
+   - On a disposable DB only: restore backup, re-run sequence, compare journal hashes.
 
-CI already mirrors this pattern (`migrate:up` → backfill → `migrate:up`).
+## Failure modes
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| `011` exception “plaintext PII still present” | Backfill not finished | Run `cash-send:backfill-pii`, then migrate again |
+| Wallet/ledger drift | Pre-existing dual-write gaps | Alignment journals via maker-checker — never direct `UPDATE wallets` |
+| Deploy used raw `migrate:up` only | Unsafe for brownfield | Switch to `migrate:deploy` |
+
+## Sign-off artifacts
+
+Retain backup URI, restore-drill report, migrate status, backfill counts, drift
+remediation JSON, and three consecutive zero-drift proof cycles under
+`evidence/production-readiness.json`.

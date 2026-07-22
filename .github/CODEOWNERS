@@ -1,0 +1,14 @@
+# Financial, security, and deployment ownership.
+# Enable "Require review from Code Owners" in branch protection.
+
+* @technetechtt-dotcom
+
+"Ekasi pay/backend/src/services/" @technetechtt-dotcom
+"Ekasi pay/backend/src/security/" @technetechtt-dotcom
+"Ekasi pay/backend/src/middleware/" @technetechtt-dotcom
+"Ekasi pay/backend/src/money.ts" @technetechtt-dotcom
+"Ekasi pay/backend/src/validateProductionConfig.ts" @technetechtt-dotcom
+"Ekasi pay/backend/migrations/" @technetechtt-dotcom
+"Ekasi pay/backend/scripts/" @technetechtt-dotcom
+.github/ @technetechtt-dotcom
+render.yaml @technetechtt-dotcom

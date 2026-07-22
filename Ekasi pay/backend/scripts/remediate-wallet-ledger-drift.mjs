@@ -5,9 +5,11 @@
  * Dry-run (default):
  *   DATABASE_URL=... npm run money:remediate-drift
  *
- * Apply (requires finance approval reference):
- *   ALLOW_DRIFT_REMEDIATION=1 DRIFT_REMEDIATION_APPROVAL=FIN-2026-... \
- *     DATABASE_URL=... npm run money:remediate-drift
+ * Apply with maker-checker approval id (required in production):
+ *   ALLOW_DRIFT_REMEDIATION=1 DRIFT_APPROVAL_REQUEST_ID=<uuid> npm run money:remediate-drift
+ *
+ * Non-prod staging fallback:
+ *   ALLOW_DRIFT_REMEDIATION=1 DRIFT_REMEDIATION_APPROVAL=FIN-... npm run money:remediate-drift
  */
 import 'dotenv/config';
 
@@ -24,11 +26,20 @@ import {
 const connectionString = process.env.DATABASE_URL?.trim();
 if (!connectionString) throw new Error('DATABASE_URL is required.');
 const apply = process.env.ALLOW_DRIFT_REMEDIATION === '1';
+const approvalRequestId = process.env.DRIFT_APPROVAL_REQUEST_ID?.trim() ?? '';
 const approval = process.env.DRIFT_REMEDIATION_APPROVAL?.trim() ?? '';
-if (apply && approval.length < 8) {
-  throw new Error(
-    'DRIFT_REMEDIATION_APPROVAL (min 8 chars) is required when ALLOW_DRIFT_REMEDIATION=1.',
-  );
+const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
+if (apply) {
+  if (!approvalRequestId) {
+    if (!(approval.length >= 8 && nodeEnv !== 'production')) {
+      throw new Error(
+        'Set DRIFT_APPROVAL_REQUEST_ID (or non-prod DRIFT_REMEDIATION_APPROVAL).',
+      );
+    }
+    console.warn(
+      '[remediate-drift] Using DRIFT_REMEDIATION_APPROVAL fallback — production must use DRIFT_APPROVAL_REQUEST_ID.',
+    );
+  }
 }
 
 const hostname = new URL(connectionString).hostname;
@@ -50,19 +61,68 @@ try {
   if (apply && before.length > 0) {
     await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
     try {
-      for (const row of before) {
-        const result = await alignLegacyLedgerToWalletPg(client, {
-          walletId: row.walletId,
-          approvalReference: approval,
-          actorId: `remediation:${approval}`,
-          reason: `Align legacy ledger to wallet (${row.origin}); approval ${approval}`,
+      if (approvalRequestId) {
+        const { lockApprovedRequest, markApprovalExecuted } = await import(
+          '../src/security/approvalsPg.ts'
+        );
+        const meta = await client.query(
+          `SELECT resource_id, payload FROM approval_requests
+            WHERE id = $1 AND state = 'approved' FOR UPDATE`,
+          [approvalRequestId],
+        );
+        const row = meta.rows[0];
+        if (!row) throw new Error('Approved balance_adjustment request not found.');
+        const batch = row.payload?.batch === true;
+        const allowed = new Set(
+          batch
+            ? (row.payload.walletIds ?? before.map((w) => w.walletId))
+            : [row.resource_id],
+        );
+        await lockApprovedRequest(client, {
+          approvalRequestId,
+          actionType: 'balance_adjustment',
+          resourceType: batch ? 'wallet_batch' : 'wallet',
+          resourceId: row.resource_id,
+          executorOperatorId: 'script:remediate-drift',
         });
-        applied.push({
-          walletId: row.walletId,
-          origin: row.origin,
-          deltaBefore: row.deltaCents.toString(),
-          ...result,
-        });
+        for (const drift of before) {
+          if (!allowed.has(drift.walletId)) {
+            throw new Error(`Wallet ${drift.walletId} is not covered by the approval.`);
+          }
+          const result = await alignLegacyLedgerToWalletPg(client, {
+            walletId: drift.walletId,
+            approvalReference: approvalRequestId,
+            actorId: 'script:remediate-drift',
+            reason: `Align legacy ledger to wallet (${drift.origin}); approval ${approvalRequestId}`,
+          });
+          applied.push({
+            walletId: drift.walletId,
+            origin: drift.origin,
+            deltaBefore: drift.deltaCents.toString(),
+            ...result,
+          });
+        }
+        await markApprovalExecuted(
+          client,
+          approvalRequestId,
+          'script:remediate-drift',
+          'Batch drift remediation executed',
+        );
+      } else {
+        for (const row of before) {
+          const result = await alignLegacyLedgerToWalletPg(client, {
+            walletId: row.walletId,
+            approvalReference: approval,
+            actorId: `remediation:${approval}`,
+            reason: `Align legacy ledger to wallet (${row.origin}); approval ${approval}`,
+          });
+          applied.push({
+            walletId: row.walletId,
+            origin: row.origin,
+            deltaBefore: row.deltaCents.toString(),
+            ...result,
+          });
+        }
       }
       await client.query('COMMIT');
     } catch (error) {
@@ -76,7 +136,8 @@ try {
     schemaVersion: 'phase3.wallet_ledger_drift_remediation.v1',
     generatedAt: new Date().toISOString(),
     mode: apply ? 'apply' : 'dry-run',
-    approvalReference: apply ? approval : null,
+    approvalRequestId: apply ? approvalRequestId || null : null,
+    approvalReference: apply ? approval || approvalRequestId || null : null,
     before: {
       driftedWallets: before.length,
       rows: before.map((row) => ({
@@ -99,15 +160,6 @@ try {
       })),
     },
     ok: after.length === 0,
-    nextSteps: after.length
-      ? [
-          'Review dry-run origins, obtain finance approval, then re-run with ALLOW_DRIFT_REMEDIATION=1.',
-          'After apply, run npm run money:prove-zero-drift for consecutive reconcile cycles.',
-        ]
-      : [
-          'Run npm run money:prove-zero-drift to demonstrate consecutive zero-drift cycles.',
-          'Keep FINANCIAL_POSTING_ENABLED=false until production evidence is signed.',
-        ],
   };
 
   const outDir = path.resolve('artifacts');

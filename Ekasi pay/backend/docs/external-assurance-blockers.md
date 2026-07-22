@@ -18,7 +18,8 @@ before enabling regulated products or live customer funds.
 | Shared Redis in production | Platform ops | `RATE_LIMIT_REDIS_URL` required; fail-closed when Redis is down; `/health/ready` pings Redis |
 | Legal / regulatory + POPIA sign-off + IR tabletop | Legal + compliance | **Blocked** — outside repository |
 | Production-like load / concurrency + restore + settlement rehearsal | Platform + finance | Engineering drills exist; live evidence still required |
-| GitHub branch protection + production environment approvals | Platform ops | Run `npm run github:configure-controls` (admin token) or mirror settings in GitHub UI — see `ci.yml` |
+| GitHub branch protection + production environment approvals | Platform ops | **Configured** on `main` (required checks + PR review); add environment reviewers + enable Dependency graph hard-fail |
+| Written accounting sign-off | Named finance auditor | Template: `docs/accounting-signoff-template.md`; staging drift remediated to 0 on disposable branch |
 
 ## Engineering scaffolding added (2026-07-22+)
 
