@@ -35,9 +35,9 @@
     "ledger:backfill": "node scripts/backfill-ledger.mjs",
     "cash-send:backfill-pii": "node --import tsx scripts/backfill-cash-send-pii.mjs",
     "lint": "eslint . --ext .ts",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
-    "test:integration": "node --import tsx --test \"src/**/*.integration.test.ts\"",
-    "test:postgres": "node --import tsx --test \"src/ledgerPg.integration.test.ts\" \"src/phase6Pg.integration.test.ts\" \"src/phase7Pg.integration.test.ts\" \"src/phase8Pg.integration.test.ts\"",
+    "test": "node scripts/run-tests.mjs \"src/**/*.test.ts\"",
+    "test:integration": "node scripts/run-tests.mjs \"src/**/*.integration.test.ts\" --integration",
+    "test:postgres": "node scripts/run-tests.mjs \"src/{ledgerPg,phase6Pg,phase7Pg,phase8Pg}.integration.test.ts\" --integration",
     "credit-wallet": "node scripts/credit-wallet.mjs",
     "typecheck": "tsc --noEmit"
   },
