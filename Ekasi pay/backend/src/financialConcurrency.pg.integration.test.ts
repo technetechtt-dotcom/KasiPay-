@@ -325,5 +325,58 @@ test(
         ) x`);
       assert.equal(unbalanced.rows[0].n, 0);
     });
+
+    await suite.test('simultaneous transfers both directions remain non-negative', async () => {
+      const a = await fixture(pool, 5_000n);
+      const b = await fixture(pool, 5_000n);
+      const left = () =>
+        postBetweenWalletsWithRetryPg(pool, {
+          fromWalletId: a.fromWallet,
+          toWalletId: b.fromWallet,
+          amountCents: parseIntegerCents('3000'),
+          type: 'fc_sim_left',
+          referencePrefix: 'SL',
+          description: 'sim left',
+        });
+      const right = () =>
+        postBetweenWalletsWithRetryPg(pool, {
+          fromWalletId: b.fromWallet,
+          toWalletId: a.fromWallet,
+          amountCents: parseIntegerCents('3000'),
+          type: 'fc_sim_right',
+          referencePrefix: 'SR',
+          description: 'sim right',
+        });
+      const results = await Promise.allSettled([left(), right()]);
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 2);
+      const balances = await pool.query<{ balance_cents: string }>(
+        `SELECT balance_cents FROM wallets WHERE id = ANY($1::text[])`,
+        [[a.fromWallet, b.fromWallet]],
+      );
+      for (const row of balances.rows) {
+        assert.ok(BigInt(row.balance_cents) >= 0n);
+      }
+    });
+
+    await suite.test('kill-switch row disables financial_posting control', async () => {
+      const { disableFinancialPostingPg } = await import(
+        './services/driftPostingGuardPg.js'
+      );
+      await pool.query(
+        `UPDATE operational_controls SET enabled = TRUE WHERE control_key = 'financial_posting'`,
+      );
+      const result = await disableFinancialPostingPg(
+        pool,
+        'test kill-switch during posting',
+      );
+      assert.equal(result.disabled, true);
+      const row = await pool.query<{ enabled: boolean }>(
+        `SELECT enabled FROM operational_controls WHERE control_key = 'financial_posting'`,
+      );
+      assert.equal(row.rows[0].enabled, false);
+      await pool.query(
+        `UPDATE operational_controls SET enabled = TRUE WHERE control_key = 'financial_posting'`,
+      );
+    });
   },
 );

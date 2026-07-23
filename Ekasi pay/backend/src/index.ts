@@ -21,7 +21,6 @@ import { initMonitoring } from './monitoring.js';
 import { deliverAuditOutboxPg } from './services/auditSinkPg.js';
 import { createHttpAuditSink } from './services/httpAuditSink.js';
 import { getRedisHealth, pingRateLimitRedis } from './middleware/sharedRateLimit.js';
-import { disablePostingOnLedgerDriftPg } from './services/driftPostingGuardPg.js';
 import { activityRouter } from './routes/activity.js';
 import { activityRouterPg } from './routes/activityPg.js';
 import { adminRouter } from './routes/admin.js';
@@ -458,17 +457,11 @@ const server = app.listen(PORT, () => {
 });
 
 if (isPostgresMode() && NODE_ENV !== 'test') {
-  // Lightweight in-process drift probe only. Full reconciliation runs in the
-  // dedicated worker (`npm run reconcile:worker`), not inside the API process.
-  const driftTimer = setInterval(() => {
-    void disablePostingOnLedgerDriftPg(getPgPool()).catch((error) => {
-      structuredLog('error', 'ledger.drift_guard_failed', {
-        message: error instanceof Error ? error.message : 'drift guard failed',
-        alert: true,
-      });
-    });
-  }, 60_000);
-  driftTimer.unref?.();
+  // Do not run wallet inventory or full reconcile in the API process.
+  // Full checks + kill-switch belong to `npm run reconcile:worker`.
+  structuredLog('info', 'reconciliation.api_detached', {
+    message: 'API does not schedule reconciliation; use reconcile:worker',
+  });
 }
 
 const auditEndpoint = process.env.AUDIT_SINK_ENDPOINT?.trim() ?? '';
