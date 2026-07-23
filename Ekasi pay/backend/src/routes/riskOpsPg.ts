@@ -6,6 +6,11 @@ import { z } from 'zod';
 import { getPgPool } from '../dbPg.js';
 import { recordAuditEventPg, safeAuditHash } from '../services/auditPg.js';
 import { requireCapability } from '../security/authorization.js';
+import {
+  lockApprovedRequest,
+  markApprovalExecuted,
+  requireRecentStepUp,
+} from '../security/approvalsPg.js';
 
 export const riskOpsRouterPg = Router();
 
@@ -133,18 +138,35 @@ riskOpsRouterPg.post(
 const switchBody = z.object({
   enabled: z.boolean(),
   reason: z.string().trim().min(15).max(2_000),
+  approvalRequestId: z.string().uuid().optional(),
 });
 
 riskOpsRouterPg.post(
   '/admin/controls/financial-posting',
   ...requireCapability('posting-control:manage'),
+  requireRecentStepUp,
   async (req, res) => {
     const parsed = switchBody.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (parsed.data.enabled && !parsed.data.approvalRequestId) {
+      return res.status(400).json({
+        error: 'Re-enabling financial posting requires maker-checker approvalRequestId.',
+        code: 'POSTING_ENABLE_APPROVAL_REQUIRED',
+      });
+    }
     const pool = getPgPool();
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      if (parsed.data.enabled && parsed.data.approvalRequestId) {
+        await lockApprovedRequest(client, {
+          approvalRequestId: parsed.data.approvalRequestId,
+          actionType: 'posting_control_enable',
+          resourceType: 'operational_control',
+          resourceId: 'financial_posting',
+          executorOperatorId: req.opsAuth!.operatorId,
+        });
+      }
       const current = await client.query<{ enabled: boolean }>(
         `SELECT enabled FROM operational_controls WHERE control_key = 'financial_posting' FOR UPDATE`,
       );
@@ -163,6 +185,14 @@ riskOpsRouterPg.post(
          VALUES ($1,'financial_posting',$2,$3,$4,$5,$6)`,
         [randomUUID(), previous, parsed.data.enabled, parsed.data.reason, req.opsAuth!.operatorId, req.requestId],
       );
+      if (parsed.data.enabled && parsed.data.approvalRequestId) {
+        await markApprovalExecuted(
+          client,
+          parsed.data.approvalRequestId,
+          req.opsAuth!.operatorId,
+          'Financial posting re-enabled after approval',
+        );
+      }
       await recordAuditEventPg(client, {
         type: 'operational.posting_control_changed',
         message: parsed.data.enabled ? 'Financial posting enabled' : 'Financial posting disabled',
@@ -179,6 +209,13 @@ riskOpsRouterPg.post(
       return res.json({ enabled: parsed.data.enabled });
     } catch (error) {
       await client.query('ROLLBACK');
+      const status = (error as { status?: number }).status ?? 500;
+      if (status < 500) {
+        return res.status(status).json({
+          error: error instanceof Error ? error.message : 'Control change failed',
+          code: (error as { code?: string }).code,
+        });
+      }
       throw error;
     } finally {
       client.release();

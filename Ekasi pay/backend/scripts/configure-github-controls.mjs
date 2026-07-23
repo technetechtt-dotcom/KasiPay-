@@ -1,9 +1,11 @@
 /**
- * Configure lightweight GitHub controls for direct pushes to main.
+ * Configure GitHub branch protection for KasiPay.
  *
- * Preference: push straight to main — do not require pull requests.
+ * Requires PR + CODEOWNERS for financial/security paths, required CI checks,
+ * and enforce_admins. Direct pushes to main are blocked.
  *
  *   npm run github:configure-controls
+ *   REQUIRED_REVIEWERS=1 npm run github:configure-controls
  */
 import { spawnSync } from 'node:child_process';
 
@@ -17,6 +19,22 @@ if (!repo) {
   throw new Error('Could not resolve GITHUB_REPO. Pass GITHUB_REPO=owner/name.');
 }
 
+const reviewCount = Math.min(
+  2,
+  Math.max(1, Number(process.env.REQUIRED_REVIEWERS?.trim() || '1') || 1),
+);
+
+const contexts = [
+  'github-controls-reminder',
+  'secret-scan',
+  'codeql',
+  'sbom',
+  'validate',
+  'mobile-web-build',
+  'mobile-ios-verify',
+  'ops-dashboard',
+];
+
 function ghApi(method, path, body) {
   const args = ['api', '-X', method, path];
   if (body !== undefined) args.push('--input', '-');
@@ -29,42 +47,61 @@ function ghApi(method, path, body) {
       `gh api ${method} ${path} failed:\n${result.stderr || result.stdout}`,
     );
   }
-  return result.stdout ? JSON.parse(result.stdout) : null;
+  return result.stdout?.trim() ? JSON.parse(result.stdout) : null;
 }
 
-console.log(`Configuring controls for ${repo} (direct pushes to main)…`);
+console.log(`Configuring protected main for ${repo}…`);
 
-// Keep force-push / deletion blocked, but allow direct pushes without PR/sign-off gates.
 ghApi('PUT', `repos/${repo}/branches/main/protection`, {
-  required_status_checks: null,
-  enforce_admins: false,
-  required_pull_request_reviews: null,
+  required_status_checks: {
+    strict: true,
+    contexts,
+  },
+  enforce_admins: true,
+  required_pull_request_reviews: {
+    dismiss_stale_reviews: true,
+    require_code_owner_reviews: true,
+    required_approving_review_count: reviewCount,
+  },
   restrictions: null,
+  required_linear_history: true,
   allow_force_pushes: false,
   allow_deletions: false,
   block_creations: false,
-  required_conversation_resolution: false,
+  required_conversation_resolution: true,
   lock_branch: false,
   allow_fork_syncing: false,
 });
 
-try {
-  ghApi('DELETE', `repos/${repo}/branches/main/protection/required_signatures`);
-} catch {
-  // Already unset.
+// Enable Dependency graph / Dependabot surfaces where the API allows.
+for (const path of [
+  `repos/${repo}/vulnerability-alerts`,
+  `repos/${repo}/automated-security-fixes`,
+]) {
+  try {
+    ghApi('PUT', path);
+    console.log(`Enabled ${path}`);
+  } catch (error) {
+    console.warn(
+      `Could not enable ${path}:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
 
 for (const name of ['staging', 'production']) {
   try {
     ghApi('PUT', `repos/${repo}/environments/${name}`, {
-      wait_timer: 0,
+      wait_timer: name === 'production' ? 5 : 0,
       reviewers: [],
       deployment_branch_policy: {
         protected_branches: true,
         custom_branch_policies: false,
       },
     });
-    console.log(`Environment "${name}" upserted.`);
+    console.log(
+      `Environment "${name}" upserted — add required reviewers in GitHub UI.`,
+    );
   } catch (error) {
     console.warn(
       `Environment ${name}:`,
@@ -78,8 +115,12 @@ console.log(
     {
       ok: true,
       repo,
-      policy: 'direct-push-to-main',
-      note: 'PRs are optional. Force pushes and branch deletion remain blocked.',
+      policy: 'pr-required-with-codeowners',
+      enforceAdmins: true,
+      requiredReviewers: reviewCount,
+      requireCodeOwnerReviews: true,
+      requiredChecks: contexts,
+      note: 'Direct pushes to main are blocked for everyone including admins. Enable Dependency graph in Settings → Code security if dependency-review still fails.',
     },
     null,
     2,

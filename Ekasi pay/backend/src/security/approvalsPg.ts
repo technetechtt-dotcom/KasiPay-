@@ -20,7 +20,8 @@ export type ControlledAction =
   | 'refund_reversal'
   | 'user_role_change'
   | 'transaction_limit_change'
-  | 'insurance_claim_payout';
+  | 'insurance_claim_payout'
+  | 'posting_control_enable';
 
 /** Action types that have an execution adapter consuming approved requests. */
 export const EXECUTABLE_CONTROLLED_ACTIONS: readonly ControlledAction[] = [
@@ -29,6 +30,7 @@ export const EXECUTABLE_CONTROLLED_ACTIONS: readonly ControlledAction[] = [
   'user_role_change',
   'insurance_claim_payout',
   'balance_adjustment',
+  'posting_control_enable',
 ] as const;
 
 /**
@@ -166,6 +168,7 @@ const createBody = z.object({
     'user_role_change',
     'insurance_claim_payout',
     'balance_adjustment',
+    'posting_control_enable',
   ]),
   resourceType: z.string().trim().min(1).max(100),
   resourceId: z.string().trim().min(1).max(200),
@@ -191,7 +194,9 @@ approvalsRouterPg.post(
             ? 'finance:approve'
             : parsed.data.actionType === 'balance_adjustment'
               ? 'balance-adjustments:request'
-              : 'refunds:request';
+              : parsed.data.actionType === 'posting_control_enable'
+                ? 'posting-control:manage'
+                : 'refunds:request';
     if (!roleHasCapability(req.opsAuth!.role, required)) {
       return res.status(403).json({ error: 'Required maker capability is not assigned.' });
     }

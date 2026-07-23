@@ -21,7 +21,6 @@ import { initMonitoring } from './monitoring.js';
 import { deliverAuditOutboxPg } from './services/auditSinkPg.js';
 import { createHttpAuditSink } from './services/httpAuditSink.js';
 import { getRedisHealth, pingRateLimitRedis } from './middleware/sharedRateLimit.js';
-import { disablePostingOnLedgerDriftPg } from './services/driftPostingGuardPg.js';
 import { activityRouter } from './routes/activity.js';
 import { activityRouterPg } from './routes/activityPg.js';
 import { adminRouter } from './routes/admin.js';
@@ -73,7 +72,6 @@ import { approvalsRouterPg } from './security/approvalsPg.js';
 import { privacyRouterPg } from './routes/privacyPg.js';
 import { riskOpsRouterPg } from './routes/riskOpsPg.js';
 import { reconciliationOpsRouterPg } from './routes/reconciliationOpsPg.js';
-import { runScheduledReconciliationPg } from './services/scheduledReconciliationPg.js';
 import { phase6OpsRouterPg } from './routes/phase6OpsPg.js';
 import { providerCallbacksRouterPg } from './routes/providerCallbacksPg.js';
 import { refundsRouterPg } from './routes/refundsPg.js';
@@ -459,41 +457,11 @@ const server = app.listen(PORT, () => {
 });
 
 if (isPostgresMode() && NODE_ENV !== 'test') {
-  const driftTimer = setInterval(() => {
-    void disablePostingOnLedgerDriftPg(getPgPool()).catch((error) => {
-      structuredLog('error', 'ledger.drift_guard_failed', {
-        message: error instanceof Error ? error.message : 'drift guard failed',
-        alert: true,
-      });
-    });
-  }, 60_000);
-  driftTimer.unref?.();
-
-  const reconcileMinutes = Number(
-    process.env.RECONCILIATION_INTERVAL_MINUTES?.trim() || '15',
-  );
-  if (Number.isFinite(reconcileMinutes) && reconcileMinutes > 0) {
-    const reconcileTimer = setInterval(() => {
-      void runScheduledReconciliationPg(getPgPool(), {
-        runType: 'wallet_ledger',
-        triggeredBy: 'scheduler',
-      })
-        .then((result) => {
-          structuredLog(
-            result.ok ? 'info' : 'error',
-            'reconciliation.scheduled',
-            { ...result, alert: !result.ok },
-          );
-        })
-        .catch((error) => {
-          structuredLog('error', 'reconciliation.scheduled_failed', {
-            message: error instanceof Error ? error.message : 'reconcile failed',
-            alert: true,
-          });
-        });
-    }, Math.max(1, reconcileMinutes) * 60_000);
-    reconcileTimer.unref?.();
-  }
+  // Do not run wallet inventory or full reconcile in the API process.
+  // Full checks + kill-switch belong to `npm run reconcile:worker`.
+  structuredLog('info', 'reconciliation.api_detached', {
+    message: 'API does not schedule reconciliation; use reconcile:worker',
+  });
 }
 
 const auditEndpoint = process.env.AUDIT_SINK_ENDPOINT?.trim() ?? '';
