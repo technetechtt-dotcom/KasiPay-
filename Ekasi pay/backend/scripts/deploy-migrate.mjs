@@ -14,8 +14,11 @@ import 'dotenv/config';
 import { spawnSync } from 'node:child_process';
 import pg from 'pg';
 
-function run(script, args = []) {
-  const result = spawnSync(process.execPath, [script, ...args], {
+function run(script, args = [], { useTsx = false } = {}) {
+  const nodeArgs = useTsx
+    ? ['--import', 'tsx', script, ...args]
+    : [script, ...args];
+  const result = spawnSync(process.execPath, nodeArgs, {
     encoding: 'utf8',
     env: process.env,
     stdio: 'inherit',
@@ -103,7 +106,7 @@ try {
     }
     if (leftover > 0) {
       console.log(`[migrate:deploy] Backfilling ${leftover} plaintext Cash Send row(s)…`);
-      run('scripts/backfill-cash-send-pii.mjs');
+      run('scripts/backfill-cash-send-pii.mjs', [], { useTsx: true });
     }
     const afterBackfill = await plaintextCount();
     if (afterBackfill > 0) {

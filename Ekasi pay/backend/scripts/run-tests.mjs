@@ -25,6 +25,7 @@ if (mode === 'unit') {
 } else if (mode === 'postgres') {
   const allowed = new Set([
     'src/ledgerPg.integration.test.ts',
+    'src/financialConcurrency.pg.integration.test.ts',
     'src/phase6Pg.integration.test.ts',
     'src/phase7Pg.integration.test.ts',
     'src/phase8Pg.integration.test.ts',

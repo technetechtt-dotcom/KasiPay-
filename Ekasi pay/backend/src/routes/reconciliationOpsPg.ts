@@ -11,6 +11,7 @@ import {
 import { requireCapability } from '../security/authorization.js';
 import { alignLegacyLedgerToWalletPg } from '../services/walletLedgerAlignmentPg.js';
 import {
+  createDriftRemediationProposalsPg,
   listOpenReconciliationExceptionsPg,
   runScheduledReconciliationPg,
 } from '../services/scheduledReconciliationPg.js';
@@ -25,7 +26,18 @@ reconciliationOpsRouterPg.post(
     const parsed = z
       .object({
         runType: z
-          .enum(['wallet_ledger', 'money_columns', 'journal', 'vouchers', 'full'])
+          .enum([
+            'wallet_ledger',
+            'journal',
+            'projection',
+            'vouchers',
+            'fees',
+            'commissions',
+            'refunds',
+            'settlement',
+            'suspense',
+            'full',
+          ])
           .default('full'),
       })
       .safeParse(req.body ?? {});
@@ -40,11 +52,48 @@ reconciliationOpsRouterPg.post(
       actorType: 'operator',
       actorId: req.opsAuth!.operatorId,
       targetType: 'reconciliation_run',
-      targetId: result.runId,
+      targetId: result.runId || 'skipped',
       afterHash: safeAuditHash(result),
       requestId: req.requestId,
     });
     return res.status(result.ok ? 200 : 409).json(result);
+  },
+);
+
+reconciliationOpsRouterPg.post(
+  '/ops/reconciliation/proposals/generate',
+  ...requireCapability('balance-adjustments:request'),
+  requireRecentStepUp,
+  async (req, res) => {
+    const pool = getPgPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await createDriftRemediationProposalsPg(
+        client,
+        req.opsAuth!.operatorId,
+      );
+      await client.query('COMMIT');
+      return res.status(201).json(result);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
+);
+
+reconciliationOpsRouterPg.get(
+  '/ops/reconciliation/proposals',
+  ...requireCapability('fraud:read'),
+  async (_req, res) => {
+    const rows = await getPgPool().query(
+      `SELECT * FROM drift_remediation_proposals
+        WHERE state IN ('proposed','approved')
+        ORDER BY created_at DESC LIMIT 200`,
+    );
+    return res.json({ proposals: rows.rows });
   },
 );
 

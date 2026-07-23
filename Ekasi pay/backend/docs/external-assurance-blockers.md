@@ -5,60 +5,40 @@ before enabling regulated products or live customer funds.
 
 | Item | Owner | Status |
 |---|---|---|
-| External accounting / ledger model review | Named finance auditor | **Blocked** — schedule review against `docs/critical-financial-controls.md`, drift remediation artifacts, and reconcile script outputs |
-| External penetration test + high-severity remediation | Named security firm | **Blocked** — engage after staging with production-like data |
-| Certified payment / utility / cash-in-out / SMS / sanctions / KYC storage / malware / audit sink partners | Product + provider | **Blocked** — adapters and fail-closed config exist; live contracts + certification evidence required |
-| Insurance and lending partner certification | Product + legal | **Blocked** — product flags stay `false` until evidence is approved |
-| Private KYC object storage + malware scanner live wiring | Platform ops | Adapters + **dev stubs** (`npm run dev:storage-signer`, `npm run dev:malware-scan`); production credentials still required |
-| Centralized monitoring alert routing proof | Platform ops | Run `npm run alerts:verify` with real DSN; confirm on-call page |
-| Immutable audit sink live destination | Platform ops | HTTP sink + `npm run audit:deliver` wired; needs real `AUDIT_SINK_*` |
-| Settlement end-to-end with live provider statements | Finance ops | Synthetic proof: `npm run settlement:e2e-proof`; live bank files still blocked |
-| Production money contract sign-off | Finance + engineering | Run `npm run money:drift-inventory` / `money:remediate-drift` / `money:prove-zero-drift` on staging/prod-like DB; contract only after written sign-off |
-| Host `pg_dump`/`pg_restore` restore drill | Platform ops | Use Neon branch fork + PITR evidence when `BACKUP_PROVIDER=neon` (`RESTORE_MODE=neon_branch`) |
-| Shared Redis in production | Platform ops | `RATE_LIMIT_REDIS_URL` required; fail-closed when Redis is down; `/health/ready` pings Redis |
-| Legal / regulatory + POPIA sign-off + IR tabletop | Legal + compliance | **Blocked** — outside repository |
-| Production-like load / concurrency + restore + settlement rehearsal | Platform + finance | Engineering drills exist; live evidence still required |
-| GitHub branch protection + production environment approvals | Platform ops | **Configured** on `main` (required checks + PR review); add environment reviewers + enable Dependency graph hard-fail |
-| Written accounting sign-off | Named finance auditor | Template: `docs/accounting-signoff-template.md`; staging drift remediated to 0 on disposable branch |
+| External accounting / ledger model review | Named finance auditor | **Blocked** — use `docs/accounting-signoff-template.md` + drift proposal digests |
+| External penetration test + high-severity remediation | Named security firm | **Blocked** |
+| Certified providers (payment, utility, SMS, sanctions, KYC storage, malware, audit) | Product + provider | **Blocked** — adapters exist; live contracts required |
+| Insurance / lending partner certification | Product + legal | **Blocked** — flags stay `false` |
+| POPIA / FICA / payment-services legal advice | Legal | **Blocked** |
+| Production Redis / monitoring / audit sink / private KYC | Platform ops | Env keys declared; live wiring pending |
+| Host restore drill + measured RTO/RPO | Platform ops | Neon branch drill exists; recurring encrypted host drills pending |
+| Merchant pilot / payments go-live | Product | Phases 9–11 — not started for funds |
 
-## Engineering scaffolding added (2026-07-22+)
+## GitHub controls (truthful status)
 
-- Failure drills: `DRILL_ADAPTER=local npm run drill -- <type>`
-- Settlement fixture E2E: `fixtures/settlement/phase6-v1.sample.csv`
-- Audit outbox worker interval when `AUDIT_SINK_*` set at API boot
-- Wallet/ledger drift inventory: `npm run money:drift-inventory`
-- Auditable drift remediation (align ledger → wallet via suspense journals): `npm run money:remediate-drift`
-- Consecutive zero-drift proof: `npm run money:prove-zero-drift`
-- Automatic posting kill-switch on drift (`LEDGER_DRIFT_KILL_SWITCH`, default on outside local)
-- Safe PII deploy sequence: `npm run migrate:deploy` (Render `preDeployCommand`)
-- Dedicated versioned `PII_HASH_PEPPER` (no encryption-key fallback in deployed envs)
-- Regional foundations: `src/i18n/regionConfig.ts`
-- Scheduled reconciliation + exception queue (migration `014`): `npm run reconcile:scheduled`
-- Maker-checker wallet align API: `POST /ops/ledger/align-wallet`
-- CODEOWNERS + 2-reviewer branch protection + staging/production environments
-- Accounting sign-off + encryption key management docs
+Configured by `npm run github:configure-controls`:
 
-## Staging branch drill notes (2026-07-22)
+- Protected `main` with **enforce_admins**
+- Required PR reviews + **CODEOWNERS** for financial/security paths
+- Required CI checks: validate, secret-scan, codeql, sbom, mobile/ops builds
+- Staging + production environments (add required reviewers in GitHub UI)
+- Dependency graph / Dependabot alerts enabled via API when permitted
+- `dependency-review` is **hard-fail** on PRs (no `continue-on-error`)
 
-Disposable Neon branch `ci-harden-2026-07-22` (`br-small-bread-adccsed1`):
+Direct pushes to `main` are **blocked** while this protection is active.
 
-- Marked `001_baseline`, applied money expand + contract on a copy of production-like data.
-- Column-level money conversion: **0 precision errors / 0 column mismatches**.
-- Wallet↔legacy ledger reconcile: **FAIL** prior to remediation.
-- **Origin of primary discrepancies (read-only analysis):**
-  1. Two user wallets with `delta_cents = 100001000` — opening/`credit-wallet` style balance writes without matching `ledger_entries` (`opening_credit_without_ledger`).
-  2. System escrow wallet `delta_cents = -2000` — Cash Send fee retention dual-write gap (`escrow_fee_retention_mismatch`).
-  3. Additional `ledger-wallet-from-*` rows on the disposable branch are integration fixtures, not production customers.
-- Remediation path: `ALLOW_DRIFT_REMEDIATION=1 DRIFT_REMEDIATION_APPROVAL=… npm run money:remediate-drift` then `npm run money:prove-zero-drift`.
-- Migrations through `012` applied on the disposable branch after PII backfill; use `migrate:deploy` for brownfield 010→backfill→011–013.
+## Engineering scaffolding
 
-Regulated product flags must remain `false` until the matching evidence rows are
-approved in `evidence/production-readiness.json`.
+- Drift inventory / remediation / zero-drift proof scripts
+- Maker-checker align + posting re-enable approvals
+- Dedicated reconcile worker (`npm run reconcile:worker`) with leases — not in API process
+- Journal/projection failures are **critical** and disable posting
+- Immutable drift remediation proposals (migration `015`)
+- Safe PII deploy: `npm run migrate:deploy`
+- Versioned `PII_HASH_PEPPER`
 
-## P2 roadmap (not go-live blockers)
+## Still keep disabled
 
-Merchant operating system (offline POS, inventory, WhatsApp ordering, QR/card,
-loyalty, marketplace, multi-currency credit portability) and deeper i18n
-(country product gates, FX journals, residency) are tracked as competitive
-follow-ons. Foundations for currency/country/KYC/tax gates live in
-`src/i18n/regionConfig.ts`.
+`FINANCIAL_POSTING_ENABLED`, `CASH_SEND_ENABLED`, `LENDING_*`, `INSURANCE_ENABLED`,
+`STOKVEL_MONEY_MOVEMENT_ENABLED`, `LIVE_UTILITIES_ENABLED` — all remain false until
+evidence is approved.

@@ -4,6 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref so PR push storms do not queue stale work.
 concurrency:
@@ -31,16 +32,16 @@ jobs:
         working-directory: .
         run: |
           {
-            echo '## External GitHub controls (configure in UI)'
+            echo '## External GitHub controls'
             echo ''
-            echo 'This workflow does not enable branch protection or environment approvals.'
-            echo 'Configure in the repository / organization settings:'
+            echo 'Branch protection is configured by `npm run github:configure-controls`:'
             echo ''
-            echo '- Protected default branch with required pull-request reviews'
-            echo '- Required status checks matching this workflow'
-            echo '- Staging (and production) Environments with required reviewers before deploy'
+            echo '- Protected `main` with enforce_admins'
+            echo '- Required pull-request reviews + CODEOWNERS for financial/security paths'
+            echo '- Required status checks: validate, secret-scan, codeql, sbom, builds'
+            echo '- Staging/production Environments (add required reviewers in UI)'
+            echo '- Dependency graph must be enabled for dependency-review (Settings → Code security)'
             echo ''
-            echo 'Automate with: `cd "Ekasi pay/backend" && npm run github:configure-controls`'
             echo 'See `Ekasi pay/backend/docs/phase8-release.md` and `external-assurance-blockers.md`.'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -72,9 +73,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Soft-fail until Dependency graph is enabled (Settings → Code security).
-    # Without that GitHub feature the official action exits non-zero on every PR.
-    continue-on-error: true
     permissions:
       contents: read
       pull-requests: write
@@ -183,6 +181,10 @@ jobs:
           DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- duplicate_webhook
           DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- partial_settlement
           npm run test:postgres
+          mkdir -p artifacts
+          printf '{"sha":"%s","ref":"%s","recordedAt":"%s","suite":"validate-postgres"}\n' \
+            "$GITHUB_SHA" "$GITHUB_REF" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > "artifacts/ci-evidence-$GITHUB_SHA.json"
         env:
           DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
           TEST_DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
@@ -193,6 +195,13 @@ jobs:
           INSURANCE_ENABLED: '0'
           STOKVEL_MONEY_MOVEMENT_ENABLED: '0'
           LIVE_UTILITIES_ENABLED: '0'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-evidence-${{ github.sha }}
+          path: |
+            Ekasi pay/backend/artifacts/ci-evidence-*.json
+            sbom/*.cdx.json
+          if-no-files-found: warn
 
   mobile-web-build:
     runs-on: ubuntu-latest

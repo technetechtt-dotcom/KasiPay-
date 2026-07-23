@@ -73,7 +73,6 @@ import { approvalsRouterPg } from './security/approvalsPg.js';
 import { privacyRouterPg } from './routes/privacyPg.js';
 import { riskOpsRouterPg } from './routes/riskOpsPg.js';
 import { reconciliationOpsRouterPg } from './routes/reconciliationOpsPg.js';
-import { runScheduledReconciliationPg } from './services/scheduledReconciliationPg.js';
 import { phase6OpsRouterPg } from './routes/phase6OpsPg.js';
 import { providerCallbacksRouterPg } from './routes/providerCallbacksPg.js';
 import { refundsRouterPg } from './routes/refundsPg.js';
@@ -459,6 +458,8 @@ const server = app.listen(PORT, () => {
 });
 
 if (isPostgresMode() && NODE_ENV !== 'test') {
+  // Lightweight in-process drift probe only. Full reconciliation runs in the
+  // dedicated worker (`npm run reconcile:worker`), not inside the API process.
   const driftTimer = setInterval(() => {
     void disablePostingOnLedgerDriftPg(getPgPool()).catch((error) => {
       structuredLog('error', 'ledger.drift_guard_failed', {
@@ -468,32 +469,6 @@ if (isPostgresMode() && NODE_ENV !== 'test') {
     });
   }, 60_000);
   driftTimer.unref?.();
-
-  const reconcileMinutes = Number(
-    process.env.RECONCILIATION_INTERVAL_MINUTES?.trim() || '15',
-  );
-  if (Number.isFinite(reconcileMinutes) && reconcileMinutes > 0) {
-    const reconcileTimer = setInterval(() => {
-      void runScheduledReconciliationPg(getPgPool(), {
-        runType: 'wallet_ledger',
-        triggeredBy: 'scheduler',
-      })
-        .then((result) => {
-          structuredLog(
-            result.ok ? 'info' : 'error',
-            'reconciliation.scheduled',
-            { ...result, alert: !result.ok },
-          );
-        })
-        .catch((error) => {
-          structuredLog('error', 'reconciliation.scheduled_failed', {
-            message: error instanceof Error ? error.message : 'reconcile failed',
-            alert: true,
-          });
-        });
-    }, Math.max(1, reconcileMinutes) * 60_000);
-    reconcileTimer.unref?.();
-  }
 }
 
 const auditEndpoint = process.env.AUDIT_SINK_ENDPOINT?.trim() ?? '';
