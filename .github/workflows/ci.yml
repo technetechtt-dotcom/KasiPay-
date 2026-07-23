@@ -182,9 +182,10 @@ jobs:
           DRILL_ADAPTER=local DRILL_ENVIRONMENT=test npm run drill -- partial_settlement
           npm run test:postgres
           mkdir -p artifacts
-          printf '{"sha":"%s","ref":"%s","recordedAt":"%s","suite":"validate-postgres"}\n' \
-            "$GITHUB_SHA" "$GITHUB_REF" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            > "artifacts/ci-evidence-$GITHUB_SHA.json"
+          EVIDENCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          printf '{"sha":"%s","workflowSha":"%s","ref":"%s","recordedAt":"%s","suite":"validate-postgres"}\n' \
+            "$EVIDENCE_SHA" "$GITHUB_SHA" "$GITHUB_REF" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > "artifacts/ci-evidence-$EVIDENCE_SHA.json"
         env:
           DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
           TEST_DATABASE_URL: postgresql://ekasi:ekasi@localhost:5432/ekasi_test
@@ -197,7 +198,7 @@ jobs:
           LIVE_UTILITIES_ENABLED: '0'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ci-evidence-${{ github.sha }}
+          name: ci-evidence-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             Ekasi pay/backend/artifacts/ci-evidence-*.json
             sbom/*.cdx.json
