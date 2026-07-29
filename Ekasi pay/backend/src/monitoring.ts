@@ -1,10 +1,28 @@
 import { MONITORING_DSN, MONITORING_PROVIDER, NODE_ENV } from './config.js';
 import { registerTraceHook, structuredLog } from './observability.js';
 
+function dsnHost(dsn: string): string {
+  try {
+    return new URL(dsn).host;
+  } catch {
+    return 'invalid-dsn';
+  }
+}
+
+function shouldPostWebhook(provider: string, dsn: string): boolean {
+  const p = provider.toLowerCase();
+  // "other" is the explicit webhook sink. Also deliver when provider is unset
+  // but DSN is an HTTPS URL (common ops misconfig we still want to exercise).
+  return (
+    dsn.startsWith('https://') &&
+    (p === 'other' || p === '' || p === 'webhook')
+  );
+}
+
 /**
  * Connect centralized monitoring when configured.
  * - sentry/datadog: log connection marker (SDK optional; DSN proves config)
- * - other: POST error spans to MONITORING_DSN as an HTTPS webhook
+ * - other/webhook/empty+https: POST error spans to MONITORING_DSN
  * Without MONITORING_DSN this is a no-op so local/dev stays quiet.
  */
 export function initMonitoring(): void {
@@ -18,13 +36,7 @@ export function initMonitoring(): void {
   }
   structuredLog('info', 'monitoring.connected', {
     provider: MONITORING_PROVIDER || 'unspecified',
-    dsnHost: (() => {
-      try {
-        return new URL(MONITORING_DSN).host;
-      } catch {
-        return 'invalid-dsn';
-      }
-    })(),
+    dsnHost: dsnHost(MONITORING_DSN),
   });
   registerTraceHook((span) => {
     structuredLog(span.status === 'error' ? 'error' : 'info', 'trace.span', {
@@ -35,9 +47,8 @@ export function initMonitoring(): void {
       ...span.safeAttributes,
     });
     if (
-      MONITORING_PROVIDER === 'other' &&
       span.status === 'error' &&
-      MONITORING_DSN.startsWith('https://')
+      shouldPostWebhook(MONITORING_PROVIDER || '', MONITORING_DSN)
     ) {
       void fetch(MONITORING_DSN, {
         method: 'POST',
@@ -45,6 +56,7 @@ export function initMonitoring(): void {
         body: JSON.stringify({
           source: 'ekasi-pay',
           event: 'trace.error',
+          pageOnCall: Boolean(span.safeAttributes?.pageOnCall),
           traceId: span.traceId,
           name: span.name,
           durationMs: span.durationMs,

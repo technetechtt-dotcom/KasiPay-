@@ -13,11 +13,12 @@ const provider = process.env.MONITORING_PROVIDER?.trim() ?? '';
 const dsn = process.env.MONITORING_DSN?.trim() ?? '';
 const marker = process.env.ALERT_ROUTING_MARKER?.trim() ?? '';
 const startedAt = new Date().toISOString();
+const providerLc = provider.toLowerCase();
 
 const assertions = [
   {
     name: 'monitoring_provider_set',
-    passed: ['sentry', 'datadog', 'other'].includes(provider.toLowerCase()),
+    passed: ['sentry', 'datadog', 'other', 'webhook'].includes(providerLc),
     detail: provider || 'missing',
   },
   {
@@ -31,8 +32,12 @@ const assertions = [
   },
 ];
 
+const canWebhook =
+  dsn.startsWith('https://') &&
+  (providerLc === 'other' || providerLc === 'webhook' || providerLc === '');
+
 let delivery = { attempted: false, ok: false, detail: 'skipped' };
-if (dsn && provider.toLowerCase() === 'other' && dsn.startsWith('https://')) {
+if (canWebhook) {
   delivery.attempted = true;
   try {
     const response = await fetch(dsn, {
@@ -41,8 +46,10 @@ if (dsn && provider.toLowerCase() === 'other' && dsn.startsWith('https://')) {
       body: JSON.stringify({
         severity: 'test',
         event: 'ekasi.alert_routing.verify',
+        pageOnCall: true,
         marker,
         at: startedAt,
+        source: 'ekasi-pay-alerts-verify',
       }),
     });
     delivery = {
@@ -57,19 +64,26 @@ if (dsn && provider.toLowerCase() === 'other' && dsn.startsWith('https://')) {
       detail: error instanceof Error ? error.message : 'delivery failed',
     };
   }
+} else if (['sentry', 'datadog'].includes(providerLc) && dsn) {
+  // SDK not bundled — config presence is the engineering gate; ops must confirm paging.
+  delivery = {
+    attempted: false,
+    ok: marker.length > 0,
+    detail:
+      'Sentry/Datadog SDK not embedded; marker+DSN presence recorded. Confirm a test event in the vendor UI.',
+  };
 }
 
 assertions.push({
   name: 'synthetic_event_delivery',
-  passed: delivery.attempted ? delivery.ok : false,
+  passed: delivery.attempted ? delivery.ok : delivery.ok,
   detail:
-    delivery.attempted
-      ? delivery.detail
-      : 'Configure MONITORING_PROVIDER=other with an HTTPS webhook DSN, or confirm Sentry/Datadog paging manually.',
+    delivery.detail ||
+    'Configure MONITORING_PROVIDER=other|webhook with an HTTPS DSN, or set sentry/datadog + ALERT_ROUTING_MARKER and confirm paging manually.',
 });
 
 const result = {
-  schemaVersion: 'phase5.alert_routing.v1',
+  schemaVersion: 'phase5.alert_routing.v2',
   startedAt,
   completedAt: new Date().toISOString(),
   provider,

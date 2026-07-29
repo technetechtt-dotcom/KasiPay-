@@ -132,6 +132,87 @@ reconciliationOpsRouterPg.get(
   },
 );
 
+const alertAckBody = z.object({
+  note: z.string().trim().min(3).max(2000).optional(),
+});
+
+reconciliationOpsRouterPg.post(
+  '/ops/reconciliation/alerts/:id/ack',
+  ...requireCapability('posting-control:manage'),
+  requireRecentStepUp,
+  async (req, res) => {
+    const parsed = alertAckBody.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const updated = await getPgPool().query(
+      `UPDATE on_call_alerts
+          SET state = 'acknowledged',
+              acknowledged_at = clock_timestamp(),
+              evidence = evidence || jsonb_build_object(
+                'ackedBy', $2::text,
+                'ackNote', COALESCE($3::text, ''),
+                'ackedAt', clock_timestamp()
+              )
+        WHERE id = $1 AND state = 'open'
+        RETURNING id, state, acknowledged_at`,
+      [req.params.id, req.opsAuth!.operatorId, parsed.data.note ?? null],
+    );
+    if (!updated.rowCount) {
+      return res.status(409).json({ error: 'Alert is not open for acknowledgement.' });
+    }
+    await recordAuditEventPg(getPgPool(), {
+      type: 'on_call.alert_acked',
+      message: `On-call alert acknowledged`,
+      actorType: 'operator',
+      actorId: req.opsAuth!.operatorId,
+      targetType: 'on_call_alert',
+      targetId: req.params.id,
+      afterHash: safeAuditHash(updated.rows[0]),
+      requestId: req.requestId,
+    });
+    return res.json({ ok: true, alert: updated.rows[0] });
+  },
+);
+
+reconciliationOpsRouterPg.post(
+  '/ops/reconciliation/alerts/:id/resolve',
+  ...requireCapability('posting-control:manage'),
+  requireRecentStepUp,
+  async (req, res) => {
+    const parsed = z
+      .object({ note: z.string().trim().min(10).max(4000) })
+      .safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const updated = await getPgPool().query(
+      `UPDATE on_call_alerts
+          SET state = 'resolved',
+              resolved_at = clock_timestamp(),
+              acknowledged_at = COALESCE(acknowledged_at, clock_timestamp()),
+              evidence = evidence || jsonb_build_object(
+                'resolvedBy', $2::text,
+                'resolveNote', $3::text,
+                'resolvedAt', clock_timestamp()
+              )
+        WHERE id = $1 AND state IN ('open','acknowledged')
+        RETURNING id, state, resolved_at`,
+      [req.params.id, req.opsAuth!.operatorId, parsed.data.note],
+    );
+    if (!updated.rowCount) {
+      return res.status(409).json({ error: 'Alert is not open for resolution.' });
+    }
+    await recordAuditEventPg(getPgPool(), {
+      type: 'on_call.alert_resolved',
+      message: `On-call alert resolved`,
+      actorType: 'operator',
+      actorId: req.opsAuth!.operatorId,
+      targetType: 'on_call_alert',
+      targetId: req.params.id,
+      afterHash: safeAuditHash(updated.rows[0]),
+      requestId: req.requestId,
+    });
+    return res.json({ ok: true, alert: updated.rows[0] });
+  },
+);
+
 const resolveBody = z.object({
   state: z.enum(['resolved', 'accepted_risk', 'wont_fix']),
   note: z.string().trim().min(10).max(4000),

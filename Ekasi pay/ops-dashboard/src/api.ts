@@ -639,6 +639,36 @@ export async function apiReconciliationAlerts() {
   );
 }
 
+export async function apiAckReconciliationAlert(id: string, note?: string) {
+  return opsFetch<{ ok: boolean; alert: Record<string, unknown> }>(
+    `/api/ops/reconciliation/alerts/${id}/ack`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    },
+  );
+}
+
+export async function apiResolveReconciliationAlert(id: string, note: string) {
+  return opsFetch<{ ok: boolean; alert: Record<string, unknown> }>(
+    `/api/ops/reconciliation/alerts/${id}/resolve`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    },
+  );
+}
+
+export async function apiResolveReconciliationException(
+  id: string,
+  body: { state: 'resolved' | 'accepted_risk' | 'wont_fix'; note: string },
+) {
+  return opsFetch<{ ok: boolean }>(`/api/ops/reconciliation/exceptions/${id}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiReconciliationProposals() {
   return opsFetch<{ proposals: Array<Record<string, unknown>> }>(
     '/api/ops/reconciliation/proposals',

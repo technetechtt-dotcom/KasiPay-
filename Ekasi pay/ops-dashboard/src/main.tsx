@@ -36,6 +36,9 @@ import {
   apiEnqueueReconciliation,
   apiReconciliationExceptions,
   apiReconciliationAlerts,
+  apiAckReconciliationAlert,
+  apiResolveReconciliationAlert,
+  apiResolveReconciliationException,
   apiReconciliationProposals,
   apiReviewMerchant,
   apiTransactions,
@@ -1005,24 +1008,52 @@ function LedgerTab() {
   const [proposals, setProposals] = useState<Array<Record<string, unknown>>>([]);
   const [queueNote, setQueueNote] = useState('');
   const [error, setError] = useState('');
+  const [warn, setWarn] = useState('');
   const [busy, setBusy] = useState(false);
+  const [actionId, setActionId] = useState('');
 
   const load = useCallback(async () => {
     setError('');
+    setWarn('');
+    const warnings: string[] = [];
     try {
-      const [r, ex, al, pr] = await Promise.all([
-        apiReconciliation(),
-        apiReconciliationExceptions().catch(() => ({ exceptions: [] })),
-        apiReconciliationAlerts().catch(() => ({ alerts: [] })),
-        apiReconciliationProposals().catch(() => ({ proposals: [] })),
-      ]);
+      const r = await apiReconciliation();
       setReport(r);
-      setExceptions(ex.exceptions);
-      setAlerts(al.alerts);
-      setProposals(pr.proposals);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load reconciliation');
+      setError(e instanceof Error ? e.message : 'Failed to load wallet snapshot');
+      return;
     }
+    const [ex, al, pr] = await Promise.all([
+      apiReconciliationExceptions().then(
+        (v) => v,
+        (e) => {
+          warnings.push(
+            `Exceptions: ${e instanceof Error ? e.message : 'unavailable'}`,
+          );
+          return { exceptions: [] as Array<Record<string, unknown>> };
+        },
+      ),
+      apiReconciliationAlerts().then(
+        (v) => v,
+        (e) => {
+          warnings.push(`Alerts: ${e instanceof Error ? e.message : 'unavailable'}`);
+          return { alerts: [] as Array<Record<string, unknown>> };
+        },
+      ),
+      apiReconciliationProposals().then(
+        (v) => v,
+        (e) => {
+          warnings.push(
+            `Proposals: ${e instanceof Error ? e.message : 'unavailable'}`,
+          );
+          return { proposals: [] as Array<Record<string, unknown>> };
+        },
+      ),
+    ]);
+    setExceptions(ex.exceptions);
+    setAlerts(al.alerts);
+    setProposals(pr.proposals);
+    if (warnings.length) setWarn(warnings.join(' · '));
   }, []);
 
   useEffect(() => {
@@ -1046,6 +1077,52 @@ function LedgerTab() {
     }
   };
 
+  const ackAlert = async (id: string) => {
+    setActionId(id);
+    setError('');
+    try {
+      await apiAckReconciliationAlert(id, 'Acknowledged from ops dashboard');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to acknowledge alert');
+    } finally {
+      setActionId('');
+    }
+  };
+
+  const resolveAlert = async (id: string) => {
+    const note = window.prompt('Resolution note (min 10 characters):');
+    if (!note || note.trim().length < 10) return;
+    setActionId(id);
+    setError('');
+    try {
+      await apiResolveReconciliationAlert(id, note.trim());
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to resolve alert');
+    } finally {
+      setActionId('');
+    }
+  };
+
+  const resolveException = async (id: string) => {
+    const note = window.prompt('Exception resolution note (min 10 characters):');
+    if (!note || note.trim().length < 10) return;
+    setActionId(id);
+    setError('');
+    try {
+      await apiResolveReconciliationException(id, {
+        state: 'resolved',
+        note: note.trim(),
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to resolve exception');
+    } finally {
+      setActionId('');
+    }
+  };
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -1060,6 +1137,7 @@ function LedgerTab() {
         </div>
       </div>
       {error ? <p className="error">{error}</p> : null}
+      {warn ? <p className="warn-banner">{warn}</p> : null}
       {queueNote ? <p className="ok-banner">{queueNote}</p> : null}
       {report ? (
         <>
@@ -1111,6 +1189,7 @@ function LedgerTab() {
                 <th>Type</th>
                 <th>Severity</th>
                 <th>Summary</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -1119,6 +1198,15 @@ function LedgerTab() {
                   <td>{String(row.exception_type ?? '')}</td>
                   <td>{String(row.severity ?? '')}</td>
                   <td>{String(row.summary ?? '')}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={actionId === String(row.id)}
+                      onClick={() => void resolveException(String(row.id))}>
+                      Resolve
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1137,6 +1225,7 @@ function LedgerTab() {
                 <th>Severity</th>
                 <th>Source</th>
                 <th>Summary</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -1145,6 +1234,22 @@ function LedgerTab() {
                   <td>{String(row.severity ?? '')}</td>
                   <td>{String(row.source ?? '')}</td>
                   <td>{String(row.summary ?? '')}</td>
+                  <td className="row-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={actionId === String(row.id)}
+                      onClick={() => void ackAlert(String(row.id))}>
+                      Ack
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={actionId === String(row.id)}
+                      onClick={() => void resolveAlert(String(row.id))}>
+                      Resolve
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
