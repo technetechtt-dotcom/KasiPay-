@@ -28,6 +28,8 @@ const requiredControls = [
   'backup',
   'restore_drill',
   'failure_drill',
+  'alert_routing',
+  'reconcile_worker',
   'smoke',
   'rollback',
 ];
@@ -38,6 +40,7 @@ const gatedProductFlags = [
   'LENDING_ENABLED',
   'INSURANCE_ENABLED',
   'STOKVEL_MONEY_MOVEMENT_ENABLED',
+  'LIVE_UTILITIES_ENABLED',
 ];
 
 function envFlagTrue(name) {

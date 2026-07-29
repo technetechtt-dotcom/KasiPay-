@@ -153,6 +153,13 @@ services:
         sync: false
       - key: DATA_ENCRYPTION_KEY_VERSION
         value: "1"
+      # Same monitoring path as API so fail-closed reconcile can page on-call.
+      - key: MONITORING_PROVIDER
+        sync: false
+      - key: MONITORING_DSN
+        sync: false
+      - key: ALERT_ROUTING_MARKER
+        sync: false
 
   - type: web
     name: ekasi-pay-web
@@ -173,6 +180,14 @@ services:
     envVars:
       - key: VITE_REFRESH_COOKIE
         value: "true"
+      - key: VITE_SUPPORT_WHATSAPP
+        sync: false
+      - key: VITE_SUPPORT_PHONE
+        sync: false
+      - key: VITE_SUPPORT_PHONE_DISPLAY
+        sync: false
+      - key: VITE_SUPPORT_EMAIL
+        sync: false
       - key: API_HOST
         fromService:
           name: ekasi-pay-api

@@ -36,13 +36,13 @@ jobs:
             echo ''
             echo 'Branch protection is configured by `npm run github:configure-controls`:'
             echo ''
-            echo '- Protected `main` with enforce_admins'
-            echo '- Required pull-request reviews + CODEOWNERS for financial/security paths'
-            echo '- Required status checks: validate, secret-scan, codeql, sbom, builds'
+            echo '- Protected `main` with enforce_admins and required CI status checks'
+            echo '- Force-push to `main` is blocked'
+            echo '- Direct pushes to `main` are allowed by default (set ALLOW_DIRECT_MAIN_PUSH=0 for PR+CODEOWNERS)'
             echo '- Staging/production Environments (add required reviewers in UI)'
             echo '- Dependency graph must be enabled for dependency-review (Settings → Code security)'
             echo ''
-            echo 'See `Ekasi pay/backend/docs/phase8-release.md` and `external-assurance-blockers.md`.'
+            echo 'See `Ekasi pay/backend/docs/main-ops-gate.md` and `external-assurance-blockers.md`.'
           } >> "$GITHUB_STEP_SUMMARY"
 
   secret-scan:

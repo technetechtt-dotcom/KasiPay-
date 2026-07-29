@@ -134,6 +134,16 @@
       "notes": "npm run alerts:verify plus on-call acknowledgement of the synthetic page."
     },
     {
+      "control": "reconcile_worker",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/reconcile-worker.txt",
+      "sha256": null,
+      "notes": "Render worker ekasi-pay-reconcile-worker logs reconciliation.worker_started; MONITORING_* shared with API."
+    },
+    {
       "control": "failure_drill",
       "status": "pending",
       "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
@@ -204,6 +214,16 @@
       "artifact": "artifacts/readiness/product-stokvel.txt",
       "sha256": null,
       "notes": "Required only when STOKVEL_MONEY_MOVEMENT_ENABLED=true."
+    },
+    {
+      "flag": "LIVE_UTILITIES_ENABLED",
+      "status": "pending",
+      "releaseSha": "REPLACE_WITH_GIT_SHA_UNDER_REVIEW",
+      "recordedAt": null,
+      "expiresAt": null,
+      "artifact": "artifacts/readiness/product-live-utilities.txt",
+      "sha256": null,
+      "notes": "Required only when LIVE_UTILITIES_ENABLED=true."
     }
   ]
 }
