@@ -180,7 +180,7 @@ export interface Expense {
   createdAt: string;
 }
 
-export type Language = 'en' | 'zu' | 'xh';
+export type Language = 'en' | 'af' | 'tn' | 'zu' | 'xh';
 
 // Credit Book
 export interface CreditCustomer {

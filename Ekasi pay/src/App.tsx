@@ -13,8 +13,8 @@ import {
   UserManagement,
   CompliancePage,
   ClaimsReviewPage,
-  MerchantApprovalsPage,
 } from './pages/admin/AdminPages';
+import { MerchantApprovalsPage } from './pages/admin/MerchantApprovalsPage';
 import { MerchantOnboardingPage } from './pages/onboarding/MerchantOnboardingPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { AddStockPage } from './pages/inventory/AddStockPage';

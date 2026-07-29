@@ -267,19 +267,26 @@ export const SettingsPage = ({
               <button
                 onClick={() => setLanguage('en')}
                 className={`p-3 rounded-xl text-left font-medium transition-colors ${language === 'en' ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500' : 'bg-slate-50 text-slate-700 border-2 border-transparent hover:bg-slate-100'}`}>
-                
                 English
+              </button>
+              <button
+                onClick={() => setLanguage('af')}
+                className={`p-3 rounded-xl text-left font-medium transition-colors ${language === 'af' ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500' : 'bg-slate-50 text-slate-700 border-2 border-transparent hover:bg-slate-100'}`}>
+                Afrikaans
+              </button>
+              <button
+                onClick={() => setLanguage('tn')}
+                className={`p-3 rounded-xl text-left font-medium transition-colors ${language === 'tn' ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500' : 'bg-slate-50 text-slate-700 border-2 border-transparent hover:bg-slate-100'}`}>
+                Setswana
               </button>
               <button
                 onClick={() => setLanguage('zu')}
                 className={`p-3 rounded-xl text-left font-medium transition-colors ${language === 'zu' ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500' : 'bg-slate-50 text-slate-700 border-2 border-transparent hover:bg-slate-100'}`}>
-                
                 isiZulu
               </button>
               <button
                 onClick={() => setLanguage('xh')}
                 className={`p-3 rounded-xl text-left font-medium transition-colors ${language === 'xh' ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500' : 'bg-slate-50 text-slate-700 border-2 border-transparent hover:bg-slate-100'}`}>
-                
                 isiXhosa
               </button>
             </div>

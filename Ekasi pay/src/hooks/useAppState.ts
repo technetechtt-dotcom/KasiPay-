@@ -177,9 +177,11 @@ function readPrefs(): PersistedPrefs {
   }
 }
 
+const SUPPORTED_LANGUAGES: ReadonlySet<Language> = new Set(['en', 'af', 'tn', 'zu', 'xh']);
+
 function readInitialPrefsLanguage(): Language {
   const prefs = readPrefs().language;
-  return prefs ?? 'en';
+  return prefs && SUPPORTED_LANGUAGES.has(prefs) ? prefs : 'en';
 }
 
 function readInitialWorkspaceMode(): WorkspaceMode {
