@@ -489,7 +489,8 @@ export function App() {
           <ShopPage
             products={state.products}
             onMakeSale={state.makeSale}
-            navigate={state.navigate} />);
+            navigate={state.navigate}
+            language={state.language} />);
 
 
       case 'history':
@@ -521,7 +522,8 @@ export function App() {
           <InventoryPage
             products={state.products}
             onRestock={state.restockProduct}
-            navigate={state.navigate} />);
+            navigate={state.navigate}
+            language={state.language} />);
 
 
       case 'stock-value':
@@ -723,7 +725,7 @@ export function App() {
 
 
       case 'help':
-        return <HelpPage navigate={state.navigate} />;
+        return <HelpPage navigate={state.navigate} language={state.language} />;
       case 'buy':
         return (
           <BuyUtilityPage

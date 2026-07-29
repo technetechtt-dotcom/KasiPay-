@@ -614,11 +614,13 @@ export async function apiUpdateProduct(
     stock: number;
     category: string;
     barcode: string;
-  }>
+  }>,
+  idempotencyKey?: string,
 ) {
   return apiRequest<{ product: import('../types').Product }>(`/api/products/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
+    idempotencyKey: idempotencyKey ?? true,
   });
 }
 
@@ -1127,14 +1129,17 @@ export type StockIntakeLine = {
   barcode?: string;
 };
 
-export async function apiStockIntake(body: {
-  supplierName?: string;
-  slipReference?: string;
-  slipTotal?: MoneyInput;
-  notes?: string;
-  recordExpense?: boolean;
-  lines: StockIntakeLine[];
-}) {
+export async function apiStockIntake(
+  body: {
+    supplierName?: string;
+    slipReference?: string;
+    slipTotal?: MoneyInput;
+    notes?: string;
+    recordExpense?: boolean;
+    lines: StockIntakeLine[];
+  },
+  idempotencyKey?: string,
+) {
   return apiRequest<{
     slip: import('../types').PurchaseSlip;
     products: import('../types').Product[];
@@ -1142,6 +1147,7 @@ export async function apiStockIntake(body: {
   }>('/api/stock-intake', {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: idempotencyKey ?? true,
   });
 }
 

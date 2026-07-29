@@ -17,7 +17,8 @@ import {
 'lucide-react';
 import { toast } from 'sonner';
 import { openProductScanner } from '../../lib/scannerSession';
-import type { Product } from '../../types';
+import type { Language, Product } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 import { FloatingScanButton } from '../../components/shared/FloatingScanButton';
 import { apiGetInventoryReport } from '../../services/api';
 import {
@@ -29,12 +30,15 @@ import {
 export const InventoryPage = ({
   products,
   onRestock,
-  navigate
-
-
-
-
-}: {products: Product[];onRestock: (productId: string, quantity: number) => void | Promise<boolean | void>;navigate: (p: string) => void;}) => {
+  navigate,
+  language = 'en',
+}: {
+  products: Product[];
+  onRestock: (productId: string, quantity: number) => void | Promise<boolean | void>;
+  navigate: (p: string) => void;
+  language?: Language;
+}) => {
+  const { t } = useTranslations(language);
   const [searchQuery, setSearchQuery] = useState('');
   const lowStockCount = products.filter(
     (p) => p.stock > 0 && p.stock < 10
@@ -70,7 +74,7 @@ export const InventoryPage = ({
     void (async () => {
       const result = await Promise.resolve(onRestock(productId, quantity));
       if (result === false) return;
-      toast.success('Stock updated');
+      toast.success(t('inventory.stockUpdated'));
     })();
   };
 
@@ -156,7 +160,7 @@ export const InventoryPage = ({
               <ArrowLeft className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-bold ml-2 text-slate-900 truncate">
-              Inventory
+              {t('inventory.title')}
             </h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -235,7 +239,7 @@ export const InventoryPage = ({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search inventory..."
+            placeholder={t('inventory.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-100 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />

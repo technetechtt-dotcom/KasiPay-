@@ -21,13 +21,15 @@ import { toast } from 'sonner';
 import { openProductScanner, drainShopScanQueue } from '../../lib/scannerSession';
 import { findProductByBarcode } from '../../lib/productBarcode';
 import { FloatingScanButton } from '../../components/shared/FloatingScanButton';
-import type { Product } from '../../types';
+import type { Language, Product } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 import { addMoney, formatMoney, multiplyMoney } from '../../money';
 
 export const ShopPage = ({
   products,
   onMakeSale,
   navigate,
+  language = 'en',
 }: {
   products: Product[];
   onMakeSale: (
@@ -36,7 +38,9 @@ export const ShopPage = ({
     phone?: string,
   ) => boolean | Promise<boolean>;
   navigate: (p: string) => void;
+  language?: Language;
 }) => {
+  const { t } = useTranslations(language);
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet'>('cash');
@@ -51,7 +55,7 @@ export const ShopPage = ({
 
   const addToCart = (product: Product) => {
     if (product.stock <= 0) {
-      toast.error(`${product.name} is out of stock`);
+      toast.error(`${product.name} ${t('shop.outOfStockToast')}`);
       return;
     }
     setCart((prev) => {
@@ -201,13 +205,13 @@ export const ShopPage = ({
             )}
           </div>
           <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
-            <span className="font-bold text-slate-900">Total</span>
+            <span className="font-bold text-slate-900">{t('shop.total')}</span>
             <span className="font-bold text-lg text-slate-900">
               R{formatMoney(total)}
             </span>
           </div>
           <div className="mt-2 text-xs text-slate-500 text-center uppercase tracking-wider">
-            Paid via {paymentMethod}
+            {t('shop.paidVia')} {paymentMethod === 'cash' ? t('shop.cash') : t('shop.wallet')}
           </div>
         </KPCard>
 
@@ -217,9 +221,9 @@ export const ShopPage = ({
             className="bg-[#25D366] hover:bg-[#128C7E] text-white border-none flex items-center justify-center gap-2">
             
             <MessageCircle className="w-5 h-5" />
-            Share via WhatsApp
+            {t('shop.shareWhatsApp')}
           </KPButton>
-          <KPButton onClick={() => navigate('home')}>Back to Home</KPButton>
+          <KPButton onClick={() => navigate('home')}>{t('shop.backHome')}</KPButton>
           <KPButton
             variant="outline"
             onClick={() => {
@@ -230,7 +234,7 @@ export const ShopPage = ({
               setPaymentMethod('cash');
             }}>
             
-            New Sale
+            {t('shop.newSale')}
           </KPButton>
         </div>
       </PageTransition>);
@@ -249,12 +253,12 @@ export const ShopPage = ({
     <div className="flex flex-col min-h-0 h-full bg-slate-50">
       {/* Fixed Header */}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
-        <h2 className="text-xl font-bold text-slate-900 mb-4">Shop POS</h2>
+        <h2 className="text-xl font-bold text-slate-900 mb-4">{t('shop.posTitle')}</h2>
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search products..."
+            placeholder={t('shop.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-100 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
@@ -280,7 +284,7 @@ export const ShopPage = ({
         {!searchQuery && selectedCategory === 'All' &&
         <>
             <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
-              Quick Add
+              {t('shop.quickAdd')}
             </h3>
             <div className="flex gap-3 mb-8 overflow-x-auto pb-2 scrollbar-hide">
               {quickItems.map((p) =>
@@ -303,12 +307,12 @@ export const ShopPage = ({
         }
 
         <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
-          {searchQuery ? 'Search Results' : 'All Products'}
+          {searchQuery ? t('shop.searchResults') : t('shop.allProducts')}
         </h3>
         {filteredProducts.length === 0 ?
         <div className="text-center py-12 text-slate-500">
             <Package className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-            <p>No products found</p>
+            <p>{t('shop.noProducts')}</p>
           </div> :
 
         <div className="grid grid-cols-2 gap-4 pb-8">
@@ -362,7 +366,7 @@ export const ShopPage = ({
           {showCheckout ?
         <div className="p-6 max-h-[60vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-bold">Checkout</h3>
+                <h3 className="text-lg font-bold">{t('shop.checkout')}</h3>
                 <button
               onClick={() => setShowCheckout(false)}
               className="text-slate-500">
@@ -385,14 +389,14 @@ export const ShopPage = ({
               className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${paymentMethod === 'cash' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>
               
                   <Banknote className="w-6 h-6" />
-                  <span className="font-medium text-sm">Cash</span>
+                  <span className="font-medium text-sm">{t('shop.cash')}</span>
                 </button>
                 <button
               onClick={() => setPaymentMethod('wallet')}
               className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${paymentMethod === 'wallet' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>
               
                   <CreditCard className="w-6 h-6" />
-                  <span className="font-medium text-sm">Customer Wallet</span>
+                  <span className="font-medium text-sm">{t('shop.wallet')}</span>
                 </button>
               </div>
 
@@ -471,7 +475,7 @@ export const ShopPage = ({
             onClick={() => setShowCheckout(true)}
             className="bg-blue-600 hover:bg-blue-700 shrink-0">
             
-                Proceed to Checkout
+                {t('shop.checkout')}
               </KPButton>
             </div>
         }

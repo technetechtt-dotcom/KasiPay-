@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addMoney,
   compareMoney,
+  formatMoney,
   moneyToCents,
   type MoneyInput,
 } from '../money';
@@ -120,6 +121,8 @@ import { saIdValidationMessage } from '../lib/saIdValidation';
 import {
   enqueueExpense,
   enqueueSale,
+  enqueueStockIntake,
+  enqueueStockPatch,
   flushOutbox,
   installOutboxAutoFlush,
   outboxSize,
@@ -881,8 +884,22 @@ export function useAppState() {
     const product = products.find((p) => p.id === productId);
     if (!product) return false;
 
+    const queueableNetworkError = (e: unknown) =>
+      (e instanceof ApiError && (e.status === 0 || e.status >= 500)) || e instanceof TypeError;
+
     if (quantity < 0) {
       const nextStock = Math.max(0, product.stock + quantity);
+      const applyLocal = () => {
+        setProducts((prev) =>
+          prev.map((p) => (p.id === productId ? { ...p, stock: nextStock } : p)),
+        );
+      };
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        enqueueStockPatch(productId, nextStock);
+        applyLocal();
+        toast.message('Offline — stock change queued and will sync when online.');
+        return true;
+      }
       try {
         const { product: updated } = await apiUpdateProduct(productId, {
           stock: nextStock,
@@ -898,6 +915,12 @@ export function useAppState() {
         });
         return true;
       } catch (e) {
+        if (queueableNetworkError(e)) {
+          enqueueStockPatch(productId, nextStock);
+          applyLocal();
+          toast.message('Network hiccup — stock change queued for retry.');
+          return true;
+        }
         toastMutationError('Update stock', e);
         await refreshAfterMutation();
         return false;
@@ -906,16 +929,35 @@ export function useAppState() {
 
     if (quantity === 0) return false;
 
+    const costPrice = options?.costPrice ?? product.costPrice;
+    const costPriceMoney = formatMoney(costPrice);
+    const intakePayload = {
+      supplierName: options?.supplierName,
+      slipReference: options?.slipReference,
+      slipTotal: options?.slipTotal,
+      notes: options?.notes,
+      recordExpense: options?.recordExpense ?? true,
+      lines: [{ productId, quantity, costPrice: costPriceMoney }],
+    };
+    const applyLocalIntake = () => {
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === productId
+            ? { ...p, stock: p.stock + quantity, costPrice: costPriceMoney }
+            : p,
+        ),
+      );
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      enqueueStockIntake(intakePayload);
+      applyLocalIntake();
+      toast.message('Offline — restock queued and will sync when online.');
+      return true;
+    }
+
     try {
-      const costPrice = options?.costPrice ?? product.costPrice;
-      const { products: updated } = await apiStockIntake({
-        supplierName: options?.supplierName,
-        slipReference: options?.slipReference,
-        slipTotal: options?.slipTotal,
-        notes: options?.notes,
-        recordExpense: options?.recordExpense ?? true,
-        lines: [{ productId, quantity, costPrice }],
-      });
+      const { products: updated } = await apiStockIntake(intakePayload);
       setProducts((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
         for (const p of updated) byId.set(p.id, p);
@@ -924,6 +966,12 @@ export function useAppState() {
       await refreshAfterMutation();
       return true;
     } catch (e) {
+      if (queueableNetworkError(e)) {
+        enqueueStockIntake(intakePayload);
+        applyLocalIntake();
+        toast.message('Network hiccup — restock queued for retry.');
+        return true;
+      }
       toastMutationError('Update stock', e);
       await refreshAfterMutation();
       return false;
@@ -946,15 +994,47 @@ export function useAppState() {
     }[];
   }): Promise<boolean> => {
     if (!merchantProfile) return false;
-    try {
-      const { products: updated } = await apiStockIntake({
-        supplierName: input.supplierName,
-        slipReference: input.slipReference,
-        slipTotal: input.slipTotal,
-        notes: input.notes,
-        recordExpense: true,
-        lines: input.lines,
+    const intakePayload = {
+      supplierName: input.supplierName,
+      slipReference: input.slipReference,
+      slipTotal: input.slipTotal,
+      notes: input.notes,
+      recordExpense: true,
+      lines: input.lines,
+    };
+    const applyLocalLines = () => {
+      setProducts((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        for (const line of input.lines) {
+          if (!line.productId) continue;
+          const existing = byId.get(line.productId);
+          if (!existing) continue;
+          byId.set(line.productId, {
+            ...existing,
+            stock: existing.stock + line.quantity,
+            costPrice: formatMoney(line.costPrice),
+            ...(line.sellingPrice !== undefined
+              ? { price: formatMoney(line.sellingPrice) }
+              : {}),
+          });
+        }
+        return [...byId.values()];
       });
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      if (input.lines.some((line) => !line.productId)) {
+        toast.error('New products need internet — add them when online, then retry the slip.');
+        return false;
+      }
+      enqueueStockIntake(intakePayload);
+      applyLocalLines();
+      toast.message('Offline — purchase slip queued and will sync when online.');
+      return true;
+    }
+
+    try {
+      const { products: updated } = await apiStockIntake(intakePayload);
       setProducts((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
         for (const p of updated) byId.set(p.id, p);
@@ -963,6 +1043,15 @@ export function useAppState() {
       await refreshAfterMutation();
       return true;
     } catch (e) {
+      const queueable =
+        (e instanceof ApiError && (e.status === 0 || e.status >= 500)) ||
+        e instanceof TypeError;
+      if (queueable && input.lines.every((line) => line.productId)) {
+        enqueueStockIntake(intakePayload);
+        applyLocalLines();
+        toast.message('Network hiccup — purchase slip queued for retry.');
+        return true;
+      }
       toastMutationError('Record purchase slip', e);
       await refreshAfterMutation();
       return false;

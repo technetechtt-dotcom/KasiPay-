@@ -12,8 +12,17 @@ import {
 import { toast } from 'sonner';
 import { faqs } from '../../data/faqs';
 import { readSupportContacts } from '../../lib/supportContacts';
+import type { Language } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 
-export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
+export const HelpPage = ({
+  navigate,
+  language = 'en',
+}: {
+  navigate: (p: string) => void;
+  language?: Language;
+}) => {
+  const { t } = useTranslations(language);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const support = readSupportContacts();
 
@@ -56,20 +65,18 @@ export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
             className="p-2 -ml-2 text-slate-500 hover:text-slate-900 transition-colors">
             <ArrowLeft className="w-6 h-6" />
           </button>
-          <h2 className="text-xl font-bold ml-2 text-slate-900">Help & Support</h2>
+          <h2 className="text-xl font-bold ml-2 text-slate-900">{t('help.title')}</h2>
         </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8 space-y-8">
         <section>
           <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
-            Contact Us
+            {t('help.contactUs')}
           </h3>
           {!support.whatsappE164 && !support.phoneTel && !support.email ? (
             <KPCard className="p-4 text-sm text-slate-600">
-              Support contacts are not set for this build. Ask your pilot coordinator,
-              or set <code className="text-xs">VITE_SUPPORT_*</code> env vars before
-              deploy.
+              {t('help.contactsUnset')}
             </KPCard>
           ) : null}
           <div className="grid grid-cols-1 gap-3">
@@ -81,7 +88,7 @@ export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
                   <MessageCircle className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900">WhatsApp Support</p>
+                  <p className="font-bold text-slate-900">{t('help.whatsapp')}</p>
                   <p className="text-sm text-slate-500">Usually replies in 5 mins</p>
                 </div>
               </KPCard>
@@ -94,7 +101,7 @@ export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
                   <Phone className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900">Call Center</p>
+                  <p className="font-bold text-slate-900">{t('help.callCenter')}</p>
                   <p className="text-sm text-slate-500">
                     {support.phoneDisplay || support.phoneTel}
                   </p>
@@ -109,7 +116,7 @@ export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
                   <Mail className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900">Email Us</p>
+                  <p className="font-bold text-slate-900">{t('help.emailUs')}</p>
                   <p className="text-sm text-slate-500">{support.email}</p>
                 </div>
               </KPCard>
@@ -119,7 +126,7 @@ export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
 
         <section>
           <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
-            Frequently Asked Questions
+            {t('help.faqs')}
           </h3>
           <div className="space-y-3">
             {faqs.map((faq, i) => (
@@ -153,7 +160,7 @@ export const HelpPage = ({ navigate }: { navigate: (p: string) => void }) => {
         <section>
           <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider flex items-center gap-2">
             <BookOpen className="w-4 h-4" />
-            Field pilot — quick steps
+            {t('help.fieldPilot')}
           </h3>
           <KPCard className="p-5 space-y-3 text-sm text-slate-700 leading-relaxed">
             <p>

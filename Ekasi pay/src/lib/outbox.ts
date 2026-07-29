@@ -4,13 +4,17 @@ import {
   ApiError,
   apiCreateExpense,
   apiCreateSale,
+  apiStockIntake,
+  apiUpdateProduct,
+  type StockIntakeLine,
 } from '../services/api';
 import type { Expense } from '../types';
+import type { MoneyInput } from '../money';
 
 /**
- * Tiny offline outbox for "loss is unacceptable" mutations. We only queue
- * sales and expenses — money movement (`/transfers`, `/cash-send`) goes
- * straight to the network so the user gets immediate confirmation that
+ * Tiny offline outbox for "loss is unacceptable" mutations. We queue sales,
+ * expenses, and stock mutations — money movement (`/transfers`, `/cash-send`)
+ * goes straight to the network so the user gets immediate confirmation that
  * money actually left their wallet. The outbox cooperates with the
  * server-side `Idempotency-Key` middleware: each queued entry has a stable
  * key, so a replay that *did* succeed last time is short-circuited.
@@ -20,6 +24,15 @@ import type { Expense } from '../types';
  */
 const OUTBOX_KEY = 'kasiPay.outbox.v1';
 const FLUSH_DEBOUNCE_MS = 250;
+
+export type StockIntakePayload = {
+  supplierName?: string;
+  slipReference?: string;
+  slipTotal?: MoneyInput;
+  notes?: string;
+  recordExpense?: boolean;
+  lines: StockIntakeLine[];
+};
 
 export type OutboxEntry =
   | {
@@ -35,6 +48,20 @@ export type OutboxEntry =
       idempotencyKey: string;
       enqueuedAt: string;
       payload: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>;
+    }
+  | {
+      id: string;
+      kind: 'stock_intake';
+      idempotencyKey: string;
+      enqueuedAt: string;
+      payload: StockIntakePayload;
+    }
+  | {
+      id: string;
+      kind: 'stock_patch';
+      idempotencyKey: string;
+      enqueuedAt: string;
+      payload: { productId: string; stock: number };
     };
 
 function readOutbox(): OutboxEntry[] {
@@ -99,12 +126,44 @@ export function enqueueExpense(
   return entry;
 }
 
+export function enqueueStockIntake(payload: StockIntakePayload): OutboxEntry {
+  const entry: OutboxEntry = {
+    id: newId(),
+    kind: 'stock_intake',
+    idempotencyKey: newId(),
+    enqueuedAt: new Date().toISOString(),
+    payload,
+  };
+  writeOutbox([...readOutbox(), entry]);
+  return entry;
+}
+
+export function enqueueStockPatch(productId: string, stock: number): OutboxEntry {
+  const entry: OutboxEntry = {
+    id: newId(),
+    kind: 'stock_patch',
+    idempotencyKey: newId(),
+    enqueuedAt: new Date().toISOString(),
+    payload: { productId, stock },
+  };
+  writeOutbox([...readOutbox(), entry]);
+  return entry;
+}
+
 async function attemptFlushOnce(entry: OutboxEntry): Promise<'sent' | 'retry' | 'drop'> {
   try {
     if (entry.kind === 'sale') {
       await apiCreateSale(entry.payload, entry.idempotencyKey);
-    } else {
+    } else if (entry.kind === 'expense') {
       await apiCreateExpense(entry.payload, entry.idempotencyKey);
+    } else if (entry.kind === 'stock_intake') {
+      await apiStockIntake(entry.payload, entry.idempotencyKey);
+    } else {
+      await apiUpdateProduct(
+        entry.payload.productId,
+        { stock: entry.payload.stock },
+        entry.idempotencyKey,
+      );
     }
     return 'sent';
   } catch (e) {
