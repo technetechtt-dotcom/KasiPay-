@@ -16,5 +16,5 @@ PR #2 is closed. Release evidence is the CI-green tip of `main`.
 ## Branch policy
 
 - Direct pushes to `main` are allowed; **force-push stays blocked**
-- Prefer CI green on the exact SHA before treating a tip as release-proven
+- CI still runs on every push; confirm green on the tip SHA before treating it as release-proven
 - Do not enable custodial money movement from docs alone — see `external-assurance-blockers.md`

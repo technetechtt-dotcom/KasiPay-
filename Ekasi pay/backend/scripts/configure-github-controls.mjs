@@ -61,11 +61,8 @@ function ghApi(method, path, body) {
 console.log(`Configuring protected main for ${repo}…`);
 
 const protection = {
-  required_status_checks: {
-    strict: true,
-    contexts,
-  },
   enforce_admins: true,
+  required_pull_request_reviews: null,
   restrictions: null,
   required_linear_history: true,
   allow_force_pushes: false,
@@ -76,7 +73,15 @@ const protection = {
   allow_fork_syncing: false,
 };
 
-if (!allowDirectMainPush) {
+if (allowDirectMainPush) {
+  // Status checks still run on push via CI; requiring them on the branch
+  // blocks direct pushes of fresh SHAs that have not yet been checked.
+  protection.required_status_checks = null;
+} else {
+  protection.required_status_checks = {
+    strict: true,
+    contexts,
+  };
   protection.required_pull_request_reviews = {
     dismiss_stale_reviews: true,
     require_code_owner_reviews: true,
@@ -87,8 +92,6 @@ if (!allowDirectMainPush) {
 ghApi('PUT', `repos/${repo}/branches/main/protection`, protection);
 
 if (allowDirectMainPush) {
-  // PUT with omitted reviews can leave a prior reviews block in place on some
-  // GitHub API versions — explicitly clear it.
   try {
     ghApi('DELETE', `repos/${repo}/branches/main/protection/required_pull_request_reviews`);
   } catch (error) {
@@ -97,7 +100,16 @@ if (allowDirectMainPush) {
       error instanceof Error ? error.message : error,
     );
   }
+  try {
+    ghApi('DELETE', `repos/${repo}/branches/main/protection/required_status_checks`);
+  } catch (error) {
+    console.warn(
+      'No required_status_checks to clear:',
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
+
 
 // Enable Dependency graph / Dependabot surfaces where the API allows.
 for (const path of [
@@ -150,7 +162,7 @@ console.log(
       requireCodeOwnerReviews: !allowDirectMainPush,
       requiredChecks: contexts,
       note: allowDirectMainPush
-        ? 'Direct pushes to main are allowed; force-push remains blocked. Enable Dependency graph in Settings → Code security if dependency-review still fails.'
+        ? 'Direct pushes to main are allowed; force-push remains blocked. CI still runs on push but is not a pre-push branch gate. Enable Dependency graph in Settings → Code security if dependency-review still fails.'
         : 'Direct pushes to main are blocked for everyone including admins. Enable Dependency graph in Settings → Code security if dependency-review still fails.',
     },
     null,

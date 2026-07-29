@@ -25,9 +25,10 @@ before enabling regulated products or live customer funds.
 
 Current branch protection (see `npm run github:configure-controls`):
 
-- Protected `main` with **enforce_admins** and required CI status checks
+- Protected `main` with **enforce_admins** and linear history
 - **Force-push to `main` remains blocked**
 - Direct pushes to `main` are **allowed** (PR reviews not required)
+- Required status checks are **not** a pre-push gate in this mode (CI still runs on every push)
 - CODEOWNERS retained for path ownership / review guidance on PRs when used
 - `dependency-review` hard-fails on pull requests when Dependency graph is enabled
 
