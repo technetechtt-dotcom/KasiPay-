@@ -44,6 +44,7 @@ import {
   type RuntimeProductControls,
 } from '../../services/api';
 import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
 import type {
   User,
   LedgerEntry,
@@ -871,6 +872,7 @@ const LoanDisbursementCard = () => {
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
+      <ProductReadinessNotice product="lending" />
       {!lendingEnabled ? (
         <ProductDisabledNotice
           title="Lending is disabled"

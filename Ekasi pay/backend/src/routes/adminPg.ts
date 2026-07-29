@@ -520,75 +520,24 @@ adminRouterPg.get(
   },
 );
 
-type ReconRow = {
-  wallet_id: string;
-  user_id: string;
-  pool_id: string;
-  wallet_kind: string;
-  balance_cents: string;
-  ledger_credits_cents: string;
-  ledger_debits_cents: string;
-  ledger_balance_cents: string;
-};
-
-adminRouterPg.post('/admin/reconciliation/run', ...requireCapability('reconciliation:run'), async (_req, res) => {
-    const pool = getPgPool();
-    const r = await pool.query<ReconRow>(
-      `
-      WITH ledger AS (
-        SELECT account_id AS wallet_id,
-               SUM(CASE WHEN entry_type = 'credit' THEN amount_cents ELSE 0 END) AS credits,
-               SUM(CASE WHEN entry_type = 'debit'  THEN amount_cents ELSE 0 END) AS debits
-        FROM ledger_entries
-        GROUP BY account_id
-      )
-      SELECT w.id AS wallet_id,
-             w.user_id AS user_id,
-             w.pool_id AS pool_id,
-             w.wallet_kind AS wallet_kind,
-             w.balance_cents AS balance_cents,
-             COALESCE(l.credits, 0) AS ledger_credits_cents,
-             COALESCE(l.debits, 0)  AS ledger_debits_cents,
-             COALESCE(l.credits, 0) - COALESCE(l.debits, 0) AS ledger_balance_cents
-        FROM wallets w
-        LEFT JOIN ledger l ON l.wallet_id = w.id
-      `,
-    );
-
-    const discrepancies = r.rows
-      .filter(
-        (row) =>
-          parseIntegerCents(row.balance_cents, { allowZero: true }) !==
-          parseIntegerCents(row.ledger_balance_cents, {
-            allowZero: true,
-            allowNegative: true,
-          }),
-      )
-      .map((row) => {
-        const wallet = parseIntegerCents(row.balance_cents, { allowZero: true });
-        const ledger = parseIntegerCents(row.ledger_balance_cents, {
-          allowZero: true,
-          allowNegative: true,
-        });
-        return {
-          walletId: row.wallet_id,
-          userId: row.user_id,
-          poolId: row.pool_id,
-          kind: row.wallet_kind,
-          walletBalance: formatCents(wallet),
-          ledgerBalance: formatCents(ledger),
-          delta: formatCents(wallet - ledger),
-        };
-      });
-
-    return res.json({
-      ranAt: new Date().toISOString(),
-      walletsChecked: r.rows.length,
-      discrepancies,
-      ok: discrepancies.length === 0,
-    });
-  },
-);
+adminRouterPg.post('/admin/reconciliation/run', ...requireCapability('reconciliation:run'), async (req, res) => {
+  const { enqueueReconciliationJobPg } = await import(
+    '../services/scheduledReconciliationPg.js'
+  );
+  const queued = await enqueueReconciliationJobPg(getPgPool(), {
+    runType: 'full',
+    requestedBy: `admin:${req.opsAuth?.operatorId ?? req.auth?.userId ?? 'unknown'}`,
+  });
+  return res.status(202).json({
+    queued: true,
+    requestId: queued.requestId,
+    note: 'Queued for reconcile:worker — not executed inside the API process.',
+    ranAt: new Date().toISOString(),
+    walletsChecked: 0,
+    discrepancies: [],
+    ok: true,
+  });
+});
 
 type AdminMerchantRow = {
   id: string;

@@ -33,8 +33,11 @@ import {
   apiImportSettlementStatement,
   apiFeeSchedules,
   apiReconciliation,
+  apiEnqueueReconciliation,
+  apiReconciliationExceptions,
+  apiReconciliationAlerts,
+  apiReconciliationProposals,
   apiReviewMerchant,
-  apiRunReconciliation,
   apiTransactions,
   apiUpdateAdminUser,
   apiUpdateComplianceFlag,
@@ -995,16 +998,28 @@ function LoansTab() {
 
 function LedgerTab() {
   const [report, setReport] = useState<Awaited<
-    ReturnType<typeof apiRunReconciliation>
+    ReturnType<typeof apiReconciliation>
   > | null>(null);
+  const [exceptions, setExceptions] = useState<Array<Record<string, unknown>>>([]);
+  const [alerts, setAlerts] = useState<Array<Record<string, unknown>>>([]);
+  const [proposals, setProposals] = useState<Array<Record<string, unknown>>>([]);
+  const [queueNote, setQueueNote] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const r = await apiReconciliation();
+      const [r, ex, al, pr] = await Promise.all([
+        apiReconciliation(),
+        apiReconciliationExceptions().catch(() => ({ exceptions: [] })),
+        apiReconciliationAlerts().catch(() => ({ alerts: [] })),
+        apiReconciliationProposals().catch(() => ({ proposals: [] })),
+      ]);
       setReport(r);
+      setExceptions(ex.exceptions);
+      setAlerts(al.alerts);
+      setProposals(pr.proposals);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load reconciliation');
     }
@@ -1017,11 +1032,15 @@ function LedgerTab() {
   const run = async () => {
     setBusy(true);
     setError('');
+    setQueueNote('');
     try {
-      const r = await apiRunReconciliation();
-      setReport(r);
+      const queued = await apiEnqueueReconciliation('full');
+      setQueueNote(
+        `Queued ${queued.requestId.slice(0, 8)}… for reconcile:worker (not in API process).`,
+      );
+      await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Reconciliation failed');
+      setError(e instanceof Error ? e.message : 'Failed to queue reconciliation');
     } finally {
       setBusy(false);
     }
@@ -1036,16 +1055,17 @@ function LedgerTab() {
             Refresh
           </button>
           <button type="button" disabled={busy} onClick={() => void run()}>
-            {busy ? 'Running…' : 'Run reconciliation'}
+            {busy ? 'Queueing…' : 'Queue full reconcile'}
           </button>
         </div>
       </div>
       {error ? <p className="error">{error}</p> : null}
+      {queueNote ? <p className="ok-banner">{queueNote}</p> : null}
       {report ? (
         <>
           <p className={report.ok ? 'ok-banner' : 'warn-banner'}>
             {report.ok
-              ? `OK — ${report.walletsChecked} wallets balanced`
+              ? `Snapshot OK — ${report.walletsChecked} wallets balanced`
               : `${report.discrepancies.length} discrepancy(ies) across ${report.walletsChecked} wallets`}
             <span className="muted"> · {fmtDate(report.ranAt)}</span>
           </p>
@@ -1078,6 +1098,86 @@ function LedgerTab() {
         </>
       ) : (
         <p className="muted">Loading reconciliation…</p>
+      )}
+
+      <h3 className="mt-4">Open critical exceptions</h3>
+      {exceptions.length === 0 ? (
+        <p className="muted">No open exceptions.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Severity</th>
+                <th>Summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {exceptions.map((row) => (
+                <tr key={String(row.id)}>
+                  <td>{String(row.exception_type ?? '')}</td>
+                  <td>{String(row.severity ?? '')}</td>
+                  <td>{String(row.summary ?? '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h3 className="mt-4">On-call alerts</h3>
+      {alerts.length === 0 ? (
+        <p className="muted">No open alerts.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Source</th>
+                <th>Summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((row) => (
+                <tr key={String(row.id)}>
+                  <td>{String(row.severity ?? '')}</td>
+                  <td>{String(row.source ?? '')}</td>
+                  <td>{String(row.summary ?? '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h3 className="mt-4">Drift remediation proposals</h3>
+      {proposals.length === 0 ? (
+        <p className="muted">No open proposals.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Wallet</th>
+                <th>Delta</th>
+                <th>Root cause</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {proposals.map((row) => (
+                <tr key={String(row.id)}>
+                  <td className="mono">{String(row.wallet_id ?? '').slice(0, 12)}…</td>
+                  <td>{String(row.delta_cents ?? '')}</td>
+                  <td>{String(row.root_cause ?? row.origin ?? '')}</td>
+                  <td>{String(row.state ?? '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

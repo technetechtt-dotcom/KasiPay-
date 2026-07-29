@@ -115,6 +115,45 @@ services:
         value: "30"
       # Flip only after production-readiness evidence is approved for that product.
 
+  - type: worker
+    name: ekasi-pay-reconcile-worker
+    runtime: node
+    rootDir: Ekasi pay/backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run reconcile:worker
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RECONCILIATION_INTERVAL_MINUTES
+        value: "15"
+      - key: DATABASE_URL
+        sync: false
+      - key: FINANCIAL_POSTING_ENABLED
+        value: "false"
+      - key: LEDGER_DRIFT_KILL_SWITCH
+        value: "1"
+      - key: CASH_SEND_ENABLED
+        value: "false"
+      - key: LENDING_ENABLED
+        value: "false"
+      - key: LENDING_DISBURSEMENT_ENABLED
+        value: "false"
+      - key: INSURANCE_ENABLED
+        value: "false"
+      - key: STOKVEL_MONEY_MOVEMENT_ENABLED
+        value: "false"
+      - key: LIVE_UTILITIES_ENABLED
+        value: "false"
+      - key: PII_HASH_PEPPER
+        sync: false
+      - key: PII_HASH_PEPPER_VERSION
+        value: "1"
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: DATA_ENCRYPTION_KEY_VERSION
+        value: "1"
+
   - type: web
     name: ekasi-pay-web
     runtime: static

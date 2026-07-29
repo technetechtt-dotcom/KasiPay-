@@ -615,8 +615,42 @@ export async function apiReconciliation() {
   }>('/api/admin/reconciliation');
 }
 
+export async function apiEnqueueReconciliation(runType = 'full') {
+  return opsFetch<{
+    queued: boolean;
+    requestId: string;
+    runType?: string;
+    note?: string;
+  }>('/api/ops/reconciliation/run', {
+    method: 'POST',
+    body: JSON.stringify({ runType }),
+  });
+}
+
+export async function apiReconciliationExceptions() {
+  return opsFetch<{ exceptions: Array<Record<string, unknown>> }>(
+    '/api/ops/reconciliation/exceptions',
+  );
+}
+
+export async function apiReconciliationAlerts() {
+  return opsFetch<{ alerts: Array<Record<string, unknown>> }>(
+    '/api/ops/reconciliation/alerts',
+  );
+}
+
+export async function apiReconciliationProposals() {
+  return opsFetch<{ proposals: Array<Record<string, unknown>> }>(
+    '/api/ops/reconciliation/proposals',
+  );
+}
+
+/** @deprecated Prefer apiEnqueueReconciliation — admin run now only queues the worker. */
 export async function apiRunReconciliation() {
   return opsFetch<{
+    queued?: boolean;
+    requestId?: string;
+    note?: string;
     ranAt: string;
     walletsChecked: number;
     ok: boolean;

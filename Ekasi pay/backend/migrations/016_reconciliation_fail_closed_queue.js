@@ -58,6 +58,16 @@ export const up = (pgm) => {
       ADD COLUMN IF NOT EXISTS credit_account_id TEXT,
       ADD COLUMN IF NOT EXISTS root_cause TEXT,
       ADD COLUMN IF NOT EXISTS approved_evidence_digest TEXT;
+
+    -- System actors for automated kill-switch / recon events (FK on operational_control_events).
+    INSERT INTO ops_admin_users
+      (id, username, password_hash, role, is_active, created_at, updated_at)
+    VALUES
+      ('system:recon-guard', 'system-recon-guard', '!', 'operations', FALSE,
+       clock_timestamp(), clock_timestamp()),
+      ('system:drift-guard', 'system-drift-guard', '!', 'operations', FALSE,
+       clock_timestamp(), clock_timestamp())
+    ON CONFLICT (id) DO NOTHING;
   `);
 };
 

@@ -32,10 +32,13 @@ Required branch protection (configured by `npm run github:configure-controls`):
 
 ## Engineering scaffolding (in-repo)
 
-- Dedicated `npm run reconcile:worker` with leases + job queue — **not** in the API process
+- Dedicated Render worker `ekasi-pay-reconcile-worker` + `npm run reconcile:worker`
+- Ops dashboard queues reconcile and shows exceptions / alerts / proposals
+- Admin `/admin/reconciliation/run` is enqueue-only (no in-API inventory)
 - Journal / projection / wallet / voucher / fee / commission / refund / settlement / provider / suspense / loan / insurance checks
 - Any money-integrity failure → `failed` (never `partial`), disable posting, critical exception, on-call alert
-- Immutable drift proposals with wallet/journal/projection/delta/accounts/root-cause/evidence digest; execute rejects if live values change
+- Immutable drift proposals with evidence digest; execute rejects if live values change
+- IR + fraud playbook templates under `docs/playbook-*.md`
 - Safe PII deploy: `npm run migrate:deploy`
 
 ## Still keep disabled

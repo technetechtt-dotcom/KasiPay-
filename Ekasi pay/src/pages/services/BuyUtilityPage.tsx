@@ -21,6 +21,7 @@ import {
   KPInput,
   PageTransition,
 } from '../../components/shared/UIComponents';
+import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
 import {
   apiBuyUtility,
   apiGetProductReadiness,
@@ -258,6 +259,8 @@ export const BuyUtilityPage = ({
           <h2 className="text-xl font-bold ml-2 text-slate-900">Buy</h2>
         </div>
       </div>
+
+      <ProductReadinessNotice product="utilities" />
 
       <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-nav space-y-5">
         <div className="grid grid-cols-4 gap-2">
