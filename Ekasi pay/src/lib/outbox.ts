@@ -214,30 +214,35 @@ export async function flushOutbox(): Promise<number> {
 }
 
 /** Coalesce rapid online/visibility events into a single flush. */
-export function scheduleFlush(): void {
+export function scheduleFlush(onFlushed?: (sent: number) => void): void {
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = setTimeout(() => {
     flushTimer = null;
-    void flushOutbox();
+    void flushOutbox().then((sent) => {
+      if (onFlushed) onFlushed(sent);
+    });
   }, FLUSH_DEBOUNCE_MS);
 }
 
 /** Attach window listeners once. Returns a cleanup function. */
-export function installOutboxAutoFlush(): () => void {
+export function installOutboxAutoFlush(
+  onFlushed?: (sent: number) => void,
+): () => void {
   if (typeof window === 'undefined') {
     return function noopCleanup() {
       /* no-op when running outside the browser (SSR / tests) */
     };
   }
-  const onOnline = () => scheduleFlush();
-  const onFocus = () => scheduleFlush();
+  const run = () => scheduleFlush(onFlushed);
+  const onOnline = () => run();
+  const onFocus = () => run();
   const onVisibility = () => {
-    if (document.visibilityState === 'visible') scheduleFlush();
+    if (document.visibilityState === 'visible') run();
   };
   window.addEventListener('online', onOnline);
   window.addEventListener('focus', onFocus);
   document.addEventListener('visibilitychange', onVisibility);
-  scheduleFlush();
+  run();
   return () => {
     window.removeEventListener('online', onOnline);
     window.removeEventListener('focus', onFocus);

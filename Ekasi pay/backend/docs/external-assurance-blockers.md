@@ -20,7 +20,7 @@ before enabling regulated products or live customer funds.
 
 | Ref | Proof |
 |---|---|
-| `main` @ `27ca5b5` (and later) | Hardening branch fast-forwarded to `main` after PR #2 closed. Treat CI green on the exact `main` tip SHA as the release-evidence tip. |
+| `main` tip | CI green on the exact tip SHA is the release-evidence tip. Hardening landed via direct fast-forward after PR #2 closed. |
 | Closed PR #2 | Historical review surface only — not a live merge gate. |
 
 Current branch protection (see `npm run github:configure-controls`):

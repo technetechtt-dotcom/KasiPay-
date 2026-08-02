@@ -24,8 +24,9 @@ import {
 } from '../../lib/scannerSession';
 import { groceryLookupCode } from '../../lib/productBarcode';
 import { apiLookupProductBarcode } from '../../services/api';
-import type { Product } from '../../types';
+import type { Language, Product } from '../../types';
 import { findExistingMatch } from './findExistingMatch';
+import { useTranslations } from '../../hooks/useTranslations';
 import {
   compareMoney,
   formatMoney,
@@ -43,6 +44,7 @@ export const AddStockPage = ({
   existingProducts,
   navigate,
   scannedBarcode,
+  language = 'en',
 }: {
   onRestockProduct?: (
     productId: string,
@@ -66,7 +68,9 @@ export const AddStockPage = ({
   existingProducts: Product[];
   navigate: (p: string) => void;
   scannedBarcode?: string;
+  language?: Language;
 }) => {
+  const { t } = useTranslations(language);
   const [name, setName] = useState('');
   const [costPrice, setCostPrice] = useState('');
   const [sellingPrice, setSellingPrice] = useState('');
@@ -314,7 +318,7 @@ export const AddStockPage = ({
             <ArrowLeft className="w-6 h-6" />
           </button>
           <h2 className="text-xl font-bold ml-2 text-slate-900">
-            {isRestock ? 'Restock Product' : 'Add New Product'}
+            {isRestock ? t('addStock.restockProduct') : t('addStock.newProduct')}
           </h2>
         </div>
       </div>

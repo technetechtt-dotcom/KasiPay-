@@ -1,4 +1,4 @@
-﻿import './styles.css';
+import './styles.css';
 
 import { Component, Fragment, StrictMode, useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -300,7 +300,7 @@ function UsersTab() {
         </div>
         <div className="filters">
           <input
-            placeholder="Search name, phone, idâ€¦"
+            placeholder="Search name, phone, id…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -435,7 +435,7 @@ function UsersTab() {
                 <ul className="txn-list">
                   {detail.recentTransactions.map((t) => (
                     <li key={t.id}>
-                      {t.type} {fmtMoney(t.amount)} â€” {t.reference}
+                      {t.type} {fmtMoney(t.amount)} — {t.reference}
                     </li>
                   ))}
                 </ul>
@@ -1299,16 +1299,22 @@ function SettlementTab() {
 
   const load = useCallback(async () => {
     setError('');
+    const warnings: string[] = [];
     try {
-      const [settlement, fees] = await Promise.all([
-        apiSettlementOverview(),
-        apiFeeSchedules(),
-      ]);
+      const settlement = await apiSettlementOverview();
       setOverview(settlement);
+    } catch (e) {
+      setOverview(null);
+      warnings.push(e instanceof Error ? e.message : 'Settlement overview failed');
+    }
+    try {
+      const fees = await apiFeeSchedules();
       setFeeCount(fees.schedules.length);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load settlement controls');
+      setFeeCount(null);
+      warnings.push(e instanceof Error ? e.message : 'Fee schedules failed');
     }
+    setError(warnings.join(' · '));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -1826,12 +1832,12 @@ function CashSendTab() {
         </select>
         <input
           type="search"
-          placeholder="Search voucher, sender, withdrawer, ID, addressâ€¦"
+          placeholder="Search voucher, sender, withdrawer, ID, address…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <button type="button" onClick={() => void load()} disabled={loading}>
-          {loading ? 'Loadingâ€¦' : 'Refresh'}
+          {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}
@@ -1889,18 +1895,18 @@ function CashSendTab() {
                     <td>{v.status}</td>
                     <td>{fmtDate(v.createdAt)}</td>
                     <td>{fmtDate(v.expiresAt)}</td>
-                    <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : 'â€”'}</td>
-                    <td>{v.idVerifiedAtWithdrawal ? 'Yes' : 'â€”'}</td>
-                    <td>{v.sender.firstName || 'â€”'}</td>
-                    <td>{v.sender.lastName || 'â€”'}</td>
-                    <td>{v.sender.phone || 'â€”'}</td>
-                    <td className="mono">{v.sender.idDocument ?? 'â€”'}</td>
-                    <td>{v.senderAddress || 'â€”'}</td>
-                    <td>{v.withdrawer.firstName || 'â€”'}</td>
-                    <td>{v.withdrawer.lastName || 'â€”'}</td>
-                    <td>{v.withdrawer.phone || 'â€”'}</td>
+                    <td>{v.withdrawnAt ? fmtDate(v.withdrawnAt) : '—'}</td>
+                    <td>{v.idVerifiedAtWithdrawal ? 'Yes' : '—'}</td>
+                    <td>{v.sender.firstName || '—'}</td>
+                    <td>{v.sender.lastName || '—'}</td>
+                    <td>{v.sender.phone || '—'}</td>
+                    <td className="mono">{v.sender.idDocument ?? '—'}</td>
+                    <td>{v.senderAddress || '—'}</td>
+                    <td>{v.withdrawer.firstName || '—'}</td>
+                    <td>{v.withdrawer.lastName || '—'}</td>
+                    <td>{v.withdrawer.phone || '—'}</td>
                     <td className="mono">
-                      {v.collectorScannedId ?? v.withdrawer.idDocument ?? 'â€”'}
+                      {v.collectorScannedId ?? v.withdrawer.idDocument ?? '—'}
                     </td>
                   </tr>
                   {open ? (
@@ -1913,23 +1919,23 @@ function CashSendTab() {
                           </div>
                           <div>
                             <strong>Shop user ID (agent)</strong>
-                            <div className="mono muted">{v.senderUserId ?? 'â€”'}</div>
+                            <div className="mono muted">{v.senderUserId ?? '—'}</div>
                           </div>
                           <div>
                             <strong>Sender address</strong>
-                            <div>{v.senderAddress ?? 'â€”'}</div>
+                            <div>{v.senderAddress ?? '—'}</div>
                           </div>
                           <div>
                             <strong>Sender SA ID (full)</strong>
-                            <div className="mono">{v.sender.idDocument ?? 'â€”'}</div>
+                            <div className="mono">{v.sender.idDocument ?? '—'}</div>
                           </div>
                           <div>
                             <strong>Beneficiary ID on file</strong>
-                            <div className="mono">{v.recipientIdOnFile ?? 'â€”'}</div>
+                            <div className="mono">{v.recipientIdOnFile ?? '—'}</div>
                           </div>
                           <div>
                             <strong>ID scanned at collection</strong>
-                            <div className="mono">{v.collectorScannedId ?? 'â€”'}</div>
+                            <div className="mono">{v.collectorScannedId ?? '—'}</div>
                           </div>
                           <div>
                             <strong>ID verified at withdrawal</strong>
@@ -1937,7 +1943,7 @@ function CashSendTab() {
                           </div>
                           <div>
                             <strong>Cancel / expire reason</strong>
-                            <div>{v.cancelReason ?? 'â€”'}</div>
+                            <div>{v.cancelReason ?? '—'}</div>
                           </div>
                           <div>
                             <strong>Total held (amount + fee)</strong>
@@ -1981,26 +1987,34 @@ function TransactionsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
+    const warnings: string[] = [];
     try {
-      const [t, r] = await Promise.all([
-        apiTransactions({
-          search: search || undefined,
-          type: type === 'all' ? undefined : type,
-          status: status === 'all' ? undefined : status,
-          limit: 200,
-        }),
-        apiReconciliation(),
-      ]);
+      const t = await apiTransactions({
+        search: search || undefined,
+        type: type === 'all' ? undefined : type,
+        status: status === 'all' ? undefined : status,
+        limit: 200,
+      });
       setTxns(t.transactions);
       setTotals(t.totals);
       setTypes(t.types ?? []);
       setTotal(t.total);
+    } catch (e) {
+      setTxns([]);
+      setTotals(null);
+      setTypes([]);
+      setTotal(0);
+      warnings.push(e instanceof Error ? e.message : 'Transactions failed');
+    }
+    try {
+      const r = await apiReconciliation();
       setRecon(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
-    } finally {
-      setLoading(false);
+      setRecon(null);
+      warnings.push(e instanceof Error ? e.message : 'Reconciliation failed');
     }
+    setError(warnings.join(' · '));
+    setLoading(false);
   }, [search, type, status]);
 
   useEffect(() => {
@@ -2053,7 +2067,7 @@ function TransactionsTab() {
       <div className="filters">
         <input
           type="search"
-          placeholder="Search voucher, reference, description, typeâ€¦"
+          placeholder="Search voucher, reference, description, type…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -2072,7 +2086,7 @@ function TransactionsTab() {
           <option value="failed">Failed</option>
         </select>
         <button type="button" onClick={() => void load()} disabled={loading}>
-          {loading ? 'Loadingâ€¦' : 'Refresh'}
+          {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
 
@@ -2096,9 +2110,9 @@ function TransactionsTab() {
                 <td>{t.type}</td>
                 <td>{fmtMoney(t.amount)}</td>
                 <td>{t.status}</td>
-                <td className="mono">{t.voucherNumber ?? 'â€”'}</td>
+                <td className="mono">{t.voucherNumber ?? '—'}</td>
                 <td className="mono">{t.reference}</td>
-                <td>{t.description || 'â€”'}</td>
+                <td>{t.description || '—'}</td>
                 <td>{fmtDate(t.created_at)}</td>
               </tr>
             ))}
@@ -2117,14 +2131,22 @@ function RiskReviewTab() {
   const [holds, setHolds] = useState<OpsTransactionHold[]>([]);
   const [error, setError] = useState('');
   const load = useCallback(async () => {
+    const warnings: string[] = [];
     try {
-      const [caseResult, holdResult] = await Promise.all([apiRiskCases(), apiRiskHolds()]);
+      const caseResult = await apiRiskCases();
       setCases(caseResult.cases);
-      setHolds(holdResult.holds);
-      setError('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load risk queue');
+      setCases([]);
+      warnings.push(e instanceof Error ? e.message : 'Risk cases failed');
     }
+    try {
+      const holdResult = await apiRiskHolds();
+      setHolds(holdResult.holds);
+    } catch (e) {
+      setHolds([]);
+      warnings.push(e instanceof Error ? e.message : 'Risk holds failed');
+    }
+    setError(warnings.join(' · '));
   }, []);
   useEffect(() => { void load(); }, [load]);
   const decide = async (id: string, decision: 'released' | 'rejected') => {

@@ -496,7 +496,7 @@ export const MorePage = ({
             <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
               <Settings className="w-4 h-4" />
             </div>
-            <span className="font-medium text-slate-700">Account Settings</span>
+            <span className="font-medium text-slate-700">{t('settings.title')}</span>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-300" />
         </button>
@@ -508,7 +508,7 @@ export const MorePage = ({
             <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
               <HelpCircle className="w-4 h-4" />
             </div>
-            <span className="font-medium text-slate-700">Help & Support</span>
+            <span className="font-medium text-slate-700">{t('settings.help')}</span>
           </div>
           <ChevronRight className="w-5 h-5 text-slate-300" />
         </button>

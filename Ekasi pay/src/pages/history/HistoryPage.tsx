@@ -6,7 +6,8 @@ import {
   PageTransition } from
 '../../components/shared/UIComponents';
 import { ArrowDownLeft, ArrowUpRight, ShoppingCart, Plus } from 'lucide-react';
-import type { Transaction, Sale, Wallet, TransactionType } from '../../types';
+import type { Transaction, Sale, Wallet, TransactionType, Language } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 import { subtractMoney } from '../../money';
 
 function extractCashSendVoucherNumber(description: string | undefined): string | null {
@@ -31,18 +32,23 @@ function transactionTitle(tx: Transaction): string {
 export const HistoryPage = ({
   transactions,
   sales,
-  wallet
-
-
-
-
-}: {transactions: Transaction[];sales: Sale[];wallet: Wallet;}) => {
+  wallet,
+  language = 'en',
+}: {
+  transactions: Transaction[];
+  sales: Sale[];
+  wallet: Wallet;
+  language?: Language;
+}) => {
+  const { t } = useTranslations(language);
   const [filter, setFilter] = useState<'all' | 'sales' | 'transfers'>('all');
   const filterOptions: Array<'all' | 'sales' | 'transfers'> = [
     'all',
     'sales',
     'transfers'
   ];
+  const filterLabel = (f: 'all' | 'sales' | 'transfers') =>
+    f === 'all' ? t('history.all') : f === 'sales' ? t('history.sales') : t('history.transfers');
   // Combine and sort all activity
   const allActivity = [
   ...transactions.map((t) => ({
@@ -65,7 +71,7 @@ export const HistoryPage = ({
   return (
     <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 sticky top-0">
-        <h2 className="text-xl font-bold text-slate-900 mb-4">History</h2>
+        <h2 className="text-xl font-bold text-slate-900 mb-4">{t('history.title')}</h2>
 
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           {filterOptions.map((f) =>
@@ -74,7 +80,7 @@ export const HistoryPage = ({
             onClick={() => setFilter(f)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize whitespace-nowrap transition-colors ${filter === f ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>
             
-              {f}
+              {filterLabel(f)}
             </button>
           )}
         </div>
@@ -115,7 +121,7 @@ export const HistoryPage = ({
                         <ShoppingCart className="w-5 h-5" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-slate-900 truncate">Shop Sale</p>
+                        <p className="font-medium text-slate-900 truncate">{t('history.sale')}</p>
                         <p className="text-xs text-slate-500 truncate">
                           {sale.items.length} items • {sale.paymentMethod}
                         </p>

@@ -19,7 +19,8 @@ import {
   Receipt } from
 'lucide-react';
 import { toast } from 'sonner';
-import type { Expense, ExpenseCategory, Sale, Product } from '../../types';
+import type { Expense, ExpenseCategory, Language, Sale, Product } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 import {
   addMoney,
   canonicalMoney,
@@ -49,16 +50,19 @@ export const ExpensesPage = ({
   sales,
   products,
   onAddExpense,
-  navigate
-
-
-
-
-
-
-
-
-}: {expenses: Expense[];sales: Sale[];products: Product[];onAddExpense: (expense: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>) => void | Promise<boolean | void>;navigate: (p: string) => void;}) => {
+  navigate,
+  language = 'en',
+}: {
+  expenses: Expense[];
+  sales: Sale[];
+  products: Product[];
+  onAddExpense: (
+    expense: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>,
+  ) => void | Promise<boolean | void>;
+  navigate: (p: string) => void;
+  language?: Language;
+}) => {
+  const { t } = useTranslations(language);
   const [showForm, setShowForm] = useState(false);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
@@ -133,7 +137,7 @@ export const ExpensesPage = ({
               <ArrowLeft className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-bold ml-2 text-slate-900">
-              Expenses & Profit
+              {t('expenses.title')}
             </h2>
           </div>
           <button
@@ -168,7 +172,7 @@ export const ExpensesPage = ({
               </p>
             </div>
             <div className="text-right">
-              <p className="text-slate-500">Total Expenses</p>
+              <p className="text-slate-500">{t('expenses.totalExpenses')}</p>
               <p className="font-medium text-red-400">
                 <KPAmount amount={totalExpenses} />
               </p>
@@ -260,7 +264,7 @@ export const ExpensesPage = ({
                   disabled={busy || !amount || !description}
                   className="mt-2">
                   
-                    {busy ? 'Saving…' : 'Save Expense'}
+                    {busy ? t('expenses.saving') : t('expenses.saveExpense')}
                   </KPButton>
                 </div>
               </KPCard>

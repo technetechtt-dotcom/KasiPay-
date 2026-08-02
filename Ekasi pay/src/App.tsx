@@ -498,7 +498,8 @@ export function App() {
           <HistoryPage
             transactions={state.transactions}
             sales={state.sales}
-            wallet={myWallet} />);
+            wallet={myWallet}
+            language={state.language} />);
 
 
       case 'more':
@@ -541,7 +542,8 @@ export function App() {
             onRestockProduct={state.restockProduct}
             existingProducts={state.products}
             navigate={state.navigate}
-            scannedBarcode={scannedBarcode} />);
+            scannedBarcode={scannedBarcode}
+            language={state.language} />);
 
       case 'record-purchase-slip':
         return (
@@ -567,7 +569,8 @@ export function App() {
             sales={state.sales}
             products={state.products}
             onAddExpense={state.addExpense}
-            navigate={state.navigate} />);
+            navigate={state.navigate}
+            language={state.language} />);
 
 
       case 'analytics':

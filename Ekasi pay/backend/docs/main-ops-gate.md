@@ -1,6 +1,6 @@
-# Main branch ops gate (post-merge)
+# Main branch ops gate
 
-PR #2 is closed. Release evidence is the CI-green tip of `main`.
+Release evidence is the CI-green tip of `main` (direct pushes allowed; force-push blocked).
 
 ## After each money-control push to `main`
 
@@ -12,6 +12,7 @@ PR #2 is closed. Release evidence is the CI-green tip of `main`.
 3. Confirm worker logs show `reconciliation.worker_started`
 4. Keep `FINANCIAL_POSTING_ENABLED=false` until production-readiness evidence is approved
 5. Run `npm run alerts:verify` against staging `MONITORING_DSN` when configured
+6. Set real `VITE_SUPPORT_*` on the web service before pilot Help contacts go live
 
 ## Branch policy
 

@@ -314,11 +314,17 @@ export function useAppState() {
   }, [language, hasSeenOnboarding, workspaceMode]);
 
   const [pendingOutbox, setPendingOutbox] = useState(() => outboxSize());
+  const refreshAfterMutationRef = useRef<(forUser?: User | null) => Promise<void>>(
+    async () => {},
+  );
 
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false);
-      void flushOutbox().then(() => setPendingOutbox(outboxSize()));
+      void flushOutbox().then(async (sent) => {
+        setPendingOutbox(outboxSize());
+        if (sent > 0) await refreshAfterMutationRef.current();
+      });
     };
     const handleOffline = () => setIsOffline(true);
     window.addEventListener('online', handleOnline);
@@ -330,7 +336,10 @@ export function useAppState() {
   }, []);
 
   useEffect(() => {
-    const cleanup = installOutboxAutoFlush();
+    const cleanup = installOutboxAutoFlush((sent) => {
+      setPendingOutbox(outboxSize());
+      if (sent > 0) void refreshAfterMutationRef.current();
+    });
     const tick = window.setInterval(() => setPendingOutbox(outboxSize()), 1500);
     return () => {
       cleanup();
@@ -604,6 +613,7 @@ export function useAppState() {
     },
     [currentUser]
   );
+  refreshAfterMutationRef.current = refreshAfterMutation;
 
   const logout = () => {
     pushAudit('auth.logout', 'User logged out', currentUser?.id);
@@ -839,24 +849,56 @@ export function useAppState() {
     slipReference?: string;
   }): Promise<void> => {
     if (!currentUser || merchantProfile === null) return;
+    const costPriceMoney = formatMoney(productData.costPrice);
+    const priceMoney = formatMoney(productData.price);
+    const intakePayload = {
+      supplierName: productData.supplierName,
+      slipReference: productData.slipReference,
+      lines: [
+        {
+          name: productData.name,
+          quantity: productData.stock,
+          costPrice: costPriceMoney,
+          sellingPrice: priceMoney,
+          category: productData.category,
+          barcode: productData.barcode,
+        },
+      ],
+      recordExpense:
+        productData.stock > 0 && compareMoney(productData.costPrice, 0) > 0,
+    };
+    const applyLocalTemp = () => {
+      const tempId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? `temp_${crypto.randomUUID()}`
+          : `temp_${Date.now()}`;
+      setProducts((prev) => [
+        {
+          id: tempId,
+          merchantId: merchantProfile.id,
+          name: productData.name,
+          costPrice: costPriceMoney,
+          price: priceMoney,
+          stock: productData.stock,
+          category: productData.category,
+          barcode: productData.barcode,
+        },
+        ...prev,
+      ]);
+    };
+    const queueableNetworkError = (e: unknown) =>
+      (e instanceof ApiError && (e.status === 0 || e.status >= 500)) || e instanceof TypeError;
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      enqueueStockIntake(intakePayload);
+      applyLocalTemp();
+      setPendingOutbox(outboxSize());
+      toast.message('Offline — new product queued and will sync when online.');
+      return;
+    }
+
     try {
-      const { products: updated } = await apiStockIntake({
-        supplierName: productData.supplierName,
-        slipReference: productData.slipReference,
-        lines: [
-          {
-            name: productData.name,
-            quantity: productData.stock,
-            costPrice: productData.costPrice,
-            sellingPrice: productData.price,
-            category: productData.category,
-            barcode: productData.barcode,
-          },
-        ],
-        recordExpense:
-          productData.stock > 0 &&
-          compareMoney(productData.costPrice, 0) > 0,
-      });
+      const { products: updated } = await apiStockIntake(intakePayload);
       setProducts((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
         for (const p of updated) byId.set(p.id, p);
@@ -864,6 +906,13 @@ export function useAppState() {
       });
       await refreshAfterMutation();
     } catch (e) {
+      if (queueableNetworkError(e)) {
+        enqueueStockIntake(intakePayload);
+        applyLocalTemp();
+        setPendingOutbox(outboxSize());
+        toast.message('Network hiccup — new product queued for retry.');
+        return;
+      }
       toastMutationError('Add product', e);
       await refreshAfterMutation();
     }
