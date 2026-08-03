@@ -15,6 +15,8 @@ Release evidence is the CI-green tip of `main` (direct pushes allowed; force-pus
 6. Set real `VITE_SUPPORT_*` on the web service before pilot Help contacts go live
 7. Run `npm run ops:verify-live` with Render/Neon/monitoring env loaded; confirm worker log `reconciliation.worker_started`
 8. Track parallel external work in `docs/external-assurance-track.md` (never invent approvals)
+9. Neon project `KasiPay` / production branch is the intended DB; confirm Render `DATABASE_URL` points at it before treating worker as live
+10. Use `docs/non-funds-pilot-rehearsal.md` for the merchant rehearsal (flags stay false)
 
 ## Branch policy
 

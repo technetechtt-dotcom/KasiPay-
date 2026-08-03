@@ -315,7 +315,7 @@ export function useAppState() {
 
   const [pendingOutbox, setPendingOutbox] = useState(() => outboxSize());
   const refreshAfterMutationRef = useRef<(forUser?: User | null) => Promise<void>>(
-    async () => {},
+    async () => undefined,
   );
 
   useEffect(() => {

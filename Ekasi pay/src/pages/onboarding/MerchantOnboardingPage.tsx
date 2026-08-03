@@ -45,7 +45,9 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result ?? '');
-      const base64 = result.includes(',') ? result.split(',')[1]! : result;
+      const base64 = result.includes(',')
+        ? result.slice(result.indexOf(',') + 1)
+        : result;
       resolve(base64);
     };
     reader.onerror = () => reject(new Error('Could not read file'));

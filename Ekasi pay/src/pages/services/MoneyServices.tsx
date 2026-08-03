@@ -192,19 +192,19 @@ export const MoneyServices = ({
             onClick={() => setActiveTab('send')}
             className={`flex-1 min-w-[100px] py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'send' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}>
             
-            Send Cash
+            {t('cashSend.sendTab')}
           </button>
           <button
             onClick={() => setActiveTab('receive')}
             className={`flex-1 min-w-[100px] py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'receive' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500'}`}>
             
-            Collect Cash
+            {t('cashSend.collectTab')}
           </button>
           <button
             onClick={() => setActiveTab('vouchers')}
             className={`flex-1 min-w-[100px] py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'vouchers' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500'}`}>
             
-            My Vouchers
+            {t('cashSend.vouchersTab')}
           </button>
         </div>
       </div>
@@ -223,7 +223,8 @@ export const MoneyServices = ({
           authenticatedUserPhone={authenticatedUserPhone}
           createCashSend={createCashSend}
           navigate={navigate}
-          scanReturnRoute={scanReturnRoute} />
+          scanReturnRoute={scanReturnRoute}
+          language={language} />
 
         }
         {activeTab === 'receive' &&
@@ -313,6 +314,7 @@ type SendCashFlowProps = {
   ) => Promise<CashSendVoucher | null>;
   navigate: (p: string) => void;
   scanReturnRoute: string;
+  language?: Language;
 };
 
 function inferCashSendTabFromDraft(
@@ -333,7 +335,9 @@ const SendCashFlow = ({
   createCashSend,
   navigate,
   scanReturnRoute,
+  language = 'en',
 }: SendCashFlowProps) => {
+  const { t } = useTranslations(language);
   const [step, setStep] = useState(1);
   const [senderFirstName, setSenderFirstName] = useState('');
   const [senderLastName, setSenderLastName] = useState('');
@@ -569,7 +573,7 @@ const SendCashFlow = ({
           <CheckCircle2 className="w-10 h-10 text-emerald-600" />
         </div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">
-          Cash Send Ready
+          {t('cashSend.ready')}
         </h2>
         <p className="text-slate-500 mb-6">
           Share these details with the recipient securely.
@@ -902,7 +906,11 @@ const SendCashFlow = ({
             disabled={busy}
             className="flex-1">
             
-            {step === 4 ? (busy ? 'Creating…' : 'Create Cash Send') : 'Continue'}
+            {step === 4
+              ? busy
+                ? t('cashSend.creating')
+                : t('cashSend.create')
+              : t('cashSend.continue')}
           </KPButton>
         </div>
       </div>

@@ -17,7 +17,19 @@ store evidence URIs — never invent `status=approved` rows.
 | Non-funds merchant pilot (5–10) | Product | Pilot diary; money flags stay false | | Open |
 | Funds pilot / single payment route | Product + Legal | Only after production-readiness evidence | | Blocked |
 
+## Infrastructure evidence (partial)
+
+| Check | Evidence | Status |
+|---|---|---|
+| Neon project `KasiPay` (`purple-unit-69145144`) | Production branch `br-falling-truth-add7cqi1` answered `SELECT NOW()` (2026-08-03) | Proven reachable |
+| Render API `DATABASE_URL` → same Neon | Must match Render dashboard / `ops:verify-live` with secrets loaded | Open |
+| `ekasi-pay-reconcile-worker` live | Render logs `reconciliation.worker_started` + `RENDER_*` verify | Open |
+| `MONITORING_DSN` / `ALERT_ROUTING_MARKER` | `npm run alerts:verify` pages on-call | Open |
+| Real `VITE_SUPPORT_*` on `ekasi-pay-web` | Help page shows contacts (no placeholders) | Open |
+
 ## Non-funds pilot rehearsal checklist
+
+See `docs/non-funds-pilot-rehearsal.md`.
 
 1. Tip SHA CI green on `main`
 2. Real `VITE_SUPPORT_*` set on web service

@@ -144,6 +144,12 @@ const translations = {
       unavailable:
         'Cash Send money movement is unavailable. You can still review historical vouchers when the product is re-enabled.',
       create: 'Create Cash Send',
+      sendTab: 'Send Cash',
+      collectTab: 'Collect Cash',
+      vouchersTab: 'My Vouchers',
+      continue: 'Continue',
+      creating: 'Creating…',
+      ready: 'Cash Send Ready',
       historyEmpty: 'No Cash Send history',
     },
     onboarding: {
@@ -337,6 +343,12 @@ const translations = {
       unavailable:
         'Ukuhambisa imali nge-Cash Send akutholakali. Usengabuka amavawusha angaphambilini.',
       create: 'Dala i-Cash Send',
+      sendTab: 'Thumela Imali',
+      collectTab: 'Qoqa Imali',
+      vouchersTab: 'Amavawusha Ami',
+      continue: 'Qhubeka',
+      creating: 'Iyakha…',
+      ready: 'I-Cash Send Ilungile',
       historyEmpty: 'Awukho umlando we-Cash Send',
     },
     onboarding: {
@@ -530,6 +542,12 @@ const translations = {
       unavailable:
         'Ukushukunyiswa kwemali nge-Cash Send akufumaneki. Usenokujonga iivawutsha zangaphambili.',
       create: 'Yenza i-Cash Send',
+      sendTab: 'Thumela Imali',
+      collectTab: 'Qokelela Imali',
+      vouchersTab: 'Iivawutsha Zam',
+      continue: 'Qhubeka',
+      creating: 'Iyadala…',
+      ready: 'I-Cash Send Ilungile',
       historyEmpty: 'Akukho mbali ye-Cash Send',
     },
     onboarding: {
@@ -723,6 +741,12 @@ const translations = {
       unavailable:
         'Cash Send-geldbeweging is nie beskikbaar nie. Jy kan steeds vorige bewysies hersien.',
       create: 'Skep Cash Send',
+      sendTab: 'Stuur kontant',
+      collectTab: 'Ontvang kontant',
+      vouchersTab: 'My bewysies',
+      continue: 'Gaan voort',
+      creating: 'Skep…',
+      ready: 'Cash Send gereed',
       historyEmpty: 'Geen Cash Send-geskiedenis nie',
     },
     onboarding: {
@@ -916,6 +940,12 @@ const translations = {
       unavailable:
         'Go tsamaisa madi ka Cash Send ga go yo. O ka ntse o lebile divautšhara tsa pele.',
       create: 'Tlhola Cash Send',
+      sendTab: 'Romela madi',
+      collectTab: 'Amogela madi',
+      vouchersTab: 'Di-voucher tsa me',
+      continue: 'Tswelela',
+      creating: 'E a tlhola…',
+      ready: 'Cash Send e siametse',
       historyEmpty: 'Ga go na histori ya Cash Send',
     },
     onboarding: {

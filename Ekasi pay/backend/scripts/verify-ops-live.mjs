@@ -80,6 +80,17 @@ for (const flag of flags) {
   record(flag, !enabled, enabled ? 'UNEXPECTEDLY TRUE' : 'false (safe)');
 }
 
+{
+  const neon = present('NEON_PROJECT_ID');
+  record(
+    'NEON_PROJECT_ID',
+    true,
+    neon
+      ? `set (${neon.value}) — still confirm Render DATABASE_URL targets this project`
+      : 'optional — Neon KasiPay project id is purple-unit-69145144; set to record operator attestation',
+  );
+}
+
 const renderKey = present('RENDER_API_KEY');
 const workerId = present('RENDER_SERVICE_ID_RECONCILE_WORKER');
 if (renderKey && workerId) {
