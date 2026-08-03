@@ -11,6 +11,7 @@ import {
   markApprovalExecuted,
   requireRecentStepUp,
 } from '../security/approvalsPg.js';
+import { validatePostingEnableEvidence } from '../security/postingEnableEvidence.js';
 
 export const riskOpsRouterPg = Router();
 
@@ -175,35 +176,12 @@ riskOpsRouterPg.post(
           parsed.data.approvalRequestId,
         ]);
         const payload = approval.rows[0]?.payload ?? {};
-        const evidenceSha = String(payload.evidenceReleaseSha ?? '').trim();
-        if (!/^[0-9a-f]{7,64}$/i.test(evidenceSha)) {
-          throw Object.assign(
-            new Error(
-              'Approved resume requires payload.evidenceReleaseSha (CI tip SHA of the reviewed build).',
-            ),
-            { status: 400, code: 'POSTING_ENABLE_EVIDENCE_REQUIRED' },
-          );
-        }
-        if (payload.productionReadinessPassed !== true) {
-          throw Object.assign(
-            new Error(
-              'Approved resume requires payload.productionReadinessPassed=true after production:ready evidence.',
-            ),
-            { status: 400, code: 'POSTING_ENABLE_READINESS_REQUIRED' },
-          );
-        }
-        const expectedSha = (
-          process.env.RELEASE_SHA ||
-          process.env.GITHUB_SHA ||
-          ''
-        ).trim();
-        if (expectedSha && evidenceSha.toLowerCase() !== expectedSha.toLowerCase()) {
-          throw Object.assign(
-            new Error(
-              `Evidence release SHA ${evidenceSha} does not match runtime RELEASE_SHA/GITHUB_SHA.`,
-            ),
-            { status: 409, code: 'POSTING_ENABLE_EVIDENCE_MISMATCH' },
-          );
+        const evidence = validatePostingEnableEvidence(payload);
+        if (!evidence.ok) {
+          throw Object.assign(new Error(evidence.message), {
+            status: evidence.status,
+            code: evidence.code,
+          });
         }
       }
       const current = await client.query<{ enabled: boolean }>(

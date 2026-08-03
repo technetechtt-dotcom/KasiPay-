@@ -22,7 +22,8 @@ store evidence URIs — never invent `status=approved` rows.
 | Check | Evidence | Status |
 |---|---|---|
 | Neon project `KasiPay` (`purple-unit-69145144`) | Production branch `br-falling-truth-add7cqi1` answered `SELECT NOW()` (2026-08-03) | Proven reachable |
-| Neon schema health | ~40 public tables present including `users`/`wallets`/`ledger_entries` (counts sample 2026-08-03) | Schema present |
+| Neon schema health | ~40 public tables present including `users`/`wallets`/`ledger_entries` (counts sample 2026-08-03) | **Legacy baseline only** |
+| Phase 4–9 / ops tables | Missing `schema_migrations`, `approval_requests`, `operational_controls`, reconcile queues, journal tables from current `main` | **Not applied on Neon prod** — run `npm run migrate:deploy` against a controlled env only after backup |
 | Render API `DATABASE_URL` → same Neon | Must match Render dashboard / `ops:verify-live` with secrets loaded | Open |
 | `ekasi-pay-reconcile-worker` live | Render logs `reconciliation.worker_started` + `RENDER_*` verify | Open |
 | `MONITORING_DSN` / `ALERT_ROUTING_MARKER` | `npm run alerts:verify` pages on-call | Open |
