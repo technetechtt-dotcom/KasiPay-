@@ -675,6 +675,57 @@ export async function apiReconciliationProposals() {
   );
 }
 
+export async function apiGenerateDriftProposals() {
+  return opsFetch<{ proposals: Array<Record<string, unknown>> }>(
+    '/api/ops/reconciliation/proposals/generate',
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function apiAlignWallet(body: {
+  approvalRequestId: string;
+  proposalId: string;
+  walletId: string;
+  reason: string;
+}) {
+  return opsFetch<{ ok?: boolean; reference?: string; result?: unknown }>(
+    '/api/ops/ledger/align-wallet',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export async function apiCreateApproval(body: {
+  actionType:
+    | 'balance_adjustment'
+    | 'posting_control_enable'
+    | 'loan_disbursement'
+    | 'refund_reversal'
+    | 'user_role_change'
+    | 'insurance_claim_payout';
+  resourceType: string;
+  resourceId: string;
+  payload: Record<string, unknown>;
+  reason: string;
+  evidence?: unknown[];
+  expiresMinutes?: number;
+}) {
+  return opsFetch<{ approvalId: string; state: string }>('/api/ops/approvals', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiDecideApproval(
+  id: string,
+  decision: 'approved' | 'rejected',
+  reason: string,
+) {
+  return opsFetch<{ ok: boolean; state: string }>(`/api/ops/approvals/${id}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, reason }),
+  });
+}
+
 /** @deprecated Prefer apiEnqueueReconciliation — admin run now only queues the worker. */
 export async function apiRunReconciliation() {
   return opsFetch<{
@@ -812,10 +863,18 @@ export async function apiDecideRiskHold(
   });
 }
 
-export async function apiSetFinancialPosting(enabled: boolean, reason: string) {
+export async function apiSetFinancialPosting(
+  enabled: boolean,
+  reason: string,
+  approvalRequestId?: string,
+) {
   return opsFetch<{ enabled: boolean }>('/api/admin/controls/financial-posting', {
     method: 'POST',
-    body: JSON.stringify({ enabled, reason }),
+    body: JSON.stringify({
+      enabled,
+      reason,
+      ...(approvalRequestId ? { approvalRequestId } : {}),
+    }),
   });
 }
 

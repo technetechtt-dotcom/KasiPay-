@@ -18,11 +18,13 @@ import {
   apiUploadMerchantDocument,
 } from '../../services/api';
 import type {
+  Language,
   Merchant,
   MerchantApprovalStatus,
   MerchantDocType,
   MerchantDocumentStatus,
 } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 
 const DOC_LABELS: Record<MerchantDocType, string> = {
   cipc_14_3: 'CIPC 14.3 document',
@@ -55,11 +57,14 @@ export function MerchantOnboardingPage({
   merchant,
   onMerchantUpdated,
   onLogout,
+  language = 'en',
 }: {
   merchant: Merchant;
   onMerchantUpdated: (merchant: Merchant) => void;
   onLogout: () => void;
+  language?: Language;
 }) {
+  const { t } = useTranslations(language);
   const status: MerchantApprovalStatus =
     merchant.approvalStatus ?? 'pending_docs';
   const [documents, setDocuments] = useState<MerchantDocumentStatus[]>([]);
@@ -74,11 +79,11 @@ export function MerchantOnboardingPage({
       setDocuments(res.documents);
       onMerchantUpdated(res.merchant);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load documents');
+      toast.error(e instanceof Error ? e.message : t('onboarding.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [onMerchantUpdated]);
+  }, [onMerchantUpdated, t]);
 
   useEffect(() => {
     void refresh();
@@ -91,7 +96,7 @@ export function MerchantOnboardingPage({
   const onPickFile = async (docType: MerchantDocType, file: File | null) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('Each file must be 5 MB or smaller.');
+      toast.error(t('onboarding.fileTooLarge'));
       return;
     }
     setUploading(docType);
@@ -110,7 +115,7 @@ export function MerchantOnboardingPage({
       });
       toast.success(`${DOC_LABELS[docType]} uploaded.`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Upload failed');
+      toast.error(e instanceof Error ? e.message : t('onboarding.uploadFailed'));
     } finally {
       setUploading(null);
     }
@@ -121,9 +126,9 @@ export function MerchantOnboardingPage({
     try {
       const { merchant: next } = await apiSubmitMerchantDocuments();
       onMerchantUpdated(next);
-      toast.success('Documents submitted for admin review.');
+      toast.success(t('onboarding.submitSuccess'));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not submit');
+      toast.error(e instanceof Error ? e.message : t('onboarding.submitFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -137,27 +142,25 @@ export function MerchantOnboardingPage({
             <Loader2 className="w-7 h-7 animate-spin" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">
-            Under review
+            {t('onboarding.pendingReview')}
           </h1>
           <p className="text-slate-500 text-sm leading-relaxed mb-8">
-            Your compliance documents were submitted
+            {t('onboarding.pendingDetail')}
             {merchant.docsSubmittedAt
-              ? ` on ${new Date(merchant.docsSubmittedAt).toLocaleDateString()}`
+              ? ` (${new Date(merchant.docsSubmittedAt).toLocaleDateString()})`
               : ''}
-            . An admin must approve your merchant account before you can use
-            KasiPay.
           </p>
           <KPButton
             variant="secondary"
             onClick={() => void refresh()}
             className="mb-3 w-full">
-            Refresh status
+            {t('onboarding.refreshStatus')}
           </KPButton>
           <button
             type="button"
             onClick={onLogout}
             className="text-sm text-slate-500 flex items-center gap-2">
-            <LogOut className="w-4 h-4" /> Log out
+            <LogOut className="w-4 h-4" /> {t('onboarding.logout')}
           </button>
         </div>
       </PageTransition>
@@ -168,19 +171,16 @@ export function MerchantOnboardingPage({
     <PageTransition className="min-h-0 h-full bg-slate-50 flex flex-col">
       <div className="bg-white px-6 pt-12 pb-5 shadow-sm shrink-0">
         <h1 className="text-2xl font-bold text-slate-900">
-          Complete your merchant setup
+          {t('onboarding.title')}
         </h1>
         <p className="text-slate-500 text-sm mt-2 leading-relaxed">
-          Upload the four required business documents. An admin will review them
-          before you can start using the platform.
+          {t('onboarding.subtitle')}
         </p>
         {status === 'rejected' && merchant.rejectionReason ? (
           <div className="mt-4 rounded-xl bg-red-50 border border-red-100 p-3 text-sm text-red-700">
-            <p className="font-semibold mb-1">Application rejected</p>
+            <p className="font-semibold mb-1">{t('onboarding.rejectedTitle')}</p>
             <p>{merchant.rejectionReason}</p>
-            <p className="mt-2 text-xs">
-              Re-upload the corrected documents and submit again.
-            </p>
+            <p className="mt-2 text-xs">{t('onboarding.rejectedHint')}</p>
           </div>
         ) : null}
       </div>
@@ -188,7 +188,7 @@ export function MerchantOnboardingPage({
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-3 pb-8">
         {loading ? (
           <p className="text-center text-sm text-slate-500 py-10">
-            Loading document checklist…
+            {t('onboarding.loading')}
           </p>
         ) : (
           DOC_ORDER.map((docType) => {
@@ -215,7 +215,7 @@ export function MerchantOnboardingPage({
                       {DOC_LABELS[docType]}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      PDF, JPG, or PNG · max 5 MB
+                      {t('onboarding.fileHint')}
                     </p>
                     {uploaded && row?.fileName ? (
                       <p className="text-xs text-emerald-700 mt-1 truncate">
@@ -224,7 +224,11 @@ export function MerchantOnboardingPage({
                     ) : null}
                     <label className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-emerald-700 cursor-pointer">
                       <Upload className="w-4 h-4" />
-                      {busy ? 'Uploading…' : uploaded ? 'Replace file' : 'Upload file'}
+                      {busy
+                        ? t('onboarding.uploading')
+                        : uploaded
+                          ? t('onboarding.replaceFile')
+                          : t('onboarding.uploadFile')}
                       <input
                         type="file"
                         accept="application/pdf,image/jpeg,image/png,image/webp"
@@ -249,13 +253,13 @@ export function MerchantOnboardingPage({
           disabled={!allUploaded || submitting || loading}
           isLoading={submitting}
           onClick={() => void onSubmit()}>
-          Submit for admin approval
+          {t('onboarding.submitForReview')}
         </KPButton>
         <button
           type="button"
           onClick={onLogout}
           className="w-full text-center text-sm text-slate-500 py-3 flex items-center justify-center gap-2">
-          <LogOut className="w-4 h-4" /> Log out
+          <LogOut className="w-4 h-4" /> {t('onboarding.logout')}
         </button>
       </div>
     </PageTransition>

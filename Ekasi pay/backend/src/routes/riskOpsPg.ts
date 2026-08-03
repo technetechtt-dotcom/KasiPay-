@@ -166,6 +166,45 @@ riskOpsRouterPg.post(
           resourceId: 'financial_posting',
           executorOperatorId: req.opsAuth!.operatorId,
         });
+        const approval = await client.query<{
+          payload: {
+            evidenceReleaseSha?: string;
+            productionReadinessPassed?: boolean;
+          };
+        }>(`SELECT payload FROM approval_requests WHERE id = $1`, [
+          parsed.data.approvalRequestId,
+        ]);
+        const payload = approval.rows[0]?.payload ?? {};
+        const evidenceSha = String(payload.evidenceReleaseSha ?? '').trim();
+        if (!/^[0-9a-f]{7,64}$/i.test(evidenceSha)) {
+          throw Object.assign(
+            new Error(
+              'Approved resume requires payload.evidenceReleaseSha (CI tip SHA of the reviewed build).',
+            ),
+            { status: 400, code: 'POSTING_ENABLE_EVIDENCE_REQUIRED' },
+          );
+        }
+        if (payload.productionReadinessPassed !== true) {
+          throw Object.assign(
+            new Error(
+              'Approved resume requires payload.productionReadinessPassed=true after production:ready evidence.',
+            ),
+            { status: 400, code: 'POSTING_ENABLE_READINESS_REQUIRED' },
+          );
+        }
+        const expectedSha = (
+          process.env.RELEASE_SHA ||
+          process.env.GITHUB_SHA ||
+          ''
+        ).trim();
+        if (expectedSha && evidenceSha.toLowerCase() !== expectedSha.toLowerCase()) {
+          throw Object.assign(
+            new Error(
+              `Evidence release SHA ${evidenceSha} does not match runtime RELEASE_SHA/GITHUB_SHA.`,
+            ),
+            { status: 409, code: 'POSTING_ENABLE_EVIDENCE_MISMATCH' },
+          );
+        }
       }
       const current = await client.query<{ enabled: boolean }>(
         `SELECT enabled FROM operational_controls WHERE control_key = 'financial_posting' FOR UPDATE`,

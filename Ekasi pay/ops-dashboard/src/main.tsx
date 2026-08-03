@@ -40,6 +40,9 @@ import {
   apiResolveReconciliationAlert,
   apiResolveReconciliationException,
   apiReconciliationProposals,
+  apiGenerateDriftProposals,
+  apiAlignWallet,
+  apiCreateApproval,
   apiReviewMerchant,
   apiTransactions,
   apiUpdateAdminUser,
@@ -1123,6 +1126,93 @@ function LedgerTab() {
     }
   };
 
+  const generateProposals = async () => {
+    setBusy(true);
+    setError('');
+    setQueueNote('');
+    try {
+      const result = await apiGenerateDriftProposals();
+      setQueueNote(
+        `Generated ${result.proposals?.length ?? 0} drift proposal(s). Checker must approve a balance_adjustment before Execute.`,
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate proposals');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestAlignApproval = async (row: Record<string, unknown>) => {
+    const proposalId = String(row.id ?? '');
+    const walletId = String(row.wallet_id ?? '');
+    const digest = String(row.evidence_digest ?? '');
+    if (!proposalId || !walletId) {
+      setError('Proposal is missing id/wallet.');
+      return;
+    }
+    const reason = window.prompt(
+      'Maker reason for balance-adjustment approval (min 10 chars)',
+    );
+    if (!reason || reason.trim().length < 10) return;
+    setActionId(`req-${proposalId}`);
+    setError('');
+    try {
+      const created = await apiCreateApproval({
+        actionType: 'balance_adjustment',
+        resourceType: 'wallet',
+        resourceId: walletId,
+        payload: {
+          walletId,
+          proposalId,
+          alignTo: 'wallet',
+          ...(digest ? { evidenceDigest: digest } : {}),
+        },
+        reason: reason.trim(),
+      });
+      setQueueNote(
+        `Approval requested ${created.approvalId}. A different operator must approve, then Execute.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to request approval');
+    } finally {
+      setActionId('');
+    }
+  };
+
+  const executeAlign = async (row: Record<string, unknown>) => {
+    const proposalId = String(row.id ?? '');
+    const walletId = String(row.wallet_id ?? '');
+    if (!proposalId || !walletId) {
+      setError('Proposal is missing id/wallet.');
+      return;
+    }
+    const approvalRequestId = window.prompt(
+      'Approved approvalRequestId (UUID from checker)',
+    );
+    if (!approvalRequestId?.trim()) return;
+    const reason = window.prompt('Execute reason (min 15 chars)');
+    if (!reason || reason.trim().length < 15) return;
+    setActionId(`exec-${proposalId}`);
+    setError('');
+    try {
+      const result = await apiAlignWallet({
+        approvalRequestId: approvalRequestId.trim(),
+        proposalId,
+        walletId,
+        reason: reason.trim(),
+      });
+      setQueueNote(
+        `Align executed${result.reference ? ` · ${result.reference}` : ''}.`,
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Align failed');
+    } finally {
+      setActionId('');
+    }
+  };
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -1130,6 +1220,9 @@ function LedgerTab() {
         <div className="row-actions">
           <button type="button" className="ghost" onClick={() => void load()}>
             Refresh
+          </button>
+          <button type="button" disabled={busy} onClick={() => void generateProposals()}>
+            Generate drift proposals
           </button>
           <button type="button" disabled={busy} onClick={() => void run()}>
             {busy ? 'Queueing…' : 'Queue full reconcile'}
@@ -1258,6 +1351,10 @@ function LedgerTab() {
       )}
 
       <h3 className="mt-4">Drift remediation proposals</h3>
+      <p className="muted">
+        Generate immutable proposals from live drift, request maker-checker approval,
+        then Execute only with an approved approvalRequestId. Live digest must still match.
+      </p>
       {proposals.length === 0 ? (
         <p className="muted">No open proposals.</p>
       ) : (
@@ -1269,6 +1366,7 @@ function LedgerTab() {
                 <th>Delta</th>
                 <th>Root cause</th>
                 <th>State</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1278,6 +1376,22 @@ function LedgerTab() {
                   <td>{String(row.delta_cents ?? '')}</td>
                   <td>{String(row.root_cause ?? row.origin ?? '')}</td>
                   <td>{String(row.state ?? '')}</td>
+                  <td className="row-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={actionId.startsWith('req-') || actionId.startsWith('exec-')}
+                      onClick={() => void requestAlignApproval(row)}>
+                      Request approval
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={actionId.startsWith('req-') || actionId.startsWith('exec-')}
+                      onClick={() => void executeAlign(row)}>
+                      Execute
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2170,9 +2284,75 @@ function RiskReviewTab() {
           <td><button onClick={() => { const note = window.prompt('Immutable investigation note'); if (note) void apiAddFraudCaseNote(item.id, note).then(load); }}>Add note</button></td></tr>)}</tbody>
       </table></div>
       <h3>Emergency posting control</h3>
-      <p className="muted">Pausing postings preserves reads, authentication, and investigations. Admin capability required.</p>
-      <button onClick={() => { const reason = window.prompt('Incident reason (minimum 15 characters)'); if (reason) void apiSetFinancialPosting(false, reason).catch((e) => setError(String(e))); }}>Pause new postings</button>{' '}
-      <button onClick={() => { const reason = window.prompt('Recovery reason (minimum 15 characters)'); if (reason) void apiSetFinancialPosting(true, reason).catch((e) => setError(String(e))); }}>Resume postings</button>
+      <p className="muted">
+        Pause preserves reads, auth, and investigations. Resume requires a
+        checker-approved <code>posting_control_enable</code> request whose payload
+        includes <code>evidenceReleaseSha</code> (CI tip) and{' '}
+        <code>productionReadinessPassed=true</code>.
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          const reason = window.prompt('Incident reason (minimum 15 characters)');
+          if (!reason || reason.trim().length < 15) return;
+          void apiSetFinancialPosting(false, reason.trim()).catch((e) =>
+            setError(String(e)),
+          );
+        }}>
+        Pause new postings
+      </button>{' '}
+      <button
+        type="button"
+        onClick={() => {
+          void (async () => {
+            const reason = window.prompt('Recovery reason (minimum 15 characters)');
+            if (!reason || reason.trim().length < 15) return;
+            const mode = window.prompt(
+              'Type REQUEST to create a maker approval, or paste an approved approvalRequestId UUID to execute resume',
+            );
+            if (!mode?.trim()) return;
+            try {
+              if (mode.trim().toUpperCase() === 'REQUEST') {
+                const evidenceReleaseSha = window.prompt(
+                  'evidenceReleaseSha (CI tip SHA of the reviewed build)',
+                );
+                if (!evidenceReleaseSha || !/^[0-9a-f]{7,64}$/i.test(evidenceReleaseSha.trim())) {
+                  setError('Valid evidenceReleaseSha is required to request resume approval.');
+                  return;
+                }
+                const readiness = window.prompt(
+                  'Confirm production:ready passed for this SHA? Type YES',
+                );
+                if (readiness?.trim().toUpperCase() !== 'YES') {
+                  setError('Resume approval requires production readiness attestation (YES).');
+                  return;
+                }
+                const created = await apiCreateApproval({
+                  actionType: 'posting_control_enable',
+                  resourceType: 'operational_control',
+                  resourceId: 'financial_posting',
+                  payload: {
+                    evidenceReleaseSha: evidenceReleaseSha.trim(),
+                    productionReadinessPassed: true,
+                  },
+                  reason: reason.trim(),
+                });
+                setError('');
+                window.alert(
+                  `Approval requested: ${created.approvalId}\nA different operator must approve, then resume with that UUID.`,
+                );
+                return;
+              }
+              await apiSetFinancialPosting(true, reason.trim(), mode.trim());
+              setError('');
+              window.alert('Financial posting resumed after approved evidence-gated request.');
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          })();
+        }}>
+        Resume postings (evidence-gated)
+      </button>
     </div>
   );
 }

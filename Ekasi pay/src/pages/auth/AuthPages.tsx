@@ -9,8 +9,10 @@ import {
 '../../components/shared/UIComponents';
 import { ShieldCheck, ArrowRight, Delete } from 'lucide-react';
 import { apiConfirmPinReset, apiRequestPinReset } from '../../services/api';
-// Shared Logo Component
-const KasiPayLogo = () =>
+import type { Language } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
+
+const KasiPayLogo = ({ tagline }: { tagline: string }) =>
 <div className="flex flex-col items-center mb-10">
     <div className="w-16 h-16 bg-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-600/20 mb-4">
       <ShieldCheck className="w-8 h-8 text-white" />
@@ -18,38 +20,41 @@ const KasiPayLogo = () =>
     <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
       Kasi<span className="text-emerald-600">Pay</span>
     </h1>
-    <p className="text-slate-500 font-medium mt-1">Money moves in Mzansi</p>
+    <p className="text-slate-500 font-medium mt-1">{tagline}</p>
   </div>;
 
 export const LoginPage = ({
   onNext,
-  onRegister
-
-
-
-}: {onNext: (phone: string) => boolean;onRegister: () => void;}) => {
+  onRegister,
+  language = 'en',
+}: {
+  onNext: (phone: string) => boolean;
+  onRegister: () => void;
+  language?: Language;
+}) => {
+  const { t } = useTranslations(language);
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const cleanedPhone = phone.replace(/\D/g, '');
     if (cleanedPhone.length < 10) {
-      setError('Please enter a valid phone number');
+      setError(t('auth.invalidPhone'));
       return;
     }
     const found = onNext(cleanedPhone);
-    if (!found) setError('No account found for this phone number');
+    if (!found) setError(t('auth.noAccount'));
   };
   return (
     <PageTransition className="flex flex-col justify-center px-6 min-h-[100dvh] overflow-y-auto py-12 bg-gradient-to-b from-emerald-50 to-slate-50">
-      <KasiPayLogo />
+      <KasiPayLogo tagline={t('auth.tagline')} />
 
       <form
         onSubmit={handleSubmit}
         className="space-y-6 w-full max-w-sm mx-auto">
         
         <KPInput
-          label="Phone Number"
+          label={t('auth.phone')}
           type="tel"
           placeholder="082 123 4567"
           value={phone}
@@ -62,7 +67,7 @@ export const LoginPage = ({
         
 
         <KPButton type="submit" className="group">
-          Continue
+          {t('auth.continue')}
           <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
         </KPButton>
       </form>
@@ -72,7 +77,7 @@ export const LoginPage = ({
           onClick={onRegister}
           className="text-emerald-600 font-medium hover:text-emerald-700">
           
-          New to KasiPay? Register here
+          {t('auth.registerLink')}
         </button>
       </div>
     </PageTransition>);
@@ -84,14 +89,16 @@ export const PinPage = ({
   userName = 'there',
   lockedForSeconds = 0,
   phone = '',
+  language = 'en',
 }: {
   onLogin: (pin: string) => boolean | Promise<boolean>;
   onBack: () => void;
   userName?: string;
   lockedForSeconds?: number;
-  /** Phone for the account being signed in to (used by forgot-PIN flow). */
   phone?: string;
+  language?: Language;
 }) => {
+  const { t } = useTranslations(language);
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -123,14 +130,14 @@ export const PinPage = ({
       <div className="w-full max-w-[280px] flex flex-col flex-1 justify-center py-4">
       <div className="w-full text-center">
         <h2 className="text-2xl font-bold text-slate-900 mb-2">
-          Welcome back, {userName.split(' ')[0]}
+          {t('auth.welcomeBack')}, {userName.split(' ')[0]}
         </h2>
         <p className="text-slate-500">
           {lockedForSeconds > 0 ?
           `Too many attempts. Try again in ${lockedForSeconds}s` :
           submitting ?
-          'Signing you in…' :
-          'Enter your PIN'}
+          t('auth.signingIn') :
+          t('auth.enterPin')}
         </p>
 
         {submitting &&
@@ -321,16 +328,19 @@ const ForgotPinModal = ({
 };
 export const RegisterPage = ({
   onRegister,
-  onBack
-
-
-
-}: {onRegister: (
-  name: string,
-  phone: string,
-  pin: string,
-  role: 'customer' | 'merchant' | 'agent'
-) => boolean | Promise<boolean>;onBack: () => void;}) => {
+  onBack,
+  language = 'en',
+}: {
+  onRegister: (
+    name: string,
+    phone: string,
+    pin: string,
+    role: 'customer' | 'merchant' | 'agent',
+  ) => boolean | Promise<boolean>;
+  onBack: () => void;
+  language?: Language;
+}) => {
+  const { t } = useTranslations(language);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
@@ -345,9 +355,7 @@ export const RegisterPage = ({
     e.preventDefault();
     setFormError('');
     if (!nameOk || phoneDigits.length < 10 || pinDigits.length < 6) {
-      setFormError(
-        'Enter your full name, a mobile number with at least 10 digits, and a 6–12 digit PIN.'
-      );
+      setFormError(t('auth.registerHint'));
       return;
     }
     setSubmitting(true);
@@ -364,15 +372,15 @@ export const RegisterPage = ({
         onClick={onBack}
         className="text-slate-500 mb-6 flex items-center font-medium">
         
-        <ArrowRight className="w-5 h-5 mr-1 rotate-180" /> Back
+        <ArrowRight className="w-5 h-5 mr-1 rotate-180" /> {t('common.back')}
       </button>
 
-      <h2 className="text-3xl font-bold text-slate-900 mb-2">Create Account</h2>
-      <p className="text-slate-500 mb-8">Join the KasiPay network today.</p>
+      <h2 className="text-3xl font-bold text-slate-900 mb-2">{t('auth.registerTitle')}</h2>
+      <p className="text-slate-500 mb-8">{t('auth.tagline')}</p>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <KPInput
-          label="Full Name"
+          label={t('auth.fullName')}
           placeholder="e.g. Sipho Nkosi"
           value={name}
           onChange={(e) => {
@@ -382,7 +390,7 @@ export const RegisterPage = ({
           required />
         
         <KPInput
-          label="Phone Number"
+          label={t('auth.phone')}
           type="tel"
           placeholder="082 123 4567"
           inputMode="numeric"
@@ -394,7 +402,7 @@ export const RegisterPage = ({
           required />
         
         <KPInput
-          label="Create PIN (6–12 digits)"
+          label={t('auth.createPin')}
           type="password"
           inputMode="numeric"
           maxLength={12}
@@ -418,7 +426,7 @@ export const RegisterPage = ({
           disabled={!canSubmit}
           isLoading={submitting}>
           
-          Create Account
+          {t('auth.createAccount')}
         </KPButton>
       </form>
     </PageTransition>);

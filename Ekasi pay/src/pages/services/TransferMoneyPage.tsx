@@ -8,7 +8,8 @@ import {
   KPAmount,
   PageTransition,
 } from '../../components/shared/UIComponents';
-import type { Wallet } from '../../types';
+import type { Language, Wallet } from '../../types';
+import { useTranslations } from '../../hooks/useTranslations';
 import {
   compareMoney,
   tryCanonicalMoney,
@@ -19,6 +20,7 @@ export const TransferMoneyPage = ({
   wallet,
   onSendMoney,
   navigate,
+  language = 'en',
 }: {
   wallet: Wallet;
   onSendMoney: (
@@ -27,7 +29,9 @@ export const TransferMoneyPage = ({
     description: string,
   ) => Promise<boolean>;
   navigate: (p: string) => void;
+  language?: Language;
 }) => {
+  const { t } = useTranslations(language);
   const [toPhone, setToPhone] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('Wallet transfer');
@@ -36,18 +40,18 @@ export const TransferMoneyPage = ({
   const submit = async () => {
     const amt = tryCanonicalMoney(amount);
     if (amt === null || compareMoney(amt, 0) <= 0) {
-      toast.error('Enter an amount greater than R0.');
+      toast.error(t('transfer.invalidAmount'));
       return;
     }
     if (toPhone.replace(/\D/g, '').length < 10) {
-      toast.error('Enter a valid recipient phone number.');
+      toast.error(t('transfer.invalidPhone'));
       return;
     }
     setBusy(true);
     try {
       const ok = await onSendMoney(toPhone, amt, description.trim() || 'Wallet transfer');
       if (ok) {
-        toast.success('Transfer completed');
+        toast.success(t('transfer.done'));
         setAmount('');
         setToPhone('');
         setDescription('Wallet transfer');
@@ -60,10 +64,8 @@ export const TransferMoneyPage = ({
   return (
     <PageTransition className="min-h-0 h-full bg-slate-50">
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10">
-        <h2 className="text-xl font-bold text-slate-900">Send Money</h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Wallet-to-wallet transfer inside KasiPay.
-        </p>
+        <h2 className="text-xl font-bold text-slate-900">{t('transfer.title')}</h2>
+        <p className="text-sm text-slate-500 mt-1">{t('transfer.subtitle')}</p>
       </div>
 
       <div className="flex-1 p-6 pb-nav space-y-4 overflow-y-auto">
@@ -73,7 +75,9 @@ export const TransferMoneyPage = ({
               <ArrowLeftRight className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Available Balance</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wider">
+                {t('transfer.available')}
+              </p>
               <p className="font-bold text-slate-900">
                 <KPAmount amount={wallet.balance} />
               </p>
@@ -81,31 +85,31 @@ export const TransferMoneyPage = ({
           </div>
 
           <KPInput
-            label="Recipient Phone"
+            label={t('transfer.recipient')}
             type="tel"
             placeholder="082 123 4567"
             value={toPhone}
             onChange={(e) => setToPhone(e.target.value)}
           />
           <KPInput
-            label="Amount (R)"
+            label={t('transfer.amount')}
             type="number"
             placeholder="0.00"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
           <KPInput
-            label="Reference"
+            label={t('transfer.reference')}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
 
           <div className="grid grid-cols-2 gap-3 mt-4">
             <KPButton variant="outline" onClick={() => navigate('home')}>
-              Back
+              {t('common.back')}
             </KPButton>
             <KPButton onClick={() => void submit()} disabled={busy}>
-              {busy ? 'Sending…' : 'Send'}
+              {busy ? t('transfer.sending') : t('transfer.send')}
             </KPButton>
           </div>
         </KPCard>

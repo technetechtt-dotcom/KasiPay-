@@ -23,6 +23,7 @@ import {
   ScanLine } from
 'lucide-react';
 import { toast } from 'sonner';
+import type { Language, Wallet, CashSendVoucher } from '../../types';
 import {
   addMoney,
   compareMoney,
@@ -30,7 +31,6 @@ import {
   tryCanonicalMoney,
   type MoneyInput,
 } from '../../money';
-import type { Wallet, CashSendVoucher } from '../../types';
 import {
   writeScannerSession,
   consumePendingCollectSaId,
@@ -39,6 +39,7 @@ import {
 import { clearSenderKycProfile } from '../../lib/senderKycProfile';
 import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
 import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import { useTranslations } from '../../hooks/useTranslations';
 import {
   apiGetRuntimeControls,
   type RuntimeProductControls,
@@ -79,7 +80,8 @@ export const MoneyServices = ({
   navigate,
   scanReturnRoute,
   initialTab = 'send',
-  showBackButton = false
+  showBackButton = false,
+  language = 'en'
 
 
 
@@ -122,6 +124,7 @@ export const MoneyServices = ({
   scanReturnRoute: string;
   initialTab?: 'send' | 'receive' | 'vouchers';
   showBackButton?: boolean;
+  language?: Language;
 }) => {
   const [activeTab, setActiveTab] = useState<'send' | 'receive' | 'vouchers'>(
     () => inferCashSendTabFromDraft(initialTab),
@@ -149,6 +152,7 @@ export const MoneyServices = ({
       active = false;
     };
   }, []);
+  const { t } = useTranslations(language);
   const cashSendEnabled = controls?.cashSend === true;
   return (
     <PageTransition className="min-h-0 h-full flex flex-col bg-slate-50">
@@ -156,8 +160,8 @@ export const MoneyServices = ({
       <div className="flex flex-col flex-1 min-h-0">
       {!cashSendEnabled ? (
         <ProductDisabledNotice
-          title="Cash Send is disabled"
-          detail="Create, collect, and cancel are blocked on the server until Cash Send is explicitly enabled for this environment."
+          title={t('cashSend.disabledTitle')}
+          detail={t('cashSend.disabledDetail')}
         />
       ) : null}
       <div className="bg-white px-6 pt-12 pb-4 shadow-sm z-10 shrink-0">
@@ -180,8 +184,7 @@ export const MoneyServices = ({
           }
           <h2
             className={`text-xl font-bold text-slate-900 ${showBackButton ? 'ml-2' : ''}`}>
-            
-            Cash Send
+            {t('cashSend.title')}
           </h2>
         </div>
         <div className="flex p-1 bg-slate-100 rounded-xl overflow-x-auto scrollbar-hide">
@@ -209,7 +212,7 @@ export const MoneyServices = ({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {!cashSendEnabled ? (
           <div className="p-6 text-sm text-slate-600">
-            Cash Send money movement is unavailable. You can still review historical vouchers when the product is re-enabled.
+            {t('cashSend.unavailable')}
           </div>
         ) : (
           <>

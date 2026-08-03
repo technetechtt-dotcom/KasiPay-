@@ -196,7 +196,8 @@ export function App() {
       return (
         <LoginPage
           onNext={state.loginStep1}
-          onRegister={() => state.setAuthStep('register')} />);
+          onRegister={() => state.setAuthStep('register')}
+          language={state.language} />);
 
 
     }
@@ -206,7 +207,8 @@ export function App() {
           onLogin={state.loginStep2}
           lockedForSeconds={getLockRemainingSeconds(state.pinLockedUntil)}
           phone={state.tempPhone}
-          onBack={() => state.setAuthStep('login')} />);
+          onBack={() => state.setAuthStep('login')}
+          language={state.language} />);
 
 
     }
@@ -214,7 +216,8 @@ export function App() {
       return (
         <RegisterPage
           onRegister={state.register}
-          onBack={() => state.setAuthStep('login')} />);
+          onBack={() => state.setAuthStep('login')}
+          language={state.language} />);
 
 
     }
@@ -278,6 +281,7 @@ export function App() {
             merchant={state.merchantProfile}
             onMerchantUpdated={state.setMerchantProfile}
             onLogout={state.logout}
+            language={state.language}
           />
         </div>
       </div>
@@ -470,6 +474,7 @@ export function App() {
             navigate={state.navigate}
             scanReturnRoute={state.currentPage}
             initialTab={state.currentPage === 'receive' ? 'receive' : 'send'}
+            language={state.language}
             showBackButton={
             state.currentPage === 'send' || state.currentPage === 'receive'
             } />);
@@ -480,6 +485,7 @@ export function App() {
             wallet={myWallet}
             onSendMoney={state.sendMoney}
             navigate={state.navigate}
+            language={state.language}
           />
         );
 

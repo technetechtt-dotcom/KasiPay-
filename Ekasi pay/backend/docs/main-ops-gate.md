@@ -13,6 +13,8 @@ Release evidence is the CI-green tip of `main` (direct pushes allowed; force-pus
 4. Keep `FINANCIAL_POSTING_ENABLED=false` until production-readiness evidence is approved
 5. Run `npm run alerts:verify` against staging `MONITORING_DSN` when configured
 6. Set real `VITE_SUPPORT_*` on the web service before pilot Help contacts go live
+7. Run `npm run ops:verify-live` with Render/Neon/monitoring env loaded; confirm worker log `reconciliation.worker_started`
+8. Track parallel external work in `docs/external-assurance-track.md` (never invent approvals)
 
 ## Branch policy
 
