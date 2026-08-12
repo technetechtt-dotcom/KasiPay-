@@ -15,6 +15,7 @@ import {
 import { NODE_ENV } from '../config.js';
 import { getPgPool } from '../dbPg.js';
 import { toCreditCustomer, toCreditTransaction } from '../mappers.js';
+import { structuredLog } from '../observability.js';
 import {
   parseIntegerCents,
   parseZarToCents,
@@ -169,13 +170,12 @@ creditRouterPg.post('/credit/verify/request', requireAuth, async (req, res) => {
     await sendSms(phone, smsBody);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'SMS delivery failed';
-    console.error(`[credit-otp] SMS failed for ${phone}: ${msg}`);
+    structuredLog('error', 'credit_otp.sms_failed', { phone, reason: msg });
     if (NODE_ENV === 'production') {
       return res.status(503).json({
         error: 'Could not send verification code right now. Try again shortly.',
       });
     }
-    console.info(`[credit-otp] dev fallback code for ${phone} = ${code}`);
     return res.json({ ...generic, devCode: code });
   }
 

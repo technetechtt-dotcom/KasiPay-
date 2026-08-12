@@ -8,6 +8,7 @@ import { getPgPool } from '../dbPg.js';
 import { toPublicUser } from '../mappers.js';
 import { formatCents, parseIntegerCents } from '../money.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { structuredLog } from '../observability.js';
 import { hashPin, verifyPin } from '../password.js';
 import { clearPinFailuresPg } from '../security/pinAttemptsPg.js';
 import { sendSms } from '../services/sms.js';
@@ -158,7 +159,7 @@ meRouterPg.post('/pin-reset/request', async (req, res) => {
     await sendSms(user.phone, smsBody);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'SMS delivery failed';
-    console.error(`[pin-reset] SMS delivery failed: ${msg}`);
+    structuredLog('error', 'pin_reset.sms_failed', { reason: msg });
     if (NODE_ENV === 'production') return res.json(generic);
     return res.json({ ...generic, devCode: code });
   }

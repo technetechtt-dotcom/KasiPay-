@@ -7,10 +7,12 @@ import {
   TWILIO_AUTH_TOKEN,
   TWILIO_FROM_NUMBER,
 } from '../config.js';
+import { structuredLog } from '../observability.js';
 
 /**
  * Deliver a transactional SMS (PIN reset codes, etc.).
  * Provider is selected via SMS_PROVIDER env (console | twilio | clickatell).
+ * Never log the message body — it can contain OTPs and PINs.
  */
 export async function sendSms(to: string, message: string): Promise<void> {
   const normalizedTo = to.replace(/\D/g, '');
@@ -23,7 +25,10 @@ export async function sendSms(to: string, message: string): Promise<void> {
       if (NODE_ENV === 'production' && !NON_FUNDS_DEPLOYMENT) {
         throw new Error('SMS_PROVIDER=console is not allowed in production');
       }
-      console.info(`[sms:console] to=${normalizedTo} body=${message}`);
+      structuredLog('info', 'sms.console_delivered', {
+        phone: normalizedTo,
+        provider: 'console',
+      });
       return;
     }
     case 'twilio': {

@@ -50,6 +50,20 @@ test('central redaction removes secrets and hashes direct PII', () => {
   assert.match((output as { phone: string }).phone, /^\[HASH:/);
 });
 
+test('SMS delivery log fields never include OTP body or raw phone', () => {
+  const otpBody = 'Ekasi Pay PIN reset code: 482913. Valid for 10 minutes.';
+  const output = redact({
+    phone: '0821234567',
+    provider: 'console',
+    event: 'sms.console_delivered',
+  });
+  const serialized = JSON.stringify(output);
+  assert.doesNotMatch(serialized, /0821234567/);
+  assert.doesNotMatch(serialized, /482913/);
+  assert.doesNotMatch(serialized, new RegExp(otpBody));
+  assert.match((output as { phone: string }).phone, /^\[HASH:/);
+});
+
 test('audit evidence insertion is awaited and includes outbox-triggered event fields', async () => {
   const calls: unknown[][] = [];
   const database = {

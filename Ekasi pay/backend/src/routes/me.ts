@@ -9,6 +9,7 @@ import { sendSms } from '../services/sms.js';
 import { toPublicUser } from '../mappers.js';
 import { getRuntimeProductControls } from '../middleware/productionControls.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { structuredLog } from '../observability.js';
 import { hashPin, verifyPin } from '../password.js';
 import { clearPinFailures } from '../security/pinAttempts.js';
 import { revokeAllUserSessions } from '../sessionAuth.js';
@@ -138,18 +139,16 @@ meRouter.post('/pin-reset/request', async (req, res) => {
     await sendSms(user.phone, smsBody);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'SMS delivery failed';
-    console.error(`[pin-reset] SMS failed for ${user.phone}: ${msg}`);
+    structuredLog('error', 'pin_reset.sms_failed', { phone: user.phone, reason: msg });
     if (NODE_ENV === 'production') {
       return res.status(503).json({
         error: 'Could not send reset code right now. Try again shortly.',
       });
     }
-    console.info(`[pin-reset] dev fallback code for ${user.phone} = ${code}`);
     return res.json({ ...generic, devCode: code });
   }
 
   if (NODE_ENV !== 'production') {
-    console.info(`[pin-reset] code sent for ${user.phone} (devCode echoed in response)`);
     return res.json({ ...generic, devCode: code });
   }
   return res.json(generic);

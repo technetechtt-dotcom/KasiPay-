@@ -18,6 +18,7 @@ services:
     preDeployCommand: npm run migrate:deploy
     startCommand: npm start
     healthCheckPath: /health
+    autoDeployTrigger: checksPass
     plan: starter
     envVars:
       - key: NODE_ENV
@@ -136,6 +137,7 @@ services:
     rootDir: Ekasi pay/backend
     buildCommand: npm ci && npm run build
     startCommand: npm run reconcile:worker
+    autoDeployTrigger: checksPass
     plan: starter
     envVars:
       - key: NODE_ENV
@@ -187,6 +189,7 @@ services:
     rootDir: Ekasi pay
     buildCommand: npm ci && node scripts/write-runtime-config.mjs && npm run build
     staticPublishPath: dist
+    autoDeployTrigger: checksPass
     headers:
       - path: /*
         name: Content-Security-Policy
@@ -221,6 +224,7 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /health
+    autoDeployTrigger: checksPass
     plan: starter
     envVars:
       - key: NODE_ENV

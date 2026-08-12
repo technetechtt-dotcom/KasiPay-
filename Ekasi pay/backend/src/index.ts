@@ -184,9 +184,11 @@ app.use(helmet({
 }));
 
 app.get('/health/live', (_req, res) => {
-  res.json({ ok: true, service: 'ekasi-pay-api' });
+  res.json({ ok: true, service: 'ekasi-pay-api', nonFunds: NON_FUNDS_DEPLOYMENT });
 });
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'ekasi-pay-api' }));
+app.get('/health', (_req, res) =>
+  res.json({ ok: true, service: 'ekasi-pay-api', nonFunds: NON_FUNDS_DEPLOYMENT }),
+);
 app.get('/health/ready', async (_req, res) => {
   if (!isPostgresMode()) {
     return res.status(IS_LOCAL_ENV ? 200 : 503).json({ ok: IS_LOCAL_ENV, database: 'local' });
@@ -217,6 +219,7 @@ app.get('/health/ready', async (_req, res) => {
     return res.json({
       ok: true,
       database: 'ready',
+      nonFunds: NON_FUNDS_DEPLOYMENT,
       backupFreshness: IS_LOCAL_ENV
         ? 'not_required_local'
         : NON_FUNDS_DEPLOYMENT

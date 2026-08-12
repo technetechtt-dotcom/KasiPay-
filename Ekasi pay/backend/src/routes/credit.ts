@@ -17,6 +17,7 @@ import { getDb } from '../db.js';
 import { toCreditCustomer, toCreditTransaction } from '../mappers.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { structuredLog } from '../observability.js';
 import { requireMerchantId } from '../services/merchant.js';
 import { sendSms } from '../services/sms.js';
 import {
@@ -167,13 +168,12 @@ creditRouter.post('/credit/verify/request', requireAuth, async (req, res) => {
     await sendSms(phone, smsBody);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'SMS delivery failed';
-    console.error(`[credit-otp] SMS failed for ${phone}: ${msg}`);
+    structuredLog('error', 'credit_otp.sms_failed', { phone, reason: msg });
     if (NODE_ENV === 'production') {
       return res.status(503).json({
         error: 'Could not send verification code right now. Try again shortly.',
       });
     }
-    console.info(`[credit-otp] dev fallback code for ${phone} = ${code}`);
     return res.json({ ...generic, devCode: code });
   }
 
