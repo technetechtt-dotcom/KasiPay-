@@ -122,6 +122,24 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
+export class OpsApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly mfaEnrollment?: OpsMfaEnrollment;
+
+  constructor(
+    message: string,
+    status: number,
+    details?: { code?: string; mfaEnrollment?: OpsMfaEnrollment },
+  ) {
+    super(message);
+    this.name = 'OpsApiError';
+    this.status = status;
+    this.code = details?.code;
+    this.mfaEnrollment = details?.mfaEnrollment;
+  }
+}
+
 async function opsFetch<T>(
   path: string,
   init?: RequestInit & { auth?: boolean; _retried?: boolean },
@@ -164,7 +182,11 @@ async function opsFetch<T>(
     window.clearTimeout(timer);
   }
 
-  const body = (await readJson(res)) as T & { error?: string };
+  const body = (await readJson(res)) as T & {
+    error?: string;
+    code?: string;
+    mfaEnrollment?: OpsMfaEnrollment;
+  };
   if (!res.ok) {
     if (
       res.status === 401 &&
@@ -186,8 +208,10 @@ async function opsFetch<T>(
       return opsFetch<T>(path, { ...rest, auth: true, _retried: true });
     }
     if (res.status === 401) clearToken();
-    throw new Error(
+    throw new OpsApiError(
       typeof body?.error === 'string' ? body.error : `Request failed (${res.status})`,
+      res.status,
+      { code: body?.code, mfaEnrollment: body?.mfaEnrollment },
     );
   }
   return body;
@@ -223,7 +247,7 @@ export async function apiLogin(username: string, password: string, totp: string)
     body: JSON.stringify({
       username,
       password,
-      totp,
+      totp: totp || undefined,
       device: { installId: crypto.randomUUID(), label: navigator.userAgent.slice(0, 100), platform: navigator.platform },
     }),
   });

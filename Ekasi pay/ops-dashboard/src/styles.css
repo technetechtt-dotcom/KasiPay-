@@ -348,6 +348,18 @@ tbody tr.selected {
   background: #1c1917;
 }
 
+.login-card:has(.mfa-enrollment) {
+  width: min(760px, 100%);
+}
+
+.mfa-enrollment.compact {
+  margin: 0;
+}
+
+.mfa-enrollment.compact .mfa-warning {
+  display: none;
+}
+
 .mfa-enrollment-head {
   display: flex;
   align-items: flex-start;

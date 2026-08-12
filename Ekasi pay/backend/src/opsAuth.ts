@@ -8,8 +8,16 @@ import { getPgPool } from './dbPg.js';
 import { isPostgresMode } from './dbRuntime.js';
 import { getDb } from './db.js';
 import type { OperatorRole } from './security/authorization.js';
-import { createOperatorSession } from './security/operatorSessionsPg.js';
-import { decryptSensitive, verifyTotp } from './security/totp.js';
+import {
+  createOperatorSession,
+  revokeOperatorSessions,
+} from './security/operatorSessionsPg.js';
+import {
+  decryptSensitive,
+  encryptSensitive,
+  generateTotpSecret,
+  verifyTotp,
+} from './security/totp.js';
 
 const FALLBACK_OPS_JWT = 'dev-only-ops-dashboard-jwt-secret';
 
@@ -148,14 +156,64 @@ export async function opsLoginHandler(req: Request, res: Response) {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
   if (isPostgresMode()) {
-    if (!user.mfa_enabled_at || !user.mfa_secret_encrypted) {
-      return res.status(403).json({
-        error: 'MFA enrollment is required before operator access can be issued.',
-        code: 'MFA_ENROLLMENT_REQUIRED',
-      });
+    let encryptedSecret = user.mfa_secret_encrypted;
+    if (!user.mfa_enabled_at) {
+      if (!encryptedSecret) {
+        const generatedSecret = generateTotpSecret();
+        const generatedEncrypted = encryptSensitive(generatedSecret);
+        const updated = await getPgPool().query<{ mfa_secret_encrypted: string }>(
+          `UPDATE ops_admin_users
+              SET mfa_secret_encrypted = $1, updated_at = NOW()
+            WHERE id = $2 AND mfa_secret_encrypted IS NULL
+          RETURNING mfa_secret_encrypted`,
+          [generatedEncrypted, user.id],
+        );
+        encryptedSecret = updated.rows[0]?.mfa_secret_encrypted ?? null;
+        if (!encryptedSecret) {
+          const current = await getPgPool().query<{ mfa_secret_encrypted: string | null }>(
+            `SELECT mfa_secret_encrypted FROM ops_admin_users WHERE id = $1`,
+            [user.id],
+          );
+          encryptedSecret = current.rows[0]?.mfa_secret_encrypted ?? null;
+        }
+      }
+      if (!encryptedSecret) {
+        return res.status(503).json({ error: 'Could not prepare MFA enrollment.' });
+      }
+      const enrollmentSecret = decryptSensitive(encryptedSecret);
+      if (!parsed.data.totp) {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(403).json({
+          error: 'Scan the QR code, then enter the 6-digit authenticator code.',
+          code: 'MFA_ENROLLMENT_REQUIRED',
+          mfaEnrollment: {
+            secret: enrollmentSecret,
+            otpauthUrl: `otpauth://totp/EkasiPay:${encodeURIComponent(user.username)}?secret=${enrollmentSecret}&issuer=EkasiPay`,
+          },
+        });
+      }
+      if (!verifyTotp(enrollmentSecret, parsed.data.totp)) {
+        return res.status(401).json({ error: 'Invalid authenticator code.' });
+      }
+      const activated = await getPgPool().query<{
+        token_version: number;
+        mfa_enabled_at: string;
+      }>(
+        `UPDATE ops_admin_users
+            SET mfa_enabled_at = NOW(), token_version = token_version + 1,
+                updated_at = NOW()
+          WHERE id = $1
+        RETURNING token_version, mfa_enabled_at`,
+        [user.id],
+      );
+      user.token_version = activated.rows[0]?.token_version ?? user.token_version + 1;
+      user.mfa_enabled_at = activated.rows[0]?.mfa_enabled_at ?? new Date().toISOString();
+      user.mfa_secret_encrypted = encryptedSecret;
+      await revokeOperatorSessions(getPgPool(), user.id, 'mfa_enrolled');
     }
     if (
       !parsed.data.totp ||
+      !user.mfa_secret_encrypted ||
       !verifyTotp(decryptSensitive(user.mfa_secret_encrypted), parsed.data.totp)
     ) {
       return res.status(401).json({ error: 'Invalid username, password, or MFA code.' });
@@ -261,4 +319,3 @@ export async function opsMeHandler(req: Request, res: Response) {
   if (!row) return res.status(404).json({ error: 'Ops user not found' });
   return res.json({ user: normalizeOpsUser(row) });
 }
-

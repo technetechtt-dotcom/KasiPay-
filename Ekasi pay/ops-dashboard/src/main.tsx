@@ -53,6 +53,7 @@ import {
   apiUsers,
   clearToken,
   getToken,
+  OpsApiError,
   type OpsAdminUser,
   type OpsCashSendVoucher,
   type OpsInsuranceClaim,
@@ -113,6 +114,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   const [totp, setTotp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mfaSetup, setMfaSetup] = useState<OpsMfaEnrollment | null>(null);
   const apiUrl = apiBaseUrl() || '(dev proxy)';
 
   const submit = async (e: React.FormEvent) => {
@@ -128,7 +130,17 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       onSuccess();
     } catch (err) {
       clearToken();
-      setError(err instanceof Error ? err.message : 'Login failed');
+      if (
+        err instanceof OpsApiError &&
+        err.code === 'MFA_ENROLLMENT_REQUIRED' &&
+        err.mfaEnrollment
+      ) {
+        setMfaSetup(err.mfaEnrollment);
+        setTotp('');
+        setError('');
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -139,7 +151,9 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       <form className="login-card" onSubmit={submit}>
         <h1>Ekasi Pay Ops</h1>
         <p className="muted">
-          Sign in with your ops username, password, and authenticator code.
+          {mfaSetup
+            ? 'Scan the QR code, then enter the 6-digit code to finish signing in.'
+            : 'Enter your username and password. If MFA is already set up, also enter its 6-digit code.'}
         </p>
         <p className="muted" style={{ fontSize: 12 }}>
           API: {apiUrl}
@@ -149,11 +163,26 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           <input
             type="text"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              setMfaSetup(null);
+              setTotp('');
+            }}
             autoComplete="username"
             required
           />
         </label>
+        {mfaSetup ? (
+          <MfaEnrollmentPanel
+            username={username.trim()}
+            enrollment={mfaSetup}
+            onDismiss={() => {
+              setMfaSetup(null);
+              setTotp('');
+            }}
+            compact
+          />
+        ) : null}
         <label>
           Authenticator code
           <input
@@ -162,7 +191,8 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
             value={totp}
             onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
             autoComplete="one-time-code"
-            required
+            required={Boolean(mfaSetup)}
+            placeholder={mfaSetup ? '6-digit code from the new setup' : 'Leave blank to start MFA setup'}
           />
         </label>
         <label>
@@ -170,14 +200,27 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (mfaSetup) {
+                setMfaSetup(null);
+                setTotp('');
+              }
+            }}
             autoComplete="current-password"
             required
           />
         </label>
         {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={loading || !password || totp.length !== 6}>
-          {loading ? 'Signing in...' : 'Sign in'}
+        <button
+          type="submit"
+          disabled={
+            loading ||
+            !password ||
+            (mfaSetup ? totp.length !== 6 : totp.length > 0 && totp.length !== 6)
+          }
+        >
+          {loading ? 'Signing in...' : mfaSetup ? 'Verify and sign in' : 'Continue'}
         </button>
       </form>
     </div>
@@ -1531,10 +1574,12 @@ function MfaEnrollmentPanel({
   username,
   enrollment,
   onDismiss,
+  compact = false,
 }: {
   username: string;
   enrollment: OpsMfaEnrollment;
   onDismiss: () => void;
+  compact?: boolean;
 }) {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [qrError, setQrError] = useState('');
@@ -1571,6 +1616,10 @@ function MfaEnrollmentPanel({
   };
 
   const dismiss = () => {
+    if (compact) {
+      onDismiss();
+      return;
+    }
     if (
       window.confirm(
         `Has ${username} scanned the QR code or saved the setup key? It cannot be shown again after you dismiss it.`,
@@ -1581,7 +1630,10 @@ function MfaEnrollmentPanel({
   };
 
   return (
-    <section className="mfa-enrollment" aria-labelledby="mfa-enrollment-title">
+    <section
+      className={`mfa-enrollment${compact ? ' compact' : ''}`}
+      aria-labelledby="mfa-enrollment-title"
+    >
       <div className="mfa-enrollment-head">
         <div>
           <p className="eyebrow">One-time setup</p>
@@ -1591,8 +1643,7 @@ function MfaEnrollmentPanel({
       </div>
       <p>
         Scan this QR code with Google Authenticator, Microsoft Authenticator,
-        Authy, or another TOTP app. This secret is only returned when the
-        account is created.
+        Authy, or another TOTP app. Treat the setup key like a password.
       </p>
       <div className="mfa-enrollment-body">
         <div className="mfa-qr-card">
@@ -1623,7 +1674,7 @@ function MfaEnrollmentPanel({
               Copy setup key
             </button>
             <button type="button" className="ghost" onClick={dismiss}>
-              Dismiss after saving
+              {compact ? 'Cancel setup' : 'Dismiss after saving'}
             </button>
           </div>
           {copyStatus ? (
