@@ -51,6 +51,16 @@ test('accepts a complete staging-like configuration', () => {
   assert.deepEqual(collectProductionConfigErrors(deployedEnv), []);
 });
 
+test('accepts Render fromService hostnames as HTTPS origins', () => {
+  const errors = collectProductionConfigErrors({
+    ...deployedEnv,
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com,https://ekasi-ops-dashboard.onrender.com',
+    FRONTEND_ORIGIN: 'ekasi-pay-web',
+    OPS_DASHBOARD_ORIGIN: 'ekasi-ops-dashboard.onrender.com',
+  });
+  assert.deepEqual(errors, []);
+});
+
 test('requires PostgreSQL and explicit HTTPS origins outside local environments', () => {
   const errors = collectProductionConfigErrors({
     ...deployedEnv,

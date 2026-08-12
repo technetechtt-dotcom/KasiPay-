@@ -1,3 +1,5 @@
+import { normalizeFrontendOrigin } from './frontendOrigin.js';
+
 /**
  * Return every deployed-environment configuration error without reading a DB.
  * Keeping this pure makes staging/production policy testable in CI.
@@ -52,7 +54,9 @@ export function collectProductionConfigErrors(
     ...(env.FRONTEND_ORIGINS?.split(/[\s,]+/) ?? []),
     env.FRONTEND_ORIGIN ?? '',
     env.OPS_DASHBOARD_ORIGIN ?? '',
-  ].filter((value) => value.trim().length > 0);
+  ]
+    .map((value) => normalizeFrontendOrigin(value))
+    .filter((value) => value.length > 0);
   if (origins.length === 0) {
     errors.push('At least one explicit frontend origin is required.');
   } else {
@@ -208,6 +212,6 @@ export function collectProductionConfigErrors(
 export function validateProductionConfig(): void {
   const errors = collectProductionConfigErrors(process.env);
   if (errors.length > 0) {
-    throw new Error(`Invalid deployed configuration:\n- ${errors.join('\n- ')}`);
+    throw new Error(`Invalid deployed configuration: ${errors.join('; ')}`);
   }
 }

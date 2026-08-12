@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import dotenv from 'dotenv';
 
+import { normalizeFrontendOrigin } from './frontendOrigin.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -41,32 +43,6 @@ export const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? 'http://localhost:
 const RENDER_WEB_ORIGIN = 'https://ekasi-pay-web.onrender.com';
 const RENDER_OPS_ORIGIN = 'https://ekasi-ops-dashboard.onrender.com';
 
-function normalizeOrigin(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return trimmed;
-
-  let origin = trimmed;
-  if (!/^https?:\/\//i.test(origin)) {
-    origin = `https://${origin}`;
-  }
-
-  try {
-    const url = new URL(origin);
-    const host = url.hostname.toLowerCase();
-    const isLocalHost =
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host.endsWith('.localhost');
-    if (!host.includes('.') && !isLocalHost) {
-      url.hostname = `${url.hostname}.onrender.com`;
-      origin = url.origin;
-    }
-    return url.origin;
-  } catch {
-    return origin.replace(/\/$/, '');
-  }
-}
-
 function siblingRenderOrigins(env: NodeJS.ProcessEnv): string[] {
   const service = env.RENDER_SERVICE_NAME?.trim() ?? '';
   const host = env.RENDER_EXTERNAL_HOSTNAME?.trim().toLowerCase() ?? '';
@@ -89,7 +65,7 @@ export function collectFrontendOrigins(
     env.OPS_DASHBOARD_ORIGIN ?? '',
     ...siblingRenderOrigins(env),
   ]
-    .map((s) => normalizeOrigin(s))
+    .map((s) => normalizeFrontendOrigin(s))
     .filter(Boolean);
   const fromEnv = options.isLocal
     ? [...configured, 'http://localhost:5173', 'http://localhost:5174']
