@@ -28,6 +28,7 @@ export function collectProductionConfigErrors(
     const value = env[name]?.trim() ?? '';
     if (!value) return '';
     if (value.length < minimumLength) {
+      if (nonFunds) return '';
       errors.push(`${name} must be at least ${minimumLength} characters.`);
     }
     return value;

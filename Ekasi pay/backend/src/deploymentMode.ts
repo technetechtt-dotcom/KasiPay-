@@ -24,16 +24,29 @@ function envFlagExplicitlyFalse(
   return ['0', 'false', 'no', 'off'].includes(raw);
 }
 
+function isRenderRuntime(env: NodeJS.ProcessEnv): boolean {
+  return env.RENDER === 'true' || Boolean(env.RENDER_SERVICE_NAME?.trim());
+}
+
+function anyMoneyFlagEnabled(env: NodeJS.ProcessEnv): boolean {
+  return (
+    envFlagEnabled(env, 'REGULATED_PRODUCTS_PRODUCTION_ENABLED') ||
+    envFlagEnabled(env, 'LENDING_DISBURSEMENT_ENABLED') ||
+    EXPLICIT_OFF_FLAGS.some((name) => envFlagEnabled(env, name))
+  );
+}
+
 /**
- * Non-funds Render/pilot boot: every custodial money flag is explicitly false.
- * Unset flags keep full production validation (fail closed).
+ * Non-funds boot skips live vendor secrets.
+ * Render sets RENDER=true; blueprint flags often never sync onto an existing
+ * service, so unset money flags on Render count as off.
  */
 export function isNonFundsDeployment(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (envFlagEnabled(env, 'REGULATED_PRODUCTS_PRODUCTION_ENABLED')) return false;
-  if (envFlagEnabled(env, 'LENDING_DISBURSEMENT_ENABLED')) return false;
+  if (anyMoneyFlagEnabled(env)) return false;
   if (envFlagEnabled(env, 'NON_FUNDS_PRODUCTION')) return true;
+  if (isRenderRuntime(env)) return true;
   return EXPLICIT_OFF_FLAGS.every((name) => envFlagExplicitlyFalse(env, name));
 }
 

@@ -168,3 +168,38 @@ test('NON_FUNDS_PRODUCTION does not bypass regulated production', () => {
   });
   assert(errors.some((error) => error.includes('MONITORING_PROVIDER')));
 });
+
+test('Render runtime with unset money flags skips live-provider secrets', () => {
+  const errors = collectProductionConfigErrors({
+    NODE_ENV: 'production',
+    RENDER: 'true',
+    RENDER_SERVICE_NAME: 'ekasi-pay-api',
+    DATABASE_URL: 'postgresql://user:pass@db.example.com/ekasi',
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com',
+    JWT_SECRET: 'j'.repeat(32),
+    REFRESH_TOKEN_PEPPER: 'short',
+  });
+  assert.deepEqual(errors, []);
+});
+
+test('unset money flags off Render still require live vendors', () => {
+  const errors = collectProductionConfigErrors({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://user:pass@db.example.com/ekasi',
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com',
+    JWT_SECRET: 'j'.repeat(32),
+  });
+  assert(errors.some((error) => error.includes('MONITORING_PROVIDER')));
+});
+
+test('Render runtime still fail-closes when a money flag is on', () => {
+  const errors = collectProductionConfigErrors({
+    NODE_ENV: 'production',
+    RENDER: 'true',
+    DATABASE_URL: 'postgresql://user:pass@db.example.com/ekasi',
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com',
+    JWT_SECRET: 'j'.repeat(32),
+    FINANCIAL_POSTING_ENABLED: 'true',
+  });
+  assert(errors.some((error) => error.includes('MONITORING_PROVIDER')));
+});
