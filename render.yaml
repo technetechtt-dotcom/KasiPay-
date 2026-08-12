@@ -49,8 +49,18 @@ services:
         sync: false
       - key: CLICKATELL_API_KEY
         sync: false
+      - key: FRONTEND_ORIGIN
+        fromService:
+          name: ekasi-pay-web
+          type: web
+          property: host
+      - key: OPS_DASHBOARD_ORIGIN
+        fromService:
+          name: ekasi-ops-dashboard
+          type: web
+          property: host
       - key: FRONTEND_ORIGINS
-        sync: false
+        value: "https://ekasi-pay-web.onrender.com,https://ekasi-ops-dashboard.onrender.com"
       - key: OPS_JWT_SECRET
         generateValue: true
       - key: OPS_REFRESH_TOKEN_PEPPER

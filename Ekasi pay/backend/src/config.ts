@@ -38,6 +38,9 @@ export const JWT_SECRET = (() => {
 
 export const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
 
+const RENDER_WEB_ORIGIN = 'https://ekasi-pay-web.onrender.com';
+const RENDER_OPS_ORIGIN = 'https://ekasi-ops-dashboard.onrender.com';
+
 function normalizeOrigin(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
@@ -58,29 +61,45 @@ function normalizeOrigin(value: string): string {
       url.hostname = `${url.hostname}.onrender.com`;
       origin = url.origin;
     }
+    return url.origin;
   } catch {
-    /* keep best-effort origin */
+    return origin.replace(/\/$/, '');
   }
+}
 
-  return origin;
+function siblingRenderOrigins(env: NodeJS.ProcessEnv): string[] {
+  const service = env.RENDER_SERVICE_NAME?.trim() ?? '';
+  const host = env.RENDER_EXTERNAL_HOSTNAME?.trim().toLowerCase() ?? '';
+  const isKasipayApi =
+    service === 'ekasi-pay-api' ||
+    host === 'ekasi-pay-api.onrender.com' ||
+    host.endsWith('.ekasi-pay-api.onrender.com');
+  if (!isKasipayApi) return [];
+  return [RENDER_WEB_ORIGIN, RENDER_OPS_ORIGIN];
+}
+
+/** Pure origin allowlist used by CORS. Local defaults only in development/test. */
+export function collectFrontendOrigins(
+  env: NodeJS.ProcessEnv,
+  options: { isLocal: boolean } = { isLocal: IS_LOCAL_ENV },
+): string[] {
+  const configured = [
+    ...(env.FRONTEND_ORIGINS?.split(/[\s,]+/) ?? []),
+    env.FRONTEND_ORIGIN ?? '',
+    env.OPS_DASHBOARD_ORIGIN ?? '',
+    ...siblingRenderOrigins(env),
+  ]
+    .map((s) => normalizeOrigin(s))
+    .filter(Boolean);
+  const fromEnv = options.isLocal
+    ? [...configured, 'http://localhost:5173', 'http://localhost:5174']
+    : configured;
+  return [...new Set(fromEnv)];
 }
 
 /** Explicit browser origins, with local defaults only in development/test. */
 export function listFrontendOrigins(): string[] {
-  const configured = [
-    ...(process.env.FRONTEND_ORIGINS?.split(/[\s,]+/) ?? []),
-    process.env.FRONTEND_ORIGIN ?? '',
-    process.env.OPS_DASHBOARD_ORIGIN ?? '',
-  ]
-    .map((s) => normalizeOrigin(s))
-    .filter(Boolean);
-  const fromEnv =
-    IS_LOCAL_ENV
-      ? [...configured, 'http://localhost:5173', 'http://localhost:5174']
-      : configured;
-
-  // Deduplicate while preserving order.
-  return [...new Set(fromEnv)];
+  return collectFrontendOrigins(process.env);
 }
 
 /** Short-lived bearer JWT (seconds). */
