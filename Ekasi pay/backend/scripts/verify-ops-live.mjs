@@ -4,6 +4,9 @@
  * Usage (from backend/):
  *   node scripts/verify-ops-live.mjs
  *
+ * Public /health + CORS (no secrets):
+ *   npm run ops:prove-public
+ *
  * Optional env:
  *   RENDER_API_KEY, RENDER_SERVICE_ID_RECONCILE_WORKER
  *   DATABASE_URL, MONITORING_PROVIDER, MONITORING_DSN, ALERT_ROUTING_MARKER

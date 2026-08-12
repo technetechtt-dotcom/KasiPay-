@@ -45,6 +45,7 @@
     "settlement:e2e-proof": "node --import tsx scripts/settlement-e2e-proof.mjs",
     "alerts:verify": "node scripts/verify-alert-routing.mjs",
     "ops:verify-live": "node scripts/verify-ops-live.mjs",
+    "ops:prove-public": "node scripts/prove-public-live.mjs",
     "dev:storage-signer": "node scripts/dev-private-storage-signer.mjs",
     "dev:malware-scan": "node scripts/dev-malware-scan-worker.mjs",
     "lint": "eslint . --ext .ts",

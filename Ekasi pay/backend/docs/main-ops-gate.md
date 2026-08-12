@@ -12,9 +12,9 @@ Release evidence is the CI-green tip of `main` (direct pushes allowed; force-pus
 3. Confirm worker logs show `reconciliation.worker_started`
 4. Keep `FINANCIAL_POSTING_ENABLED=false` until production-readiness evidence is approved
 5. Run `npm run alerts:verify` against staging `MONITORING_DSN` when configured
-6. Set real `VITE_SUPPORT_*` on the web service before pilot Help contacts go live
+6. Help contacts: `VITE_SUPPORT_EMAIL` is set in the blueprint (email-only is enough; do not invent phone numbers)
 6b. Confirm `FRONTEND_ORIGINS` on `ekasi-pay-api` includes `https://ekasi-ops-dashboard.onrender.com` (blueprint default + `OPS_DASHBOARD_ORIGIN`)
-7. Run `npm run ops:verify-live` with Render/Neon/monitoring env loaded; confirm worker log `reconciliation.worker_started`
+7. Run `npm run ops:prove-public` (no secrets) then `npm run ops:verify-live` with Render/Neon/monitoring env loaded; confirm worker log `reconciliation.worker_started`
 8. Track parallel external work in `docs/external-assurance-track.md` (never invent approvals)
 9. Neon project `KasiPay` / production branch is the intended DB; confirm Render `DATABASE_URL` points at it before treating worker as live
 10. Use `docs/non-funds-pilot-rehearsal.md` for the merchant rehearsal (flags stay false)

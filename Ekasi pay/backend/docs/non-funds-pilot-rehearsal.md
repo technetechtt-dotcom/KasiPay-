@@ -7,7 +7,7 @@ queue, i18n, and support contacts — not custody of customer funds.
 
 - [ ] Tip SHA on `main` has green CI (`validate` + sibling jobs)
 - [ ] Regulated flags false on API + reconcile worker
-- [ ] Real `VITE_SUPPORT_*` set on `ekasi-pay-web` (no example numbers)
+- [ ] Real Help contact on `ekasi-pay-web` (email is enough; no example numbers)
 - [ ] Pilot merchants (5–10) onboarded with docs; approval status tracked
 
 ## Device script (per merchant)
@@ -17,7 +17,7 @@ queue, i18n, and support contacts — not custody of customer funds.
 3. [ ] Restock + add new product while offline → queued
 4. [ ] Reconnect → outbox flush; stock and sales match server
 5. [ ] Open Cash Send / lending / insurance / utilities → disabled / unavailable notices only
-6. [ ] Help page shows real WhatsApp / phone / email
+6. [ ] Help page shows at least one real contact (email is enough)
 7. [ ] Capture Account Settings → Diagnostics sample for support
 
 ## Stop conditions

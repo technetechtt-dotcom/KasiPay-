@@ -1,8 +1,11 @@
 # Ekasi Pay — Render Blueprint
 # Repo layout: app code lives under "Ekasi pay/" (note the space).
-# Set secret env vars in the Render dashboard after the first sync:
-#   DATABASE_URL, SMS_PROVIDER (+ Twilio/Clickatell keys)
-#   operator-session secrets, private KYC storage/scanner settings, encryption key
+# After first sync, set in the Render dashboard (never commit these):
+#   ekasi-pay-api AND ekasi-pay-reconcile-worker DATABASE_URL = same Neon KasiPay URL
+#   Optional: DATA_ENCRYPTION_KEY + PII_HASH_PEPPER copied from the env that wrote
+#   existing Neon ciphertexts. Do not invent a new key. Non-funds boot derives
+#   them from JWT_SECRET when unset.
+# Money-movement flags stay false until production-readiness evidence is approved.
 # FRONTEND_ORIGINS on ekasi-pay-api must include both web and ops origins
 # (comma-separated), e.g. https://ekasi-pay-web.onrender.com,https://ekasi-ops-dashboard.onrender.com
 
@@ -14,7 +17,7 @@ services:
     buildCommand: npm ci && npm run migrate:validate && npm run build
     preDeployCommand: npm run migrate:deploy
     startCommand: npm start
-    healthCheckPath: /health/ready
+    healthCheckPath: /health
     plan: starter
     envVars:
       - key: NODE_ENV
@@ -137,8 +140,11 @@ services:
         value: production
       - key: RECONCILIATION_INTERVAL_MINUTES
         value: "15"
+      # Same Neon connection as ekasi-pay-api (set in dashboard; blueprint cannot copy secrets).
       - key: DATABASE_URL
         sync: false
+      - key: SMS_PROVIDER
+        value: "disabled"
       - key: FINANCIAL_POSTING_ENABLED
         value: "false"
       - key: LEDGER_DRIFT_KILL_SWITCH
@@ -197,7 +203,7 @@ services:
       - key: VITE_SUPPORT_PHONE_DISPLAY
         sync: false
       - key: VITE_SUPPORT_EMAIL
-        sync: false
+        value: "ivanjohnsonijj@gmail.com"
       - key: API_HOST
         fromService:
           name: ekasi-pay-api

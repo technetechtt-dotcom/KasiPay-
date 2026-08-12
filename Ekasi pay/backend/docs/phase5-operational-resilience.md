@@ -36,9 +36,12 @@ postings, idempotency, reconciliation, authentication, and voucher attempts.
 Export `/internal/metrics` only through a private service/network.
 
 `/health/live` only proves the process is alive. `/health/ready` checks the
-database and, outside local environments, a fresh encrypted/verified backup
-marker. Posted journal transitions insert append-only audit evidence in the same
-transaction. Every audit insert transactionally queues the external sink.
+database. Outside local and non-funds deployments it also requires a fresh
+encrypted/verified backup marker (and Redis when `RATE_LIMIT_REDIS_URL` is set).
+Render `healthCheckPath` is `/health` so a missing backup marker cannot take the
+API out of rotation during the shop pilot. Posted journal transitions insert
+append-only audit evidence in the same transaction. Every audit insert
+transactionally queues the external sink.
 
 ## Backup and disaster recovery
 

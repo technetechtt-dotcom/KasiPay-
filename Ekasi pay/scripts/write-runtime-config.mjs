@@ -6,6 +6,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 const out = path.join(root, 'public', 'runtime-config.js');
 
+/** Pilot Help contact when Render/Vite env is unset. Email-only is enough. */
+const DEFAULT_SUPPORT_EMAIL = 'ivanjohnsonijj@gmail.com';
+
+function trimEnv(value) {
+  return String(value ?? '').trim();
+}
+
 function normalizeApiUrl(raw) {
   let value = String(raw ?? '').trim().replace(/\/$/, '');
   if (!value) return '';
@@ -31,7 +38,21 @@ const configured =
   'https://ekasi-pay-api.onrender.com';
 
 const apiUrl = normalizeApiUrl(configured);
-const body = `window.__KASIPAY_API_URL__=${JSON.stringify(apiUrl)};\n`;
+const support = {
+  whatsapp: trimEnv(process.env.VITE_SUPPORT_WHATSAPP),
+  phone: trimEnv(process.env.VITE_SUPPORT_PHONE),
+  phoneDisplay: trimEnv(process.env.VITE_SUPPORT_PHONE_DISPLAY),
+  email:
+    trimEnv(process.env.VITE_SUPPORT_EMAIL) ||
+    trimEnv(process.env.SUPPORT_EMAIL) ||
+    DEFAULT_SUPPORT_EMAIL,
+};
+
+const body = [
+  `window.__KASIPAY_API_URL__=${JSON.stringify(apiUrl)};`,
+  `window.__KASIPAY_SUPPORT__=${JSON.stringify(support)};`,
+  '',
+].join('\n');
 
 fs.writeFileSync(out, body, 'utf8');
-console.info(`[runtime-config] ${apiUrl}`);
+console.info(`[runtime-config] ${apiUrl} support=${support.email || '(none)'}`);

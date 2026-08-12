@@ -10,6 +10,7 @@ import {
   LOGIN_RATE_LIMIT_PER_MIN,
   NODE_ENV,
   IS_LOCAL_ENV,
+  NON_FUNDS_DEPLOYMENT,
   PORT,
   RATE_LIMIT_REDIS_URL,
 } from './config.js';
@@ -189,7 +190,7 @@ app.get('/health/ready', async (_req, res) => {
   }
   try {
     await getPgPool().query('SELECT 1');
-    if (!IS_LOCAL_ENV) {
+    if (!IS_LOCAL_ENV && !NON_FUNDS_DEPLOYMENT) {
       const backup = await getPgPool().query(
         `SELECT 1 FROM backup_verification_markers
           WHERE encrypted AND verified_at IS NOT NULL AND expires_at > clock_timestamp()
@@ -213,8 +214,12 @@ app.get('/health/ready', async (_req, res) => {
     return res.json({
       ok: true,
       database: 'ready',
-      backupFreshness: IS_LOCAL_ENV ? 'not_required_local' : 'verified',
-      redis: IS_LOCAL_ENV ? 'not_required_local' : getRedisHealth(),
+      backupFreshness: IS_LOCAL_ENV
+        ? 'not_required_local'
+        : NON_FUNDS_DEPLOYMENT
+          ? 'not_required_non_funds'
+          : 'verified',
+      redis: getRedisHealth(),
     });
   } catch {
     return res.status(503).json({ ok: false, database: 'unavailable' });
