@@ -205,6 +205,11 @@ export type OpsAdminUser = {
   phone?: string;
 };
 
+export type OpsMfaEnrollment = {
+  secret: string;
+  otpauthUrl: string;
+};
+
 export async function apiLogin(username: string, password: string, totp: string) {
   clearToken();
   const result = await opsFetch<{
@@ -243,10 +248,12 @@ export async function apiCreateAdminUser(body: {
   password: string;
   role: 'admin' | 'operations' | 'compliance' | 'finance' | 'support';
 }) {
-  return opsFetch<{ user: OpsAdminUser }>('/api/ops/admin-users', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  return opsFetch<{ user: OpsAdminUser; mfaEnrollment?: OpsMfaEnrollment }>(
+    '/api/ops/admin-users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export async function apiUpdateAdminUser(

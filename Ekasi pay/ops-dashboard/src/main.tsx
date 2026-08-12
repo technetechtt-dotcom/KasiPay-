@@ -3,6 +3,7 @@ import './styles.css';
 import { Component, Fragment, StrictMode, useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import QRCode from 'qrcode';
 
 import {
   apiAdminUsers,
@@ -58,6 +59,7 @@ import {
   type OpsLoan,
   type OpsMerchant,
   type OpsMerchantDoc,
+  type OpsMfaEnrollment,
   type OpsUser,
   type Overview,
   type OpsFraudCase,
@@ -1525,6 +1527,121 @@ function SettlementTab() {
   );
 }
 
+function MfaEnrollmentPanel({
+  username,
+  enrollment,
+  onDismiss,
+}: {
+  username: string;
+  enrollment: OpsMfaEnrollment;
+  onDismiss: () => void;
+}) {
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrError, setQrError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setQrDataUrl('');
+    setQrError('');
+    void QRCode.toDataURL(enrollment.otpauthUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 220,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (active) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (active) setQrError('Could not render the QR code. Use the setup key instead.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [enrollment.otpauthUrl]);
+
+  const copySecret = async () => {
+    try {
+      await navigator.clipboard.writeText(enrollment.secret);
+      setCopyStatus('Setup key copied.');
+    } catch {
+      setCopyStatus('Copy failed. Select and copy the setup key manually.');
+    }
+  };
+
+  const dismiss = () => {
+    if (
+      window.confirm(
+        `Has ${username} scanned the QR code or saved the setup key? It cannot be shown again after you dismiss it.`,
+      )
+    ) {
+      onDismiss();
+    }
+  };
+
+  return (
+    <section className="mfa-enrollment" aria-labelledby="mfa-enrollment-title">
+      <div className="mfa-enrollment-head">
+        <div>
+          <p className="eyebrow">One-time setup</p>
+          <h3 id="mfa-enrollment-title">Set up MFA for {username}</h3>
+        </div>
+        <span className="badge">Required for sign-in</span>
+      </div>
+      <p>
+        Scan this QR code with Google Authenticator, Microsoft Authenticator,
+        Authy, or another TOTP app. This secret is only returned when the
+        account is created.
+      </p>
+      <div className="mfa-enrollment-body">
+        <div className="mfa-qr-card">
+          {qrDataUrl ? (
+            <img
+              src={qrDataUrl}
+              width="220"
+              height="220"
+              alt={`Authenticator enrollment QR code for ${username}`}
+            />
+          ) : (
+            <div className="mfa-qr-placeholder" role="status">
+              {qrError || 'Generating QR code…'}
+            </div>
+          )}
+        </div>
+        <div className="mfa-setup-details">
+          <div>
+            <strong>Can’t scan?</strong>
+            <p className="muted">
+              Add a setup key manually. Use <strong>EkasiPay</strong> as the
+              issuer and choose a time-based code.
+            </p>
+          </div>
+          <code className="mfa-secret">{enrollment.secret}</code>
+          <div className="row-actions">
+            <button type="button" onClick={() => void copySecret()}>
+              Copy setup key
+            </button>
+            <button type="button" className="ghost" onClick={dismiss}>
+              Dismiss after saving
+            </button>
+          </div>
+          {copyStatus ? (
+            <p className="muted" role="status" aria-live="polite">
+              {copyStatus}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <p className="mfa-warning">
+        Before dismissing, ask the operator to confirm that EkasiPay appears in
+        their authenticator app. Their current 6-digit code is used on the Ops
+        sign-in screen.
+      </p>
+    </section>
+  );
+}
+
 function OperatorsTab({ me }: { me: OpsAdminUser }) {
   type OperatorRole = 'admin' | 'operations' | 'compliance' | 'finance' | 'support';
   const [users, setUsers] = useState<OpsAdminUser[]>([]);
@@ -1535,6 +1652,10 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
   const [role, setRole] = useState<OperatorRole>('support');
   const [busy, setBusy] = useState(false);
   const [resetPw, setResetPw] = useState<Record<string, string>>({});
+  const [mfaSetup, setMfaSetup] = useState<{
+    username: string;
+    enrollment: OpsMfaEnrollment;
+  } | null>(null);
 
   const canManage = String(me.role).toLowerCase() === 'admin';
 
@@ -1559,7 +1680,7 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
     setError('');
     setOkMsg('');
     try {
-      const { user } = await apiCreateAdminUser({
+      const { user, mfaEnrollment } = await apiCreateAdminUser({
         username: username.trim(),
         password,
         role,
@@ -1568,6 +1689,14 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
       setPassword('');
       setRole('support');
       setOkMsg(`Created ${user.username} as ${user.role.replace(/_/g, ' ')}.`);
+      if (mfaEnrollment?.secret && mfaEnrollment.otpauthUrl) {
+        setMfaSetup({ username: user.username, enrollment: mfaEnrollment });
+      } else {
+        setMfaSetup(null);
+        setError(
+          `Created ${user.username}, but the API did not return an MFA setup key. Delete this account and retry after updating the API.`,
+        );
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed');
@@ -1686,6 +1815,13 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
       </p>
       {error ? <p className="error">{error}</p> : null}
       {okMsg ? <p className="ok-banner">{okMsg}</p> : null}
+      {mfaSetup ? (
+        <MfaEnrollmentPanel
+          username={mfaSetup.username}
+          enrollment={mfaSetup.enrollment}
+          onDismiss={() => setMfaSetup(null)}
+        />
+      ) : null}
 
       <form
         className="review-box"
