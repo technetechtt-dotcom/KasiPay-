@@ -22,6 +22,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NON_FUNDS_PRODUCTION
+        value: "true"
       - key: FINANCIAL_POSTING_ENABLED
         value: "false"
       - key: LEDGER_DRIFT_KILL_SWITCH
@@ -138,6 +140,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NON_FUNDS_PRODUCTION
+        value: "true"
       - key: RECONCILIATION_INTERVAL_MINUTES
         value: "15"
       # Same Neon connection as ekasi-pay-api (set in dashboard; blueprint cannot copy secrets).

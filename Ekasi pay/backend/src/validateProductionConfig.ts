@@ -66,11 +66,17 @@ export function collectProductionConfigErrors(
     env.OPS_DASHBOARD_ORIGIN ?? '',
   ]
     .map((value) => normalizeFrontendOrigin(value))
-    .filter((value) => value.length > 0);
+    .filter((value) => {
+      if (!value) return false;
+      try {
+        const url = new URL(value);
+        return url.protocol === 'https:' && Boolean(url.hostname);
+      } catch {
+        return false;
+      }
+    });
   if (origins.length === 0) {
-    errors.push('At least one explicit frontend origin is required.');
-  } else {
-    for (const origin of origins) httpsUrl('Frontend origin', origin);
+    errors.push('At least one explicit HTTPS frontend origin is required.');
   }
 
   const jwtSecret = required('JWT_SECRET', 32);
@@ -247,6 +253,9 @@ export function collectProductionConfigErrors(
 export function validateProductionConfig(): void {
   const errors = collectProductionConfigErrors(process.env);
   if (errors.length > 0) {
-    throw new Error(`Invalid deployed configuration: ${errors.join('; ')}`);
+    const nonFunds = isNonFundsDeployment(process.env);
+    throw new Error(
+      `Invalid deployed configuration (nonFunds=${nonFunds}): ${errors.join('; ')}`,
+    );
   }
 }

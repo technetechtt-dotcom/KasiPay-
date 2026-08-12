@@ -144,3 +144,27 @@ test('non-funds Render boot skips live-provider secrets', () => {
   });
   assert.deepEqual(errors, []);
 });
+
+test('NON_FUNDS_PRODUCTION skips vendors even when money flags are unset', () => {
+  const errors = collectProductionConfigErrors({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://user:pass@db.example.com/ekasi',
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com',
+    FRONTEND_ORIGIN: 'not a url',
+    JWT_SECRET: 'j'.repeat(32),
+    NON_FUNDS_PRODUCTION: 'true',
+  });
+  assert.deepEqual(errors, []);
+});
+
+test('NON_FUNDS_PRODUCTION does not bypass regulated production', () => {
+  const errors = collectProductionConfigErrors({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://user:pass@db.example.com/ekasi',
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com',
+    JWT_SECRET: 'j'.repeat(32),
+    NON_FUNDS_PRODUCTION: 'true',
+    REGULATED_PRODUCTS_PRODUCTION_ENABLED: 'true',
+  });
+  assert(errors.some((error) => error.includes('MONITORING_PROVIDER')));
+});

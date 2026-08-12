@@ -88,6 +88,9 @@ import {
 } from './routes/customerProtectionPg.js';
 
 validateProductionConfig();
+console.log(
+  `KasiPay boot mode nonFunds=${NON_FUNDS_DEPLOYMENT} nodeEnv=${NODE_ENV}`,
+);
 initMonitoring();
 await initDataStore();
 await ensureOpsAuthStore();
