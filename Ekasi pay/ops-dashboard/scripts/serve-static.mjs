@@ -10,6 +10,18 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(__dirname, '..', 'dist');
 const port = Number(process.env.PORT || 8790);
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'self' https://ekasi-pay-api.onrender.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  'upgrade-insecure-requests',
+].join('; ');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -28,6 +40,10 @@ function send(res, status, body, type) {
   res.writeHead(status, {
     'Content-Type': type,
     'Cache-Control': status === 200 ? 'public, max-age=60' : 'no-store',
+    'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
   });
   res.end(body);
 }
