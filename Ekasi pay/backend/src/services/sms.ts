@@ -1,6 +1,7 @@
 import {
   CLICKATELL_API_KEY,
   NODE_ENV,
+  NON_FUNDS_DEPLOYMENT,
   SMS_PROVIDER,
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
@@ -19,7 +20,7 @@ export async function sendSms(to: string, message: string): Promise<void> {
 
   switch (SMS_PROVIDER) {
     case 'console': {
-      if (NODE_ENV === 'production') {
+      if (NODE_ENV === 'production' && !NON_FUNDS_DEPLOYMENT) {
         throw new Error('SMS_PROVIDER=console is not allowed in production');
       }
       console.info(`[sms:console] to=${normalizedTo} body=${message}`);

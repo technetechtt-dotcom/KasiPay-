@@ -126,3 +126,21 @@ test('production utilities require a real provider mode', () => {
   });
   assert(errors.some((error) => error.includes('requires UTILITY_PROVIDER=http')));
 });
+
+test('non-funds Render boot skips live-provider secrets', () => {
+  const errors = collectProductionConfigErrors({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://user:pass@db.example.com/ekasi',
+    FRONTEND_ORIGINS: 'https://ekasi-pay-web.onrender.com',
+    FRONTEND_ORIGIN: 'ekasi-pay-web',
+    OPS_DASHBOARD_ORIGIN: 'ekasi-ops-dashboard',
+    JWT_SECRET: 'j'.repeat(32),
+    FINANCIAL_POSTING_ENABLED: 'false',
+    CASH_SEND_ENABLED: 'false',
+    LENDING_ENABLED: 'false',
+    INSURANCE_ENABLED: 'false',
+    STOKVEL_MONEY_MOVEMENT_ENABLED: 'false',
+    LIVE_UTILITIES_ENABLED: 'false',
+  });
+  assert.deepEqual(errors, []);
+});

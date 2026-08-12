@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import dotenv from 'dotenv';
 
+import { isNonFundsDeployment, secretOrDerived } from './deploymentMode.js';
 import { normalizeFrontendOrigin } from './frontendOrigin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -106,14 +107,16 @@ export const REFRESH_ABSOLUTE_TTL_SEC = positiveNumber(
   30 * 24 * 60 * 60,
 );
 
-export const REFRESH_TOKEN_PEPPER =
-  process.env.REFRESH_TOKEN_PEPPER?.trim() ||
-  (IS_LOCAL_ENV ? 'dev-only-refresh-token-pepper' : '');
+export const REFRESH_TOKEN_PEPPER = secretOrDerived(
+  process.env,
+  'REFRESH_TOKEN_PEPPER',
+  'refresh-token-pepper',
+) || (IS_LOCAL_ENV ? 'dev-only-refresh-token-pepper' : '');
 
 /** Independent pepper for hashing PIN-reset SMS codes. */
 export const PIN_RESET_PEPPER = (() => {
-  const raw = process.env.PIN_RESET_PEPPER?.trim();
-  return raw || (IS_LOCAL_ENV ? 'dev-only-pin-reset-pepper' : '');
+  const derived = secretOrDerived(process.env, 'PIN_RESET_PEPPER', 'pin-reset-pepper');
+  return derived || (IS_LOCAL_ENV ? 'dev-only-pin-reset-pepper' : '');
 })();
 
 /** @deprecated use ACCESS_TOKEN_TTL_SEC */
@@ -181,10 +184,15 @@ export const LOGIN_RATE_LIMIT_PER_MIN = positiveNumber(
   20,
 );
 
-/** SMS delivery: console (dev), twilio, or clickatell. */
+export const NON_FUNDS_DEPLOYMENT = isNonFundsDeployment(process.env);
+
+/** SMS delivery: console (dev / non-funds), twilio, or clickatell. */
 export const SMS_PROVIDER = (() => {
   const raw = process.env.SMS_PROVIDER?.trim().toLowerCase();
-  if (!raw) return IS_LOCAL_ENV ? 'console' : '';
+  if (!raw || raw === 'disabled') {
+    if (IS_LOCAL_ENV || NON_FUNDS_DEPLOYMENT) return 'console';
+    return '';
+  }
   if (raw === 'console' || raw === 'twilio' || raw === 'clickatell') return raw;
   throw new Error('SMS_PROVIDER must be console, twilio, or clickatell.');
 })();

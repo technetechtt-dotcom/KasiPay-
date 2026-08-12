@@ -7,6 +7,8 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
+import { derivedDeploymentSecret, isNonFundsDeployment } from '../deploymentMode.js';
+
 const LOCAL_DEV_KEY = Buffer.from(
   '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   'hex',
@@ -33,6 +35,9 @@ function resolveEncryptionKey(): Buffer {
   const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
   if (nodeEnv === 'development' || nodeEnv === 'test') {
     return LOCAL_DEV_KEY;
+  }
+  if (isNonFundsDeployment()) {
+    return decodeKeyMaterial(derivedDeploymentSecret('data-encryption-key'));
   }
   throw new Error('DATA_ENCRYPTION_KEY is required outside local development.');
 }
@@ -112,6 +117,9 @@ function resolveHashPepper(version = ACTIVE_PII_HASH_PEPPER_VERSION): string {
     const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
     if (nodeEnv === 'development' || nodeEnv === 'test') {
       return LOCAL_DEV_KEY.toString('hex');
+    }
+    if (isNonFundsDeployment()) {
+      return derivedDeploymentSecret('pii-hash-pepper');
     }
     throw new Error('PII_HASH_PEPPER must be at least 32 characters outside local development.');
   }

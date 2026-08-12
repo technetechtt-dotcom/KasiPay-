@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
+import { derivedDeploymentSecret, isNonFundsDeployment } from '../deploymentMode.js';
+
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 export function generateTotpSecret(): string {
@@ -47,7 +49,8 @@ export function verifyTotp(secret: string, code: string, now = Date.now()): bool
 }
 
 function encryptionKey(): Buffer {
-  const raw = process.env.DATA_ENCRYPTION_KEY?.trim() ?? '';
+  const raw = process.env.DATA_ENCRYPTION_KEY?.trim()
+    || (isNonFundsDeployment() ? derivedDeploymentSecret('data-encryption-key') : '');
   const key = /^[a-f0-9]{64}$/iu.test(raw)
     ? Buffer.from(raw, 'hex')
     : Buffer.from(raw, 'base64');

@@ -2,7 +2,7 @@ import type { Options } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { createClient, type RedisClientType } from 'redis';
 
-import { IS_LOCAL_ENV, RATE_LIMIT_REDIS_URL } from '../config.js';
+import { IS_LOCAL_ENV, NON_FUNDS_DEPLOYMENT, RATE_LIMIT_REDIS_URL } from '../config.js';
 import { structuredLog } from '../observability.js';
 
 /**
@@ -85,7 +85,7 @@ export function sharedRateLimitStore(
   if (!prefix.trim()) {
     throw new Error('sharedRateLimitStore requires a non-empty prefix.');
   }
-  const failClosed = options.failClosed ?? !IS_LOCAL_ENV;
+  const failClosed = options.failClosed ?? !(IS_LOCAL_ENV || NON_FUNDS_DEPLOYMENT);
   if (!RATE_LIMIT_REDIS_URL) {
     if (failClosed) {
       throw new Error(

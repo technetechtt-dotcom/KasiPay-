@@ -40,7 +40,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: SMS_PROVIDER
-        sync: false
+        value: "disabled"
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN

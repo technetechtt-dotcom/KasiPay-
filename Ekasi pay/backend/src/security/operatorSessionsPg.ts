@@ -2,12 +2,18 @@ import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 import type { Pool } from 'pg';
 
+import { derivedDeploymentSecret, isNonFundsDeployment } from '../deploymentMode.js';
+
 const REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
 const ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function pepper(): string {
   const value = process.env.OPS_REFRESH_TOKEN_PEPPER?.trim() ?? '';
-  if (process.env.NODE_ENV === 'production' && value.length < 32) {
+  if (value.length >= 32) return value;
+  if (process.env.NODE_ENV === 'production') {
+    if (isNonFundsDeployment()) {
+      return derivedDeploymentSecret('ops-refresh-token-pepper');
+    }
     throw new Error('OPS_REFRESH_TOKEN_PEPPER must be at least 32 characters');
   }
   return value || 'development-operator-refresh-pepper';

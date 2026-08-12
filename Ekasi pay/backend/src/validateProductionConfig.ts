@@ -1,3 +1,4 @@
+import { isNonFundsDeployment } from './deploymentMode.js';
 import { normalizeFrontendOrigin } from './frontendOrigin.js';
 
 /**
@@ -11,6 +12,7 @@ export function collectProductionConfigErrors(
   if (nodeEnv === 'development' || nodeEnv === 'test') return [];
 
   const errors: string[] = [];
+  const nonFunds = isNonFundsDeployment(env);
   const required = (name: string, minimumLength = 1): string => {
     const value = env[name]?.trim() ?? '';
     if (value.length < minimumLength) {
@@ -19,6 +21,14 @@ export function collectProductionConfigErrors(
           ? `${name} must be at least ${minimumLength} characters.`
           : `${name} is required.`,
       );
+    }
+    return value;
+  };
+  const optionalSecret = (name: string, minimumLength: number): string => {
+    const value = env[name]?.trim() ?? '';
+    if (!value) return '';
+    if (value.length < minimumLength) {
+      errors.push(`${name} must be at least ${minimumLength} characters.`);
     }
     return value;
   };
@@ -64,13 +74,27 @@ export function collectProductionConfigErrors(
   }
 
   const jwtSecret = required('JWT_SECRET', 32);
-  const refreshPepper = required('REFRESH_TOKEN_PEPPER', 32);
-  const pinResetPepper = required('PIN_RESET_PEPPER', 32);
-  const opsJwtSecret = required('OPS_JWT_SECRET', 32);
-  const opsRefreshPepper = required('OPS_REFRESH_TOKEN_PEPPER', 32);
-  const storageSigningSecret = required('PRIVATE_STORAGE_SIGNING_SECRET', 32);
-  const dataEncryptionKey = required('DATA_ENCRYPTION_KEY', 43);
-  const piiHashPepper = required('PII_HASH_PEPPER', 32);
+  const refreshPepper = nonFunds
+    ? optionalSecret('REFRESH_TOKEN_PEPPER', 32)
+    : required('REFRESH_TOKEN_PEPPER', 32);
+  const pinResetPepper = nonFunds
+    ? optionalSecret('PIN_RESET_PEPPER', 32)
+    : required('PIN_RESET_PEPPER', 32);
+  const opsJwtSecret = nonFunds
+    ? optionalSecret('OPS_JWT_SECRET', 32)
+    : required('OPS_JWT_SECRET', 32);
+  const opsRefreshPepper = nonFunds
+    ? optionalSecret('OPS_REFRESH_TOKEN_PEPPER', 32)
+    : required('OPS_REFRESH_TOKEN_PEPPER', 32);
+  const storageSigningSecret = nonFunds
+    ? optionalSecret('PRIVATE_STORAGE_SIGNING_SECRET', 32)
+    : required('PRIVATE_STORAGE_SIGNING_SECRET', 32);
+  const dataEncryptionKey = nonFunds
+    ? optionalSecret('DATA_ENCRYPTION_KEY', 43)
+    : required('DATA_ENCRYPTION_KEY', 43);
+  const piiHashPepper = nonFunds
+    ? optionalSecret('PII_HASH_PEPPER', 32)
+    : required('PII_HASH_PEPPER', 32);
   const secrets = [
     jwtSecret, refreshPepper, pinResetPepper, opsJwtSecret,
     opsRefreshPepper, storageSigningSecret, dataEncryptionKey, piiHashPepper,
@@ -103,27 +127,6 @@ export function collectProductionConfigErrors(
     positive(name, fallback);
   }
 
-  const smsProvider = required('SMS_PROVIDER').toLowerCase();
-  if (!['twilio', 'clickatell'].includes(smsProvider)) {
-    errors.push('SMS_PROVIDER must be twilio or clickatell.');
-  } else if (smsProvider === 'twilio') {
-    required('TWILIO_ACCOUNT_SID');
-    required('TWILIO_AUTH_TOKEN');
-    required('TWILIO_FROM_NUMBER');
-  } else {
-    required('CLICKATELL_API_KEY');
-  }
-
-  const utilityProvider = (env.UTILITY_PROVIDER?.trim() || 'disabled').toLowerCase();
-  if (!['http', 'disabled'].includes(utilityProvider)) {
-    errors.push('UTILITY_PROVIDER must be http or disabled.');
-  }
-  if (utilityProvider === 'http') {
-    const webhook = required('UTILITY_VENDOR_WEBHOOK_URL');
-    if (webhook) httpsUrl('UTILITY_VENDOR_WEBHOOK_URL', webhook);
-    required('UTILITY_VENDOR_API_KEY');
-    required('PROVIDER_CALLBACK_SECRET', 32);
-  }
   const enabledFlag = (name: string) =>
     /^(1|true|yes|on)$/iu.test(env[name]?.trim() ?? '');
   if (enabledFlag('PHASE7_SANDBOX_ENABLED')) {
@@ -142,6 +145,11 @@ export function collectProductionConfigErrors(
       errors.push(`${name} requires REGULATED_PRODUCTS_PRODUCTION_ENABLED=true.`);
     }
   }
+
+  const utilityProvider = (env.UTILITY_PROVIDER?.trim() || 'disabled').toLowerCase();
+  if (!['http', 'disabled'].includes(utilityProvider)) {
+    errors.push('UTILITY_PROVIDER must be http or disabled.');
+  }
   if (enabledFlag('PRODUCT_UTILITIES_PRODUCTION_ENABLED') && utilityProvider !== 'http') {
     errors.push('PRODUCT_UTILITIES_PRODUCTION_ENABLED requires UTILITY_PROVIDER=http.');
   }
@@ -153,6 +161,39 @@ export function collectProductionConfigErrors(
   if (loadProvider === 'http') {
     const feed = required('LOAD_SHEDDING_FEED_URL');
     if (feed) httpsUrl('LOAD_SHEDDING_FEED_URL', feed);
+  }
+
+  if (dataEncryptionKey) {
+    const bytes = /^[a-f0-9]{64}$/iu.test(dataEncryptionKey)
+      ? Buffer.from(dataEncryptionKey, 'hex')
+      : Buffer.from(dataEncryptionKey, 'base64');
+    if (bytes.length !== 32) errors.push('DATA_ENCRYPTION_KEY must encode exactly 32 bytes.');
+  }
+
+  if (nonFunds) {
+    const smsProvider = (env.SMS_PROVIDER?.trim() || 'console').toLowerCase();
+    if (!['console', 'disabled', 'twilio', 'clickatell'].includes(smsProvider)) {
+      errors.push('SMS_PROVIDER must be console, disabled, twilio, or clickatell.');
+    }
+    return errors;
+  }
+
+  const smsProvider = required('SMS_PROVIDER').toLowerCase();
+  if (!['twilio', 'clickatell'].includes(smsProvider)) {
+    errors.push('SMS_PROVIDER must be twilio or clickatell.');
+  } else if (smsProvider === 'twilio') {
+    required('TWILIO_ACCOUNT_SID');
+    required('TWILIO_AUTH_TOKEN');
+    required('TWILIO_FROM_NUMBER');
+  } else {
+    required('CLICKATELL_API_KEY');
+  }
+
+  if (utilityProvider === 'http') {
+    const webhook = required('UTILITY_VENDOR_WEBHOOK_URL');
+    if (webhook) httpsUrl('UTILITY_VENDOR_WEBHOOK_URL', webhook);
+    required('UTILITY_VENDOR_API_KEY');
+    required('PROVIDER_CALLBACK_SECRET', 32);
   }
 
   const monitoringProvider = required('MONITORING_PROVIDER').toLowerCase();
@@ -191,12 +232,6 @@ export function collectProductionConfigErrors(
     errors.push('MALWARE_SCANNER_PROVIDER must be clamav, vendor, or external.');
   }
   required('MALWARE_SCANNER_CALLBACK_SECRET', 32);
-  if (dataEncryptionKey) {
-    const bytes = /^[a-f0-9]{64}$/iu.test(dataEncryptionKey)
-      ? Buffer.from(dataEncryptionKey, 'hex')
-      : Buffer.from(dataEncryptionKey, 'base64');
-    if (bytes.length !== 32) errors.push('DATA_ENCRYPTION_KEY must encode exactly 32 bytes.');
-  }
 
   const backupProvider = required('BACKUP_PROVIDER').toLowerCase();
   if (!['neon', 'render', 'external'].includes(backupProvider)) {
