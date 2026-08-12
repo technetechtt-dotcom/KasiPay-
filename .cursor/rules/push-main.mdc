@@ -1,0 +1,11 @@
+---
+description: Always commit and push to origin/main. Never PRs or feature branches.
+alwaysApply: true
+---
+
+# Ship on main only
+
+- Stay on `main`. Do not create feature branches.
+- After a change, commit on `main` and `git push origin HEAD`.
+- Do not open pull requests (`gh pr create`) unless the user explicitly asks.
+- Direct pushes to `main` are allowed. Force-push stays blocked.

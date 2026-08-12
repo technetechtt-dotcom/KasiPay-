@@ -20,10 +20,10 @@ defaults:
     working-directory: Ekasi pay
 
 jobs:
-  # Reminder only — configure these in the GitHub UI for the default branch / environments:
-  # - Branch protection: require PR reviews before merge
-  # - Required status checks: this workflow's jobs (validate, secret-scan, etc.)
-  # - Deployment environments: staging (and production) with required reviewers / wait timer
+  # Reminder only — GitHub UI / `npm run github:configure-controls`:
+  # - Protected `main`: direct pushes allowed; force-push blocked
+  # - CI runs on push to main (not a PR merge gate)
+  # - Deployment environments: staging/production reviewers in UI if needed
   github-controls-reminder:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -37,8 +37,9 @@ jobs:
             echo 'Branch protection is configured by `npm run github:configure-controls`:'
             echo ''
             echo '- Protected `main` with enforce_admins; force-push blocked'
-            echo '- Direct pushes to `main` are allowed by default (set ALLOW_DIRECT_MAIN_PUSH=0 for PR+CODEOWNERS+required checks)'
-            echo '- CI still runs on push; it is not a pre-push branch gate in direct-push mode'
+            echo '- Ship by direct push to `main` only (no PR / feature-branch workflow)'
+            echo '- CI still runs on push; it is not a pre-push branch gate'
+            echo '- Set ALLOW_DIRECT_MAIN_PUSH=0 only if you later want PR+CODEOWNERS+required checks'
             echo '- Staging/production Environments (add required reviewers in UI)'
             echo '- Dependency graph must be enabled for dependency-review (Settings → Code security)'
             echo ''

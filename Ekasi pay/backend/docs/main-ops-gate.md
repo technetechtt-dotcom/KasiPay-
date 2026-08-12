@@ -22,6 +22,7 @@ Release evidence is the CI-green tip of `main` (direct pushes allowed; force-pus
 
 ## Branch policy
 
+- **Always push to `main`.** Do not use pull requests or feature branches for this repo.
 - Direct pushes to `main` are allowed; **force-push stays blocked**
 - CI still runs on every push; confirm green on the tip SHA before treating it as release-proven
 - Do not enable custodial money movement from docs alone — see `external-assurance-blockers.md`
