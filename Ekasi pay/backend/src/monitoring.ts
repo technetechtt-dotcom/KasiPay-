@@ -1,4 +1,4 @@
-import { MONITORING_DSN, MONITORING_PROVIDER, NODE_ENV } from './config.js';
+import { MONITORING_DSN, MONITORING_PROVIDER, NODE_ENV, NON_FUNDS_DEPLOYMENT } from './config.js';
 import { registerTraceHook, structuredLog } from './observability.js';
 
 function dsnHost(dsn: string): string {
@@ -27,7 +27,7 @@ function shouldPostWebhook(provider: string, dsn: string): boolean {
  */
 export function initMonitoring(): void {
   if (!MONITORING_DSN) {
-    if (NODE_ENV === 'production') {
+    if (NODE_ENV === 'production' && !NON_FUNDS_DEPLOYMENT) {
       structuredLog('warn', 'monitoring.unconfigured', {
         message: 'MONITORING_DSN is empty in production.',
       });

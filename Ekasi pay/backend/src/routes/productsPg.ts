@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getPgPool } from '../dbPg.js';
 import { toProduct } from '../mappers.js';
 import { parseZarToCents } from '../money.js';
+import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
@@ -51,7 +52,7 @@ productsRouterPg.get('/products', requireAuth, async (req, res) => {
   return res.json({ products: rows.rows.map(toProduct) });
 });
 
-productsRouterPg.post('/products', requireAuth, async (req, res) => {
+productsRouterPg.post('/products', requireAuth, idempotentPg('POST /products'), async (req, res) => {
   const parsed = productCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

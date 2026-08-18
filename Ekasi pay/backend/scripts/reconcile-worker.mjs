@@ -8,6 +8,7 @@
 import 'dotenv/config';
 
 import { closePg, getPgPool } from '../src/dbPg.ts';
+import { isNonFundsDeployment } from '../src/deploymentMode.ts';
 import { structuredLog } from '../src/observability.ts';
 import {
   claimQueuedReconciliationJobsPg,
@@ -20,11 +21,9 @@ const intervalMs = Math.max(
   Number(process.env.RECONCILIATION_INTERVAL_MINUTES?.trim() || '15') * 60_000,
 );
 const workerId = `worker:${process.pid}`;
+const nonFunds = isNonFundsDeployment(process.env);
 
-const jobTypes = [
-  'wallet_ledger',
-  'journal',
-  'projection',
+const moneyJobTypes = [
   'vouchers',
   'fees',
   'commissions',
@@ -34,8 +33,17 @@ const jobTypes = [
   'suspense',
   'loans',
   'insurance',
-  'full',
 ];
+
+const jobTypes = nonFunds
+  ? ['wallet_ledger', 'journal', 'projection']
+  : [
+      'wallet_ledger',
+      'journal',
+      'projection',
+      ...moneyJobTypes,
+      'full',
+    ];
 
 async function processQueue() {
   const pool = getPgPool();
@@ -57,8 +65,8 @@ async function processQueue() {
         ...result,
         requestId: job.id,
         runType: job.runType,
-        alert: !result.ok && !result.skipped,
-        pageOnCall: !result.ok && !result.skipped,
+        alert: !result.ok && !result.skipped && !nonFunds,
+        pageOnCall: !result.ok && !result.skipped && !nonFunds,
       });
     } catch (error) {
       await pool.query(
@@ -72,8 +80,8 @@ async function processQueue() {
         requestId: job.id,
         runType: job.runType,
         message: error instanceof Error ? error.message : 'failed',
-        alert: true,
-        pageOnCall: true,
+        alert: !nonFunds,
+        pageOnCall: !nonFunds,
       });
     }
   }
@@ -91,31 +99,52 @@ async function tick() {
       structuredLog(result.ok ? 'info' : 'error', 'reconciliation.worker', {
         ...result,
         runType,
-        alert: !result.ok && !result.skipped,
-        pageOnCall: !result.ok && !result.skipped,
+        alert: !result.ok && !result.skipped && !nonFunds,
+        pageOnCall: !result.ok && !result.skipped && !nonFunds,
       });
     } catch (error) {
       structuredLog('error', 'reconciliation.worker_failed', {
         runType,
         message: error instanceof Error ? error.message : 'failed',
-        alert: true,
-        pageOnCall: true,
+        alert: !nonFunds,
+        pageOnCall: !nonFunds,
       });
     }
   }
 }
 
-await tick();
+async function safeTick() {
+  try {
+    await tick();
+  } catch (error) {
+    structuredLog('error', 'reconciliation.worker_tick_failed', {
+      message: error instanceof Error ? error.message : 'failed',
+      alert: !nonFunds,
+      pageOnCall: !nonFunds,
+    });
+  }
+}
+
+if (!process.env.DATABASE_URL?.trim()) {
+  structuredLog('error', 'reconciliation.worker_missing_database', {
+    message: 'DATABASE_URL is required. Set the same Neon URL as ekasi-pay-api.',
+    alert: true,
+  });
+  process.exit(1);
+}
+
+structuredLog('info', 'reconciliation.worker_started', {
+  intervalMs,
+  jobTypes,
+  nonFunds,
+});
+
+await safeTick();
 if (once) {
   await closePg();
   process.exit(process.exitCode ?? 0);
 }
 
 setInterval(() => {
-  void tick();
+  void safeTick();
 }, intervalMs);
-
-structuredLog('info', 'reconciliation.worker_started', {
-  intervalMs,
-  jobTypes,
-});

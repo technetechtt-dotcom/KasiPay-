@@ -598,10 +598,11 @@ export async function apiCreateProduct(body: {
   stock: number;
   category: string;
   barcode?: string;
-}) {
+}, idempotencyKey?: string) {
   return apiRequest<{ product: import('../types').Product }>('/api/products', {
     method: 'POST',
     body: JSON.stringify(body),
+    idempotencyKey: idempotencyKey ?? true,
   });
 }
 

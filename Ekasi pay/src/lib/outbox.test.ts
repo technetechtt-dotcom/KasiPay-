@@ -21,7 +21,7 @@ vi.mock('../services/api', async () => {
     stockIntake: [],
     stockPatch: [],
   };
-  const failures = { sale: 0, expense: 0, stockIntake: 0, stockPatch: 0 };
+  const failures = { sale: 0, expense: 0, stockIntake: 0, stockPatch: 0, saleConflict: 0 };
   class FakeApiError extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -40,6 +40,7 @@ vi.mock('../services/api', async () => {
       failures.expense = 0;
       failures.stockIntake = 0;
       failures.stockPatch = 0;
+      failures.saleConflict = 0;
     },
     __setFailures: (kind: keyof typeof failures, n: number) => {
       failures[kind] = n;
@@ -49,6 +50,10 @@ vi.mock('../services/api', async () => {
       if (failures.sale > 0) {
         failures.sale -= 1;
         throw new FakeApiError(503, 'flaky network');
+      }
+      if (failures.saleConflict > 0) {
+        failures.saleConflict -= 1;
+        throw new FakeApiError(409, 'duplicate');
       }
       calls.sale.push({ payload, key });
       return { sale: { id: `sale-${calls.sale.length}` } };
@@ -94,7 +99,7 @@ async function resetApiMock(): Promise<void> {
 }
 
 async function setFailures(
-  kind: 'sale' | 'expense' | 'stockIntake' | 'stockPatch',
+  kind: 'sale' | 'expense' | 'stockIntake' | 'stockPatch' | 'saleConflict',
   n: number,
 ): Promise<void> {
   const mod = await import('../services/api');
@@ -178,6 +183,7 @@ describe('outbox', () => {
   });
 
   it('stops draining after a 5xx and resumes on the next flush', async () => {
+    vi.useFakeTimers();
     await setFailures('sale', 1);
     enqueueSale({
       items: [{ productId: 'p1', quantity: 1, price: 10 }],
@@ -192,8 +198,23 @@ describe('outbox', () => {
     expect(sentFirst).toBe(0);
     expect(outboxSize()).toBe(2);
 
+    // Advance time past the exponential backoff (2 seconds for attempt 1)
+    await vi.advanceTimersByTimeAsync(2500);
+
     const sentSecond = await flushOutbox();
     expect(sentSecond).toBe(2);
+    expect(outboxSize()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it('treats idempotent 409 as success so the queue can drain', async () => {
+    await setFailures('saleConflict', 1);
+    enqueueSale({
+      items: [{ productId: 'p1', quantity: 1, price: 10 }],
+      paymentMethod: 'cash',
+    });
+    const sent = await flushOutbox();
+    expect(sent).toBe(1);
     expect(outboxSize()).toBe(0);
   });
 });

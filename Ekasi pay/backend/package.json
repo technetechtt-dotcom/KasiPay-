@@ -19,6 +19,7 @@
     "restore:drill": "node scripts/restore-drill.mjs",
     "migrate:up": "node scripts/migrate.mjs up",
     "migrate:status": "node scripts/migrate.mjs status",
+    "schema:verify": "node scripts/verify-schema.mjs",
     "migrate:validate": "node scripts/migrate.mjs validate",
     "migrate:baseline": "node scripts/migrate.mjs baseline",
     "migrate:expand": "node scripts/migrate.mjs expand",

@@ -19,11 +19,16 @@ import type { MoneyInput } from '../money';
  * server-side `Idempotency-Key` middleware: each queued entry has a stable
  * key, so a replay that *did* succeed last time is short-circuited.
  *
- * Persistence is `localStorage` — survives a tab close, but is per-device
- * and per-origin (deliberate; an outbox shouldn't follow you to a kiosk).
+ * Persistence is `localStorage` v2 (`kasiPay.outbox.v2`) with attempt backoff,
+ * a short multi-tab lock, and 409 treated as idempotent success. v1 queues are
+ * migrated on read. Per-device and per-origin on purpose.
  */
-const OUTBOX_KEY = 'kasiPay.outbox.v1';
+const OUTBOX_KEY = 'kasiPay.outbox.v2';
+const OUTBOX_LEGACY_KEY = 'kasiPay.outbox.v1';
+const OUTBOX_LOCK_KEY = 'kasiPay.outbox.lock';
 const FLUSH_DEBOUNCE_MS = 250;
+const LOCK_TTL_MS = 30_000;
+const MAX_BACKOFF_MS = 30 * 60 * 1000;
 
 export type StockIntakePayload = {
   supplierName?: string;
@@ -40,6 +45,8 @@ export type OutboxEntry =
       kind: 'sale';
       idempotencyKey: string;
       enqueuedAt: string;
+      attempts?: number;
+      nextAttemptAt?: string;
       payload: Parameters<typeof apiCreateSale>[0];
     }
   | {
@@ -47,6 +54,8 @@ export type OutboxEntry =
       kind: 'expense';
       idempotencyKey: string;
       enqueuedAt: string;
+      attempts?: number;
+      nextAttemptAt?: string;
       payload: Omit<Expense, 'id' | 'merchantId' | 'createdAt'>;
     }
   | {
@@ -54,6 +63,8 @@ export type OutboxEntry =
       kind: 'stock_intake';
       idempotencyKey: string;
       enqueuedAt: string;
+      attempts?: number;
+      nextAttemptAt?: string;
       payload: StockIntakePayload;
     }
   | {
@@ -61,16 +72,33 @@ export type OutboxEntry =
       kind: 'stock_patch';
       idempotencyKey: string;
       enqueuedAt: string;
+      attempts?: number;
+      nextAttemptAt?: string;
       payload: { productId: string; stock: number };
     };
+
+function parseEntries(raw: string | null): OutboxEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as OutboxEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 function readOutbox(): OutboxEntry[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(OUTBOX_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as OutboxEntry[]) : [];
+    const current = parseEntries(window.localStorage.getItem(OUTBOX_KEY));
+    if (current.length > 0) return current;
+    const legacy = parseEntries(window.localStorage.getItem(OUTBOX_LEGACY_KEY));
+    if (legacy.length > 0) {
+      writeOutbox(legacy);
+      window.localStorage.removeItem(OUTBOX_LEGACY_KEY);
+      return legacy;
+    }
+    return [];
   } catch {
     return [];
   }
@@ -167,15 +195,39 @@ async function attemptFlushOnce(entry: OutboxEntry): Promise<'sent' | 'retry' | 
     }
     return 'sent';
   } catch (e) {
-    // 4xx other than 401 means the request will never succeed (validation,
-    // insufficient stock, etc.) — drop with a toast so the merchant knows.
     if (e instanceof ApiError) {
+      if (e.status === 409) return 'sent';
       if (e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 408 && e.status !== 429) {
         toast.error(`Queued ${entry.kind} dropped: ${e.message}`);
         return 'drop';
       }
     }
     return 'retry';
+  }
+}
+
+function acquireFlushLock(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const raw = window.localStorage.getItem(OUTBOX_LOCK_KEY);
+    const now = Date.now();
+    if (raw) {
+      const heldAt = Number(raw);
+      if (Number.isFinite(heldAt) && now - heldAt < LOCK_TTL_MS) return false;
+    }
+    window.localStorage.setItem(OUTBOX_LOCK_KEY, String(now));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function releaseFlushLock(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(OUTBOX_LOCK_KEY);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -190,24 +242,34 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 export async function flushOutbox(): Promise<number> {
   if (flushing) return 0;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return 0;
+  if (!acquireFlushLock()) return 0;
   flushing = true;
   let sent = 0;
   try {
     let queue = readOutbox();
     while (queue.length > 0) {
       const head = queue[0];
+      const notBefore = head.nextAttemptAt ? Date.parse(head.nextAttemptAt) : 0;
+      if (Number.isFinite(notBefore) && notBefore > Date.now()) break;
       const result = await attemptFlushOnce(head);
       if (result === 'retry') {
-        // Network or server hiccup — keep entry, stop trying (we'll re-arm).
+        const attempts = (head.attempts ?? 0) + 1;
+        const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.min(attempts, 8));
+        queue[0] = {
+          ...head,
+          attempts,
+          nextAttemptAt: new Date(Date.now() + delay).toISOString(),
+        };
+        writeOutbox(queue);
         break;
       }
-      // 'sent' or 'drop' — pop from queue.
       queue = queue.slice(1);
       writeOutbox(queue);
       if (result === 'sent') sent += 1;
     }
   } finally {
     flushing = false;
+    releaseFlushLock();
   }
   if (sent > 0) toast.success(`${sent} queued item(s) synced.`);
   return sent;

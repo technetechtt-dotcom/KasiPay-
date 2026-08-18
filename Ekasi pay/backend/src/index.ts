@@ -97,6 +97,7 @@ await ensureOpsAuthStore();
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 function redactUrlForLog(url: string): string {
   return url
@@ -273,12 +274,23 @@ app.use((req, res, next) => {
   return express.json({ limit: '512kb' })(req, res, next);
 });
 
-/** Per-IP limiter for high-risk auth POSTs (register / login). */
+function clientIp(req: express.Request): string {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function authAttemptKey(req: express.Request): string {
+  const phone =
+    typeof req.body?.phone === 'string' ? req.body.phone.replace(/\D/g, '').slice(-10) : '';
+  return `auth:${clientIp(req)}:${phone || 'nophone'}`;
+}
+
+/** Per-IP+phone limiter for high-risk auth POSTs (register / login). */
 const authBurstLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: LOGIN_RATE_LIMIT_PER_MIN,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: authAttemptKey,
   ...sharedRateLimitStore('auth-burst'),
   message: {
     error: 'Too many attempts from this network. Wait a minute and try again.',
@@ -306,6 +318,7 @@ const pinResetLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: authAttemptKey,
   ...sharedRateLimitStore('pin-reset'),
   message: {
     error: 'Too many PIN-reset attempts — please wait a minute.',

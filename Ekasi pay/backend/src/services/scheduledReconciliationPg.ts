@@ -465,6 +465,13 @@ export async function runScheduledReconciliationPg(
   const leaseClient = await pool.connect();
   let token: string | null = null;
   try {
+    const schema = await leaseClient.query<{ ok: boolean }>(
+      `SELECT to_regclass('public.reconciliation_job_leases') IS NOT NULL AS ok`,
+    );
+    if (!schema.rows[0]?.ok) {
+      structuredLog('warn', 'reconciliation.schema_missing', { jobKey, owner });
+      return { runId: '', ok: true, driftedWallets: 0, skipped: true };
+    }
     await leaseClient.query('BEGIN');
     const lease = await acquireReconciliationLeasePg(
       leaseClient,
