@@ -23,7 +23,7 @@ store evidence URIs — never invent `status=approved` rows.
 |---|---|---|
 | Neon project `KasiPay` (`purple-unit-69145144`) | Production branch `br-falling-truth-add7cqi1` answered `SELECT NOW()` (2026-08-03) | Proven reachable |
 | Neon schema health | ~40 public tables present including `users`/`wallets`/`ledger_entries` (counts sample 2026-08-03) | **Legacy baseline only** |
-| Phase 4–9 / ops tables | Missing `schema_migrations`, `approval_requests`, `operational_controls`, reconcile queues, journal tables from current `main` | **Not applied on Neon prod** — run `npm run migrate:deploy` against a controlled env only after backup |
+| Phase 4–9 / ops tables | `schema:verify` on configured Neon (2026-08-12): required tables present; migrations 001–016 applied | Proven on this DATABASE_URL; confirm Render uses the same |
 | Render API `https://ekasi-pay-api.onrender.com/health` | `200` `{"ok":true,"service":"ekasi-pay-api"}` (2026-08-12) | Proven reachable |
 | Ops CORS | `OPTIONS /api/admin/overview` from `https://ekasi-ops-dashboard.onrender.com` → `204` + matching `Access-Control-Allow-Origin` (2026-08-12) | Proven |
 | Web + ops hosts | `https://ekasi-pay-web.onrender.com/` and `https://ekasi-ops-dashboard.onrender.com/health` returned `200` (2026-08-12) | Proven reachable |

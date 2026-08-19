@@ -18,7 +18,7 @@ Release evidence is the CI-green tip of `main` (direct pushes allowed; force-pus
 8. Track parallel external work in `docs/external-assurance-track.md` (never invent approvals)
 9. Neon project `KasiPay` / production branch is the intended DB; confirm Render `DATABASE_URL` points at it before treating worker as live
 10. Use `docs/non-funds-pilot-rehearsal.md` for the merchant rehearsal (flags stay false)
-11. Before enabling ops/reconcile features against Neon, run `npm run migrate:status` — as of 2026-08-03 the Neon production branch still lacks `schema_migrations` and Phase 4+ tables (ops approvals, fail-closed reconcile). Do **not** point a green `main` API at that DB until `migrate:deploy` is planned and evidenced.
+11. Before enabling ops/reconcile features against Neon, run `npm run migrate:status` and `npm run schema:verify`. The configured Neon URL had migrations 001–016 applied as of 2026-08-12. Confirm Render `DATABASE_URL` is that same database before treating the worker as live.
 
 ## Branch policy
 
