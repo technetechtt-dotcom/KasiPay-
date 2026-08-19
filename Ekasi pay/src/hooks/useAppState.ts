@@ -461,7 +461,7 @@ export function useAppState() {
   }, []);
 
   const normalizePhone = (phone: string) => phone.replace(/\D/g, '');
-  const normalizePin = (pin: string) => pin.replace(/\D/g, '').slice(0, 4);
+  const normalizePin = (pin: string) => pin.replace(/\D/g, '').slice(0, 12);
   const normalizeAtmPin = (pin: string) => pin.replace(/\D/g, '').slice(0, 8);
 
   const isPinLocked = () =>
