@@ -91,9 +91,10 @@ test('Phase 6 PostgreSQL controls', { skip: !connectionString }, async (suite) =
     const seeded = await pool.query<{ version: number; flat_cents: string }>(
       `SELECT s.version,t.flat_cents::text FROM fee_schedules s
         JOIN fee_schedule_tiers t ON t.fee_schedule_id = s.id
-       WHERE s.product = 'cash_send' AND s.state = 'published'`,
+       WHERE s.product = 'cash_send' AND s.state = 'published'
+       ORDER BY s.version DESC LIMIT 1`,
     );
-    assert.equal(seeded.rows[0]?.version, 1);
-    assert.equal(seeded.rows[0]?.flat_cents, '1000');
+    assert.equal(seeded.rows[0]?.version, 2);
+    assert.equal(seeded.rows[0]?.flat_cents, '900');
   });
 });

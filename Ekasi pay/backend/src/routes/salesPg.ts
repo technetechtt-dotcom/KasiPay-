@@ -15,7 +15,7 @@ import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.j
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
-import { saleCreateSchema } from '../validation.js';
+import { saleCreateSchema, saleVoidSchema } from '../validation.js';
 
 type SaleItem = {
   productId: string;
@@ -26,8 +26,41 @@ type SaleItem = {
   costPrice?: string;
 };
 
-export const salesRouterPg = Router();
+type SaleRow = {
+  id: string;
+  merchant_id: string;
+  items_json: string;
+  total_cents: string;
+  payment_method: string;
+  created_at: string;
+  voided_at: string | null;
+  void_reason: string | null;
+  discount_cents: string | null;
+  receipt_number: string | null;
+};
 
+function toSaleDto(row: SaleRow) {
+  return {
+    id: row.id,
+    merchantId: row.merchant_id,
+    items: JSON.parse(row.items_json) as SaleItem[],
+    total: formatCents(parseIntegerCents(row.total_cents, { allowZero: true })),
+    paymentMethod: row.payment_method,
+    createdAt: row.created_at,
+    voidedAt: row.voided_at,
+    voidReason: row.void_reason,
+    discount: formatCents(
+      parseIntegerCents(row.discount_cents ?? '0', { allowZero: true }),
+    ),
+    receiptNumber: row.receipt_number,
+  };
+}
+
+function receiptNumberFor(saleId: string, createdAt: string): string {
+  return `KP-${createdAt.slice(0, 10).replaceAll('-', '')}-${saleId.slice(0, 8).toUpperCase()}`;
+}
+
+export const salesRouterPg = Router();
 salesRouterPg.use(requireAuth, requireApprovedMerchant);
 
 salesRouterPg.get('/sales', async (req, res) => {
@@ -39,27 +72,14 @@ salesRouterPg.get('/sales', async (req, res) => {
     return res.status(403).json({ error: 'Merchant profile required' });
   }
 
-  const rows = await pool.query<{
-    id: string;
-    merchant_id: string;
-    items_json: string;
-    total_cents: string;
-    payment_method: string;
-    created_at: string;
-  }>(
-    `SELECT * FROM sales WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 200`,
+  const rows = await pool.query<SaleRow>(
+    `SELECT id, merchant_id, items_json, total_cents, payment_method, created_at,
+            voided_at, void_reason, discount_cents, receipt_number
+       FROM sales WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 200`,
     [merchantId],
   );
 
-  const sales = rows.rows.map((row) => ({
-    id: row.id,
-    merchantId: row.merchant_id,
-    items: JSON.parse(row.items_json) as SaleItem[],
-    total: formatCents(parseIntegerCents(row.total_cents, { allowZero: true })),
-    paymentMethod: row.payment_method,
-    createdAt: row.created_at,
-  }));
-  return res.json({ sales });
+  return res.json({ sales: rows.rows.map(toSaleDto) });
 });
 
 salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
@@ -75,7 +95,10 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
     return res.status(403).json({ error: 'Merchant profile required' });
   }
 
-  const { items, paymentMethod, customerPhone } = parsed.data;
+  const { items, paymentMethod, customerPhone, discount } = parsed.data;
+  const discountCents = discount
+    ? parseZarToCents(discount, { allowZero: true })
+    : (0n as Cents);
   if (paymentMethod === 'wallet' && !customerPhone) {
     return res
       .status(400)
@@ -209,9 +232,11 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       });
     }
 
+    const receiptNumber = receiptNumberFor(saleId, createdAt);
     await client.query(
-      `INSERT INTO sales (id, merchant_id, items_json, total_cents, payment_method, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO sales (id, merchant_id, items_json, total_cents, payment_method, created_at,
+                          discount_cents, receipt_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         saleId,
         merchantId,
@@ -219,6 +244,8 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
         computedTotalCents.toString(),
         paymentMethod,
         createdAt,
+        discountCents.toString(),
+        receiptNumber,
       ],
     );
 
@@ -242,6 +269,113 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       total: formatCents(computedTotalCents),
       paymentMethod,
       createdAt,
+      voidedAt: null,
+      discount: formatCents(discountCents),
+      receiptNumber: receiptNumberFor(saleId, createdAt),
     },
   });
+});
+
+salesRouterPg.post('/sales/:id/void', idempotentPg('POST /sales/:id/void'), async (req, res) => {
+  const parsed = saleVoidSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const pool = getPgPool();
+  let merchantId: string;
+  try {
+    merchantId = await requireMerchantIdPg(pool, req.auth!.userId);
+  } catch {
+    return res.status(403).json({ error: 'Merchant profile required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const saleQ = await client.query<SaleRow>(
+      `SELECT id, merchant_id, items_json, total_cents, payment_method, created_at,
+              voided_at, void_reason, discount_cents, receipt_number
+         FROM sales WHERE id = $1 AND merchant_id = $2 FOR UPDATE`,
+      [req.params.id, merchantId],
+    );
+    const sale = saleQ.rows[0];
+    if (!sale) {
+      throw Object.assign(new Error('Sale not found'), { status: 404 });
+    }
+    if (sale.voided_at) {
+      throw Object.assign(new Error('Sale is already voided'), { status: 409 });
+    }
+    const items = JSON.parse(sale.items_json) as SaleItem[];
+    const now = new Date().toISOString();
+    for (const line of items) {
+      await client.query(`UPDATE products SET stock = stock + $1 WHERE id = $2 AND merchant_id = $3`, [
+        line.quantity,
+        line.productId,
+        merchantId,
+      ]);
+      await client.query(
+        `INSERT INTO stock_movements
+          (id, merchant_id, product_id, product_name, type, quantity,           reason, cost_price_at_time_cents, reference, notes, created_at)
+         VALUES ($1, $2, $3, $4, 'in', $5, 'manual', $6, $7, $8, $9)`,
+        [
+          randomUUID(),
+          merchantId,
+          line.productId,
+          line.name,
+          line.quantity,
+          parseZarToCents(line.costPrice ?? '0', { allowZero: true }).toString(),
+          sale.id,
+          parsed.data.reason ?? 'Sale voided',
+          now,
+        ],
+      );
+    }
+
+    if (sale.payment_method === 'wallet') {
+      const merchantUserQ = await client.query<{ user_id: string }>(
+        `SELECT user_id FROM merchants WHERE id = $1`,
+        [merchantId],
+      );
+      const merchantWalletQ = await client.query<{ id: string }>(
+        `SELECT id FROM wallets WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
+        [merchantUserQ.rows[0]?.user_id],
+      );
+      const originalPay = await client.query<{
+        from_wallet_id: string;
+        to_wallet_id: string;
+      }>(
+        `SELECT from_wallet_id, to_wallet_id FROM transactions
+          WHERE type = 'payment' AND description = $1
+          ORDER BY created_at DESC LIMIT 1`,
+        [`Sale ${sale.id}`],
+      );
+      if (originalPay.rows[0] && merchantWalletQ.rows[0]) {
+        await postBetweenWalletsPg(client, {
+          fromWalletId: originalPay.rows[0].to_wallet_id,
+          toWalletId: originalPay.rows[0].from_wallet_id,
+          amountCents: parseIntegerCents(sale.total_cents),
+          type: 'refund',
+          referencePrefix: 'VOID',
+          description: `Void sale ${sale.id}`,
+        });
+      }
+    }
+
+    await client.query(
+      `UPDATE sales SET voided_at = $1, void_reason = $2 WHERE id = $3`,
+      [now, parsed.data.reason ?? 'Sale voided', sale.id],
+    );
+    await client.query('COMMIT');
+    sale.voided_at = now;
+    sale.void_reason = parsed.data.reason ?? 'Sale voided';
+    return res.json({ sale: toSaleDto(sale) });
+  } catch (e: unknown) {
+    await client.query('ROLLBACK');
+    const err = e as { status?: number; message?: string };
+    const status = typeof err.status === 'number' ? err.status : 500;
+    if (status >= 500) throw e;
+    return res.status(status).json({ error: err.message ?? 'Void failed' });
+  } finally {
+    client.release();
+  }
 });

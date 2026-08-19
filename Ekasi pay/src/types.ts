@@ -126,6 +126,10 @@ export interface Sale {
   total: Money;
   paymentMethod: 'cash' | 'wallet';
   createdAt: string;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  discount?: Money;
+  receiptNumber?: string | null;
 }
 
 export interface Loan {

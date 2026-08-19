@@ -13,6 +13,7 @@
     "seed": "node scripts/seed.mjs",
     "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
     "bootstrap:operator": "node scripts/bootstrap-operator.mjs",
+    "ops:rotate-operator": "node scripts/rotate-ops-operator.mjs",
     "backup:db": "node scripts/backup-db.mjs",
     "backup:postgres": "node scripts/backup-postgres.mjs",
     "backup:inventory": "node scripts/inventory-objects.mjs",

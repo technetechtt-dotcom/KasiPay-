@@ -6,9 +6,10 @@ export const up = (pgm) => {
   
   // 1. Update the state of the old schedule to 'superseded'
   pgm.sql(`
-    UPDATE fee_schedules 
-    SET state = 'retired' 
-    WHERE code = 'CASH_SEND_STANDARD' AND version = 1;
+    UPDATE fee_schedules
+    SET state = 'retired',
+        effective_to = NOW()
+    WHERE code = 'CASH_SEND_STANDARD' AND version = 1 AND state = 'published';
   `);
 
   // 2. Insert the new R9 schedule

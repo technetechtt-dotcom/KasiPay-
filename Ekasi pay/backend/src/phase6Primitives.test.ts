@@ -53,6 +53,24 @@ test('settlement matching is deterministic for exact, partial, duplicate and unm
   assert.equal(matchSettlementItem(item, []).state, 'unmatched');
 });
 
+test('Cash Send R9 schedule splits R6 platform and R3 merchant', () => {
+  const fee = calculateFeeCents(parseIntegerCents('15000'), {
+    id: 'cash-send-r9',
+    minCents: parseIntegerCents('0', { allowZero: true }),
+    maxCents: null,
+    flatCents: parseIntegerCents('900'),
+    rateBasisPoints: 0,
+    minFeeCents: parseIntegerCents('900'),
+    maxFeeCents: parseIntegerCents('900'),
+    allocations: { platform: 6666, merchant: 3334 },
+  });
+  assert.equal(fee.totalFeeCents, 900n);
+  assert.equal(fee.components.merchant, 300n);
+  assert.equal(fee.components.platform, 600n);
+  assert.equal(fee.components.provider, 0n);
+  assert.equal(fee.components.agent, 0n);
+});
+
 test('fee versions calculate integer cents and exact allocations', () => {
   const fee = calculateFeeCents(parseIntegerCents('10001'), {
     id: 'tier',

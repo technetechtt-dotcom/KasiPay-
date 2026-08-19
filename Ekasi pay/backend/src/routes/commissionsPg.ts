@@ -71,3 +71,40 @@ commissionsRouterPg.get('/commissions/me', requireAuth, async (req, res) => {
     },
   });
 });
+
+commissionsRouterPg.get('/commissions/me/statement', requireAuth, async (req, res) => {
+  const from = typeof req.query.from === 'string' ? req.query.from : '1970-01-01';
+  const to = typeof req.query.to === 'string' ? req.query.to : '2999-12-31';
+  const pool = getPgPool();
+  const r = await pool.query<{
+    day: string;
+    source_type: string;
+    posting_count: string;
+    net_cents: string;
+  }>(
+    `SELECT created_at::date::text AS day, source_type,
+            count(*)::text AS posting_count,
+            coalesce(sum(amount_cents),0)::text AS net_cents
+       FROM commission_postings
+      WHERE agent_user_id = $1
+        AND created_at::date >= $2::date
+        AND created_at::date <= $3::date
+      GROUP BY 1, 2
+      ORDER BY 1 DESC, 2`,
+    [req.auth!.userId, from, to],
+  );
+  const lines = r.rows.map((row) => ({
+    day: row.day,
+    sourceType: row.source_type,
+    postingCount: Number(row.posting_count),
+    net: formatCents(parseIntegerCents(row.net_cents)),
+  }));
+  const net = r.rows.reduce((sum, row) => sum + parseIntegerCents(row.net_cents), 0n);
+  return res.json({
+    from,
+    to,
+    lines,
+    net: formatCents(net),
+    pricing: { cashSendFeeCents: 900, merchantShareCents: 300, platformShareCents: 600 },
+  });
+});

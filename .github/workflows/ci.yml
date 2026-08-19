@@ -153,6 +153,12 @@ jobs:
       - run: npm run lint
       - run: npm run test -- --run
       - run: npm run build
+      - name: Playwright E2E (mocked API)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+        env:
+          CI: 'true'
       - name: Backend install & checks
         working-directory: Ekasi pay/backend
         run: |

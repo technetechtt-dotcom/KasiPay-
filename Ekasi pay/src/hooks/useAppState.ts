@@ -64,6 +64,7 @@ import {
   apiEnsureMerchantProfile,
   apiCreateFoodSafetyAlert,
   apiCreateSale,
+  apiVoidSale,
   apiCreateStockMovement,
   apiStockIntake,
   apiCreateVoiceNote,
@@ -283,6 +284,36 @@ export function useAppState() {
     []
   );
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [voidedSaleIds, setVoidedSaleIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('kasiPay.voidedSales');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const voidSale = async (saleId: string) => {
+    const sale = sales.find((s) => s.id === saleId);
+    if (!sale || sale.voidedAt) return false;
+    try {
+      const { sale: voided } = await apiVoidSale(saleId, 'Merchant void from history');
+      setSales((prev) => prev.map((s) => (s.id === saleId ? voided : s)));
+      setVoidedSaleIds((prev) => {
+        const next = prev.includes(saleId) ? prev : [...prev, saleId];
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('kasiPay.voidedSales', JSON.stringify(next));
+        }
+        return next;
+      });
+      await refreshAfterMutation();
+      return true;
+    } catch (e) {
+      toastMutationError('Void sale', e);
+      return false;
+    }
+  };
 
   const [isOffline, setIsOffline] = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
@@ -591,6 +622,14 @@ export function useAppState() {
 
     setProducts(p.products);
     setSales(s.sales);
+    setVoidedSaleIds((prev) => {
+      const fromServer = s.sales.filter((sale) => sale.voidedAt).map((sale) => sale.id);
+      const next = Array.from(new Set([...prev, ...fromServer]));
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('kasiPay.voidedSales', JSON.stringify(next));
+      }
+      return next;
+    });
     setExpenses(e.expenses);
     setCreditCustomers(cc.customers);
     setCreditTransactions(ctr.transactions);
@@ -2021,6 +2060,8 @@ export function useAppState() {
     publishFoodSafetyNotice,
     requestWorkingCapitalLoan,
     repayLoan,
+    voidedSaleIds,
+    voidSale,
 
     reloadRemoteData: refreshAfterMutation,
     ensureMerchantProfile,

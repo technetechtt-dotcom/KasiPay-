@@ -647,6 +647,7 @@ export async function apiCreateSale(
     items: { productId: string; quantity: number; price: MoneyInput }[];
     paymentMethod: 'cash' | 'wallet';
     customerPhone?: string;
+    discount?: MoneyInput;
   },
   idempotencyKey?: string,
 ) {
@@ -654,6 +655,14 @@ export async function apiCreateSale(
     method: 'POST',
     body: JSON.stringify(body),
     idempotencyKey: idempotencyKey ?? true,
+  });
+}
+
+export async function apiVoidSale(saleId: string, reason?: string) {
+  return apiRequest<{ sale: import('../types').Sale }>(`/api/sales/${saleId}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason ?? 'Sale voided' }),
+    idempotencyKey: true,
   });
 }
 

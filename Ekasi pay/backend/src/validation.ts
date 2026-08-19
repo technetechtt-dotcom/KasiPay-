@@ -141,6 +141,11 @@ export const saleCreateSchema = z.object({
     .max(20)
     .transform((v) => v.replace(/\s+/g, ''))
     .optional(),
+  discount: nonnegativeMoneyNumber.optional(),
+});
+
+export const saleVoidSchema = z.object({
+  reason: z.string().trim().min(3).max(200).optional(),
 });
 
 export const expenseCreateSchema = z.object({

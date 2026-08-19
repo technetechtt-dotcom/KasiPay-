@@ -505,7 +505,9 @@ export function App() {
             transactions={state.transactions}
             sales={state.sales}
             wallet={myWallet}
-            language={state.language} />);
+            language={state.language}
+            voidedSaleIds={state.voidedSaleIds}
+            onVoidSale={state.voidSale} />);
 
 
       case 'more':

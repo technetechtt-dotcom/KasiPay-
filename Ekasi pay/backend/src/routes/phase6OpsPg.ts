@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { getPgPool } from '../dbPg.js';
+import { formatCents, parseIntegerCents } from '../money.js';
 import { requireCapability } from '../security/authorization.js';
 import {
   importSettlementStatementPg,
@@ -596,5 +597,47 @@ phase6OpsRouterPg.post(
     } finally {
       client.release();
     }
+  },
+);
+
+phase6OpsRouterPg.get(
+  '/ops/platform-revenue',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const from = typeof req.query.from === 'string' ? req.query.from : '1970-01-01';
+    const to = typeof req.query.to === 'string' ? req.query.to : '2999-12-31';
+    const rows = await getPgPool().query<{
+      component: string;
+      assessment_count: string;
+      amount_cents: string;
+    }>(
+      `SELECT c.component,
+              count(*)::text AS assessment_count,
+              coalesce(sum(c.amount_cents),0)::text AS amount_cents
+         FROM fee_assessment_components c
+         JOIN fee_assessments a ON a.id = c.assessment_id
+        WHERE a.created_at::date >= $1::date
+          AND a.created_at::date <= $2::date
+        GROUP BY c.component
+        ORDER BY c.component`,
+      [from, to],
+    );
+    const components = rows.rows.map((row) => ({
+      component: row.component,
+      assessmentCount: Number(row.assessment_count),
+      amount: formatCents(parseIntegerCents(row.amount_cents, { allowZero: true })),
+    }));
+    const platform = components.find((row) => row.component === 'platform');
+    return res.json({
+      from,
+      to,
+      pricing: {
+        cashSendFeeCents: 900,
+        platformShareCents: 600,
+        merchantShareCents: 300,
+      },
+      components,
+      platformRevenue: platform?.amount ?? '0.00',
+    });
   },
 );

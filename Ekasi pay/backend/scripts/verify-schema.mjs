@@ -15,6 +15,8 @@ const required = [
   'reconciliation_runs',
   'approval_requests',
   'operational_controls',
+  'merchant_activations',
+  'fee_schedules',
 ];
 
 const connectionString = process.env.DATABASE_URL?.trim();

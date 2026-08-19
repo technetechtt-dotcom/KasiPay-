@@ -23,7 +23,7 @@ import { findProductByBarcode } from '../../lib/productBarcode';
 import { FloatingScanButton } from '../../components/shared/FloatingScanButton';
 import type { Language, Product } from '../../types';
 import { useTranslations } from '../../hooks/useTranslations';
-import { addMoney, formatMoney, multiplyMoney } from '../../money';
+import { addMoney, formatMoney, multiplyMoney, subtractMoney, moneyToCents } from '../../money';
 
 export const ShopPage = ({
   products,
@@ -45,6 +45,9 @@ export const ShopPage = ({
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet'>('cash');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>('none');
+  const [discountValue, setDiscountValue] = useState('');
+  const [showDiscountInput, setShowDiscountInput] = useState(false);
   const [success, setSuccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -110,16 +113,56 @@ export const ShopPage = ({
       return prev.filter((item) => item.product.id !== productId);
     });
   };
-  const total = cart.reduce(
+  const subtotal = cart.reduce(
     (sum, item) =>
       addMoney(sum, multiplyMoney(item.product.price, item.quantity)),
     '0.00',
   );
+
+  let discountAmount = '0.00';
+  try {
+    if (discountType === 'amount' && discountValue) {
+      discountAmount = formatMoney(discountValue);
+    } else if (discountType === 'percentage' && discountValue) {
+      const percent = parseFloat(discountValue);
+      if (!isNaN(percent) && percent > 0 && percent <= 100) {
+        const cents = moneyToCents(subtotal);
+        const discountCents = (cents * BigInt(Math.round(percent * 100))) / 10000n;
+        discountAmount = formatMoney((Number(discountCents) / 100).toFixed(2));
+      }
+    }
+  } catch {
+    discountAmount = '0.00';
+  }
+
+  const total = subtractMoney(subtotal, discountAmount);
+  // Ensure total is not negative
+  const finalTotal = Number(total) < 0 ? '0.00' : total;
+
   const handleCheckout = () => {
     if (paymentMethod === 'wallet' && customerPhone.length < 10) return;
     void (async () => {
+      // Apply discount proportionally to items
+      const discountedCart = cart.map(item => {
+        if (discountAmount === '0.00' || finalTotal === '0.00') return item;
+        const subtotalCents = Number(moneyToCents(subtotal));
+        if (subtotalCents === 0) return item;
+        const ratio = Number(moneyToCents(finalTotal)) / subtotalCents;
+        
+        const originalPriceCents = Number(moneyToCents(item.product.price));
+        const newPriceCents = Math.round(originalPriceCents * ratio);
+        
+        return {
+          ...item,
+          product: {
+            ...item.product,
+            price: formatMoney((newPriceCents / 100).toFixed(2))
+          }
+        };
+      });
+
       const ok = await Promise.resolve(
-        onMakeSale(cart, paymentMethod, customerPhone)
+        onMakeSale(discountedCart, paymentMethod, customerPhone)
       );
       if (ok) {
         setSuccess(true);
@@ -137,7 +180,13 @@ export const ShopPage = ({
           `${i.quantity}x ${i.product.name} - R${formatMoney(multiplyMoney(i.product.price, i.quantity))}`,
       )
       .join('\n');
-    const text = `*KasiPay Spaza Receipt*\n${date}\n\n*Items:*\n${itemsList}\n\n*Total: R${formatMoney(total)}*\nPaid via: ${paymentMethod.toUpperCase()}\n\nThank you for your support!`;
+    let text = `*KasiPay Spaza Receipt*\n${date}\n\n*Items:*\n${itemsList}\n\n`;
+    if (discountAmount !== '0.00') {
+      text += `Subtotal: R${formatMoney(subtotal)}\nDiscount: -R${formatMoney(discountAmount)}\n*Total: R${formatMoney(finalTotal)}*\n`;
+    } else {
+      text += `*Total: R${formatMoney(finalTotal)}*\n`;
+    }
+    text += `Paid via: ${paymentMethod.toUpperCase()}\n\nThank you for your support!`;
     /**
      * Prefer the native share sheet so users can send to any chat app, email
      * or AirDrop without forcing WhatsApp. Falls back to a WhatsApp deep link
@@ -181,7 +230,7 @@ export const ShopPage = ({
           Sale Complete
         </h2>
         <p className="text-slate-500 mb-6">
-          Total: <KPAmount amount={total} />
+          Total: <KPAmount amount={finalTotal} />
         </p>
 
         {/* Receipt Card */}
@@ -204,11 +253,25 @@ export const ShopPage = ({
               </div>
             )}
           </div>
-          <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
-            <span className="font-bold text-slate-900">{t('shop.total')}</span>
-            <span className="font-bold text-lg text-slate-900">
-              R{formatMoney(total)}
-            </span>
+          <div className="border-t border-slate-200 pt-3 space-y-1">
+            {discountAmount !== '0.00' && (
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Subtotal</span>
+                  <span className="text-slate-900">R{formatMoney(subtotal)}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm text-red-600">
+                  <span>Discount</span>
+                  <span>-R{formatMoney(discountAmount)}</span>
+                </div>
+              </>
+            )}
+            <div className="flex justify-between items-center pt-2">
+              <span className="font-bold text-slate-900">{t('shop.total')}</span>
+              <span className="font-bold text-lg text-slate-900">
+                R{formatMoney(finalTotal)}
+              </span>
+            </div>
           </div>
           <div className="mt-2 text-xs text-slate-500 text-center uppercase tracking-wider">
             {t('shop.paidVia')} {paymentMethod === 'cash' ? t('shop.cash') : t('shop.wallet')}
@@ -232,6 +295,9 @@ export const ShopPage = ({
               setShowCheckout(false);
               setCustomerPhone('');
               setPaymentMethod('cash');
+              setDiscountType('none');
+              setDiscountValue('');
+              setShowDiscountInput(false);
             }}>
             
             {t('shop.newSale')}
@@ -378,8 +444,13 @@ export const ShopPage = ({
               <div className="bg-slate-50 rounded-xl p-4 mb-6">
                 <p className="text-sm text-slate-500 mb-1">Total Amount</p>
                 <div className="text-3xl font-bold text-slate-900">
-                  <KPAmount amount={total} />
+                  <KPAmount amount={finalTotal} />
                 </div>
+                {discountAmount !== '0.00' && (
+                  <p className="text-sm text-red-600 mt-1">
+                    Includes -R{formatMoney(discountAmount)} discount
+                  </p>
+                )}
               </div>
 
               <p className="font-medium text-slate-900 mb-3">Payment Method</p>
@@ -413,6 +484,7 @@ export const ShopPage = ({
 
               <div className="pt-4">
                 <KPButton
+              data-testid="complete-sale"
               onClick={handleCheckout}
               disabled={
               paymentMethod === 'wallet' && customerPhone.length < 10
@@ -429,12 +501,19 @@ export const ShopPage = ({
                 <span className="font-medium text-slate-700">
                   {cart.reduce((sum, item) => sum + item.quantity, 0)} items
                 </span>
-                <span className="text-xl font-bold text-slate-900">
-                  <KPAmount amount={total} />
-                </span>
+                <div className="text-right">
+                  {discountAmount !== '0.00' && (
+                    <span className="text-xs text-slate-400 line-through mr-2">
+                      R{formatMoney(subtotal)}
+                    </span>
+                  )}
+                  <span className="text-xl font-bold text-slate-900">
+                    <KPAmount amount={finalTotal} />
+                  </span>
+                </div>
               </div>
 
-              <div className="space-y-3 mb-6">
+              <div className="space-y-3 mb-4">
                 {cart.map((item) =>
             <div
               key={item.product.id}
@@ -471,7 +550,57 @@ export const ShopPage = ({
             )}
               </div>
 
+              {/* Discount Section */}
+              <div className="mb-6">
+                {!showDiscountInput && discountType === 'none' ? (
+                  <button
+                    data-testid="add-discount"
+                    onClick={() => setShowDiscountInput(true)}
+                    className="text-sm text-blue-600 font-medium flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" /> Add Discount
+                  </button>
+                ) : (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Discount</span>
+                      <button
+                        onClick={() => {
+                          setDiscountType('none');
+                          setDiscountValue('');
+                          setShowDiscountInput(false);
+                        }}
+                        className="text-xs text-red-600 font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <select
+                        value={discountType === 'none' ? 'percentage' : discountType}
+                        onChange={(e) => setDiscountType(e.target.value as any)}
+                        className="bg-white border border-slate-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="percentage">% Off</option>
+                        <option value="amount">Amount (R)</option>
+                      </select>
+                      <input
+                        type="number"
+                        placeholder={discountType === 'percentage' ? 'e.g. 10' : 'e.g. 5.00'}
+                        value={discountValue}
+                        onChange={(e) => {
+                          setDiscountValue(e.target.value);
+                          if (discountType === 'none') setDiscountType('percentage');
+                        }}
+                        className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <KPButton
+            data-testid="shop-checkout"
             onClick={() => setShowCheckout(true)}
             className="bg-blue-600 hover:bg-blue-700 shrink-0">
             

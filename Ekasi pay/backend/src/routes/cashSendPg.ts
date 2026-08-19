@@ -404,16 +404,16 @@ cashSendRouterPg.post(
         principalCents: amountCents,
         currency: 'ZAR',
         journalTransactionId: feeAccrual.transactionId,
-        beneficiaries: { agent: userId },
+        beneficiaries: { merchant: userId },
       });
-      const agentCommission = feeCalculation.components.agent;
-      if (agentCommission > 0n) {
+      const merchantCommission = feeCalculation.components.merchant;
+      if (merchantCommission > 0n) {
         await recordCommissionPostingPg(client, {
           agentUserId: userId,
           sourceType: 'cash_send',
           sourceId: id,
-          amountCents: agentCommission,
-          description: `Cash Send fee share for voucher ${ref}`,
+          amountCents: merchantCommission,
+          description: `Cash Send merchant share R3 for voucher ${ref}`,
           feeAssessmentId: assessment.assessmentId,
           journalTransactionId: feeAccrual.transactionId,
         });

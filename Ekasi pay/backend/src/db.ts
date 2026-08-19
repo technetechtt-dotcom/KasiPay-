@@ -676,6 +676,21 @@ function applyIncrementalMigrations(database: Database.Database) {
     database.exec(`ALTER TABLE merchants ADD COLUMN docs_submitted_at TEXT`);
   }
 
+  const saleCols = new Set(
+    (
+      database.prepare('PRAGMA table_info(sales)').all() as { name: string }[]
+    ).map((c) => c.name),
+  );
+  if (!saleCols.has('voided_at')) {
+    database.exec(`ALTER TABLE sales ADD COLUMN voided_at TEXT`);
+  }
+  if (!saleCols.has('void_reason')) {
+    database.exec(`ALTER TABLE sales ADD COLUMN void_reason TEXT`);
+  }
+  if (!saleCols.has('receipt_number')) {
+    database.exec(`ALTER TABLE sales ADD COLUMN receipt_number TEXT`);
+  }
+
   const merchantDocs = database
     .prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name='merchant_documents'`,

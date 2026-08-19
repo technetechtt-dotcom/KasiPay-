@@ -15,6 +15,10 @@ Money-movement flags stay **false** until the last step has named external evide
 | 8 | Run a non-funds merchant pilot | Ready for field — `docs/non-funds-pilot-rehearsal.md` |
 | 9 | Obtain external security, accounting, and regulatory assurance | Open — cannot complete from git |
 | 10 | Only then enable limited real-money functionality | Blocked |
+| 11 | Secret scanning + maker/checker for activation waivers | Shipped — gitleaks CI, `merchant_activation_waiver` |
+| 12 | R9/R6/R3 Cash Send + R600 activation | Shipped — fee v2, statements, activation APIs |
+| 13 | POS receipts, discounts, sale voids | Shipped |
+| 14 | Playwright E2E for login / POS / Cash Send entry | Shipped — mocked API, Chromium in CI |
 
 ## Step 3 evidence
 

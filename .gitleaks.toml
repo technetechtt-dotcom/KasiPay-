@@ -8,3 +8,7 @@ description = "LocalStorage preference key constants (not secrets)"
 regexes = [
   '''(?i)kasipay\.prefs\.v1''',
 ]
+paths = [
+  # Removed one-time operator reset helper; history still contains the blob.
+  '''(^|/)reset-admin\.mjs$''',
+]

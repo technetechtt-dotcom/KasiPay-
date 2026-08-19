@@ -8,7 +8,7 @@ import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.j
 import { requireAuth } from '../middleware/requireAuth.js';
 import { DEFAULT_POOL_ID } from '../poolConstants.js';
 import { requireMerchantId } from '../services/merchant.js';
-import { saleCreateSchema } from '../validation.js';
+import { saleCreateSchema, saleVoidSchema } from '../validation.js';
 
 type SaleItem = {
   productId: string;
@@ -112,6 +112,9 @@ salesRouter.get('/sales', requireAuth, (req, res) => {
     total: number;
     payment_method: string;
     created_at: string;
+    voided_at?: string | null;
+    void_reason?: string | null;
+    receipt_number?: string | null;
   }[];
 
   const sales = rows.map((row) => ({
@@ -121,6 +124,9 @@ salesRouter.get('/sales', requireAuth, (req, res) => {
     total: row.total,
     paymentMethod: row.payment_method,
     createdAt: row.created_at,
+    voidedAt: row.voided_at ?? null,
+    voidReason: row.void_reason ?? null,
+    receiptNumber: row.receipt_number ?? null,
   }));
   return res.json({ sales });
 });
@@ -290,6 +296,115 @@ salesRouter.post('/sales', requireAuth, idempotent('POST /sales'), (req, res) =>
       total: computedTotal,
       paymentMethod,
       createdAt,
+    },
+  });
+});
+
+salesRouter.post('/sales/:id/void', requireAuth, idempotent('POST /sales/:id/void'), (req, res) => {
+  const parsed = saleVoidSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  let merchantId: string;
+  try {
+    merchantId = requireMerchantId(req.auth!.userId);
+  } catch {
+    return res.status(403).json({ error: 'Merchant profile required' });
+  }
+  const database = getDb();
+  try {
+    database.transaction(() => {
+      const sale = database
+        .prepare('SELECT * FROM sales WHERE id = ? AND merchant_id = ?')
+        .get(req.params.id, merchantId) as
+        | {
+            id: string;
+            merchant_id: string;
+            items_json: string;
+            total: number;
+            payment_method: string;
+            created_at: string;
+            voided_at?: string | null;
+          }
+        | undefined;
+      if (!sale) throw Object.assign(new Error('Sale not found'), { status: 404 });
+      if (sale.voided_at) throw Object.assign(new Error('Sale is already voided'), { status: 409 });
+      const items = JSON.parse(sale.items_json) as SaleItem[];
+      const now = new Date().toISOString();
+      for (const line of items) {
+        database
+          .prepare('UPDATE products SET stock = stock + ? WHERE id = ? AND merchant_id = ?')
+          .run(line.quantity, line.productId, merchantId);
+        database
+          .prepare(
+            `INSERT INTO stock_movements
+              (id, merchant_id, product_id, product_name, type, quantity, reason, cost_price_at_time, reference, notes, created_at)
+             VALUES (?, ?, ?, ?, 'in', ?, 'manual', ?, ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            merchantId,
+            line.productId,
+            line.name,
+            line.quantity,
+            line.costPrice ?? 0,
+            sale.id,
+            parsed.data.reason ?? 'Sale voided',
+            now,
+          );
+      }
+      if (sale.payment_method === 'wallet') {
+        const original = database
+          .prepare(
+            `SELECT from_wallet_id, to_wallet_id, amount FROM transactions
+              WHERE type = 'payment' AND description = ? ORDER BY created_at DESC LIMIT 1`,
+          )
+          .get(`Sale ${sale.id}`) as
+          | { from_wallet_id: string; to_wallet_id: string; amount: number }
+          | undefined;
+        if (original) {
+          moveWalletFunds(
+            database,
+            original.to_wallet_id,
+            original.from_wallet_id,
+            original.amount,
+            `Void sale ${sale.id}`,
+            'VOID',
+          );
+        }
+      }
+      database
+        .prepare('UPDATE sales SET voided_at = ?, void_reason = ? WHERE id = ?')
+        .run(now, parsed.data.reason ?? 'Sale voided', sale.id);
+    })();
+  } catch (e: unknown) {
+    const err = e as { status?: number; message?: string };
+    const status = typeof err.status === 'number' ? err.status : 500;
+    if (status >= 500) throw e;
+    return res.status(status).json({ error: err.message ?? 'Void failed' });
+  }
+  const row = database.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id) as {
+    id: string;
+    merchant_id: string;
+    items_json: string;
+    total: number;
+    payment_method: string;
+    created_at: string;
+    voided_at?: string | null;
+    void_reason?: string | null;
+    receipt_number?: string | null;
+  };
+  return res.json({
+    sale: {
+      id: row.id,
+      merchantId: row.merchant_id,
+      items: JSON.parse(row.items_json),
+      total: row.total,
+      paymentMethod: row.payment_method,
+      createdAt: row.created_at,
+      voidedAt: row.voided_at ?? null,
+      voidReason: row.void_reason ?? null,
+      receiptNumber: row.receipt_number ?? null,
     },
   });
 });

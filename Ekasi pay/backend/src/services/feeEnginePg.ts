@@ -31,8 +31,10 @@ export function calculateFeeCents(
   if (total < tier.minFeeCents) total = tier.minFeeCents;
   if (tier.maxFeeCents !== null && total > tier.maxFeeCents) total = tier.maxFeeCents;
 
-  const entries = Object.entries(tier.allocations) as [FeeComponent, number][];
-  const allocationTotal = entries.reduce((sum, [, basisPoints]) => sum + basisPoints, 0);
+  const allocationTotal = (Object.values(tier.allocations) as number[]).reduce(
+    (sum, basisPoints) => sum + basisPoints,
+    0,
+  );
   if (allocationTotal !== 10_000) throw new Error('Fee allocations must total 10000 basis points');
   const components: Record<FeeComponent, Cents> = {
     platform: 0n as Cents,
@@ -41,10 +43,15 @@ export function calculateFeeCents(
     agent: 0n as Cents,
     merchant: 0n as Cents,
   };
+  // Remainder always lands on platform so R9 (merchant 3334 / platform 6666)
+  // is exactly R3 merchant + R6 KasiPay regardless of JSON key order.
+  const order: FeeComponent[] = ['provider', 'tax', 'agent', 'merchant', 'platform'];
+  const present = order.filter((component) => (tier.allocations[component] ?? 0) > 0);
   let allocated = 0n;
-  entries.forEach(([component, basisPoints], index) => {
+  present.forEach((component, index) => {
+    const basisPoints = tier.allocations[component] ?? 0;
     const amount =
-      index === entries.length - 1
+      index === present.length - 1
         ? total - allocated
         : (total * BigInt(basisPoints)) / 10_000n;
     components[component] = amount as Cents;

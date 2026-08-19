@@ -20,16 +20,66 @@ import {
   validateDocumentSignature,
 } from '../services/privateObjectStorage.js';
 import { encryptSensitive } from '../security/totp.js';
+import {
+  lockApprovedRequest,
+  markApprovalExecuted,
+} from '../security/approvalsPg.js';
+import { requireCapability } from '../security/authorization.js';
 
 export const merchantsRouterPg = Router();
 
+const ACTIVATION_FEE_CENTS = 60_000;
+
+type ActivationRow = {
+  id: string;
+  merchant_id: string;
+  status: string;
+  fee_amount: string | number;
+  payment_reference: string | null;
+  sponsor_programme: string | null;
+  agreement_accepted_at: string | null;
+  activated_at: string | null;
+  created_at: string;
+  updated_at: string;
+  waived: boolean;
+  discount_cents: string | number | null;
+  payment_status: string;
+  onboarding_completed_at: string | null;
+  accounting_treatment: string;
+  waiver_approval_id: string | null;
+};
+
+function toActivationDto(row: ActivationRow) {
+  const fee = Number(row.fee_amount);
+  const discount = Number(row.discount_cents ?? 0);
+  return {
+    id: row.id,
+    merchantId: row.merchant_id,
+    status: row.status,
+    feeAmountCents: fee,
+    feeAmount: (fee / 100).toFixed(2),
+    paymentReference: row.payment_reference,
+    sponsorProgramme: row.sponsor_programme,
+    agreementAcceptedAt: row.agreement_accepted_at,
+    activatedAt: row.activated_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    waived: row.waived,
+    discountCents: discount,
+    paymentStatus: row.payment_status,
+    onboardingCompletedAt: row.onboarding_completed_at,
+    accountingTreatment: row.accounting_treatment,
+    waiverApprovalId: row.waiver_approval_id,
+  };
+}
+
 merchantsRouterPg.get('/merchants/me/activation', requireAuth, async (req, res) => {
-  const existing = await getPgPool().query(
+  const existing = await getPgPool().query<ActivationRow>(
     `SELECT * FROM merchant_activations WHERE merchant_id = $1`,
     [req.auth!.userId],
   );
   if (existing.rows.length === 0) return res.status(404).json({ error: 'No activation record' });
-  return res.json({ activation: existing.rows[0] });
+  return res.json({ activation: toActivationDto(existing.rows[0]) });
 });
 
 merchantsRouterPg.post('/internal/kyc/scan-callback', async (req, res) => {
@@ -261,24 +311,149 @@ merchantsRouterPg.post('/merchants/me/activate', requireAuth, async (req, res) =
     `SELECT id FROM merchants WHERE user_id = $1`,
     [req.auth!.userId],
   );
-  const merchantId = merchantIdRow.rows[0]?.id;
-  if (!merchantId) return res.status(404).json({ error: 'Merchant profile not found' });
+  if (!merchantIdRow.rows[0]) return res.status(404).json({ error: 'Merchant profile not found' });
 
-  const existing = await getPgPool().query(
+  const body = z
+    .object({
+      sponsorProgramme: z.string().trim().max(255).optional(),
+    })
+    .safeParse(req.body ?? {});
+  const existing = await getPgPool().query<ActivationRow>(
     `SELECT * FROM merchant_activations WHERE merchant_id = $1`,
     [req.auth!.userId],
   );
   if (existing.rows.length > 0) {
-    return res.status(409).json({ error: 'Activation already exists', activation: existing.rows[0] });
+    return res.status(409).json({
+      error: 'Activation already exists',
+      activation: toActivationDto(existing.rows[0]),
+    });
   }
 
   const actId = randomUUID();
-  await getPgPool().query(
-    `INSERT INTO merchant_activations (id, merchant_id, status, fee_amount) VALUES ($1, $2, 'pending', 60000)`,
-    [actId, req.auth!.userId],
+  const inserted = await getPgPool().query<ActivationRow>(
+    `INSERT INTO merchant_activations
+       (id, merchant_id, status, fee_amount, sponsor_programme, payment_status, accounting_treatment)
+     VALUES ($1, $2, 'pending', $3, $4, 'unpaid', 'unrecognised')
+     RETURNING *`,
+    [actId, req.auth!.userId, ACTIVATION_FEE_CENTS, body.success ? body.data.sponsorProgramme ?? null : null],
   );
-  return res.status(201).json({ id: actId, status: 'pending', feeAmountCents: 60000 });
+  return res.status(201).json({ activation: toActivationDto(inserted.rows[0]) });
 });
+
+merchantsRouterPg.post('/merchants/me/activation/accept-agreement', requireAuth, async (req, res) => {
+  const updated = await getPgPool().query<ActivationRow>(
+    `UPDATE merchant_activations
+        SET agreement_accepted_at = COALESCE(agreement_accepted_at, NOW()),
+            updated_at = NOW()
+      WHERE merchant_id = $1
+      RETURNING *`,
+    [req.auth!.userId],
+  );
+  if (!updated.rows[0]) return res.status(404).json({ error: 'No activation record' });
+  return res.json({ activation: toActivationDto(updated.rows[0]) });
+});
+
+merchantsRouterPg.post('/merchants/me/activation/pay', requireAuth, async (req, res) => {
+  const parsed = z
+    .object({
+      paymentReference: z.string().trim().min(4).max(255),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const updated = await getPgPool().query<ActivationRow>(
+    `UPDATE merchant_activations
+        SET status = 'paid',
+            payment_status = 'paid',
+            payment_reference = $2,
+            accounting_treatment = 'activation_revenue',
+            activated_at = COALESCE(activated_at, NOW()),
+            updated_at = NOW()
+      WHERE merchant_id = $1 AND status IN ('pending','paid')
+      RETURNING *`,
+    [req.auth!.userId, parsed.data.paymentReference],
+  );
+  if (!updated.rows[0]) return res.status(404).json({ error: 'No pending activation record' });
+  return res.json({ activation: toActivationDto(updated.rows[0]) });
+});
+
+merchantsRouterPg.post('/merchants/me/activation/complete-onboarding', requireAuth, async (req, res) => {
+  const updated = await getPgPool().query<ActivationRow>(
+    `UPDATE merchant_activations
+        SET onboarding_completed_at = COALESCE(onboarding_completed_at, NOW()),
+            status = CASE
+              WHEN payment_status IN ('paid','waived') THEN 'complete'
+              ELSE status
+            END,
+            updated_at = NOW()
+      WHERE merchant_id = $1
+      RETURNING *`,
+    [req.auth!.userId],
+  );
+  if (!updated.rows[0]) return res.status(404).json({ error: 'No activation record' });
+  return res.json({ activation: toActivationDto(updated.rows[0]) });
+});
+
+const waiveBody = z.object({
+  approvalRequestId: z.string().uuid(),
+  sponsorProgramme: z.string().trim().min(2).max(255),
+});
+
+merchantsRouterPg.post(
+  '/ops/merchant-activations/:id/waive',
+  ...requireCapability('merchants:review'),
+  async (req, res) => {
+    const parsed = waiveBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const client = await getPgPool().connect();
+    try {
+      await client.query('BEGIN');
+      const found = await client.query<ActivationRow>(
+        `SELECT * FROM merchant_activations WHERE id = $1 FOR UPDATE`,
+        [req.params.id],
+      );
+      if (!found.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Activation not found' });
+      }
+      await lockApprovedRequest(client, {
+        approvalRequestId: parsed.data.approvalRequestId,
+        actionType: 'merchant_activation_waiver',
+        resourceType: 'merchant_activation',
+        resourceId: req.params.id,
+        executorOperatorId: req.opsAuth!.operatorId,
+      });
+      const updated = await client.query<ActivationRow>(
+        `UPDATE merchant_activations
+            SET status = 'waived',
+                payment_status = 'waived',
+                waived = TRUE,
+                fee_amount = 0,
+                sponsor_programme = $2,
+                accounting_treatment = 'waived_sponsorship',
+                waiver_approval_id = $3,
+                activated_at = COALESCE(activated_at, NOW()),
+                updated_at = NOW()
+          WHERE id = $1
+          RETURNING *`,
+        [req.params.id, parsed.data.sponsorProgramme, parsed.data.approvalRequestId],
+      );
+      await markApprovalExecuted(
+        client,
+        parsed.data.approvalRequestId,
+        req.opsAuth!.operatorId,
+        'Merchant activation fee waived',
+      );
+      await client.query('COMMIT');
+      return res.json({ activation: toActivationDto(updated.rows[0]) });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      const err = e as { status?: number; message?: string };
+      return res.status(err.status ?? 500).json({ error: err.message ?? 'Waiver failed' });
+    } finally {
+      client.release();
+    }
+  },
+);
 
 merchantsRouterPg.post('/merchants/me/documents/upload-url', requireAuth, async (req, res) => {
   const parsed = signedUploadBody.safeParse(req.body);
