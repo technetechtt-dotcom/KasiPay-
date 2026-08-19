@@ -23,6 +23,15 @@ import { encryptSensitive } from '../security/totp.js';
 
 export const merchantsRouterPg = Router();
 
+merchantsRouterPg.get('/merchants/me/activation', requireAuth, async (req, res) => {
+  const existing = await getPgPool().query(
+    `SELECT * FROM merchant_activations WHERE merchant_id = $1`,
+    [req.auth!.userId],
+  );
+  if (existing.rows.length === 0) return res.status(404).json({ error: 'No activation record' });
+  return res.json({ activation: existing.rows[0] });
+});
+
 merchantsRouterPg.post('/internal/kyc/scan-callback', async (req, res) => {
   const expected = process.env.MALWARE_SCANNER_CALLBACK_SECRET ?? '';
   const supplied =
@@ -245,6 +254,30 @@ const signedUploadBody = z.object({
   fileName: z.string().trim().min(1).max(200),
   contentType: z.string().trim().min(1).max(100),
   sizeBytes: z.number().int().positive().max(MAX_KYC_BYTES),
+});
+
+merchantsRouterPg.post('/merchants/me/activate', requireAuth, async (req, res) => {
+  const merchantIdRow = await getPgPool().query(
+    `SELECT id FROM merchants WHERE user_id = $1`,
+    [req.auth!.userId],
+  );
+  const merchantId = merchantIdRow.rows[0]?.id;
+  if (!merchantId) return res.status(404).json({ error: 'Merchant profile not found' });
+
+  const existing = await getPgPool().query(
+    `SELECT * FROM merchant_activations WHERE merchant_id = $1`,
+    [req.auth!.userId],
+  );
+  if (existing.rows.length > 0) {
+    return res.status(409).json({ error: 'Activation already exists', activation: existing.rows[0] });
+  }
+
+  const actId = randomUUID();
+  await getPgPool().query(
+    `INSERT INTO merchant_activations (id, merchant_id, status, fee_amount) VALUES ($1, $2, 'pending', 60000)`,
+    [actId, req.auth!.userId],
+  );
+  return res.status(201).json({ id: actId, status: 'pending', feeAmountCents: 60000 });
 });
 
 merchantsRouterPg.post('/merchants/me/documents/upload-url', requireAuth, async (req, res) => {

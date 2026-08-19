@@ -254,6 +254,10 @@ cashSendRouterPg.post(
     });
     const feeCalculation = calculateFeeCents(amountCents, feePolicy.tier);
     const feeCents = feeCalculation.totalFeeCents;
+    const platformFeeCents = feeCalculation.components.platform ?? 0n;
+    const merchantCommissionCents = feeCalculation.components.merchant ?? 0n;
+    const providerFeeCents = feeCalculation.components.provider ?? 0n;
+
     const totalCents = (amountCents + feeCents) as Cents;
     const poolId = wallet.pool_id ?? DEFAULT_POOL_ID;
     const escrowId = await getEscrowWalletIdForPoolPg(pool, poolId);
@@ -324,7 +328,7 @@ cashSendRouterPg.post(
           sender_first_name, sender_last_name,
           recipient_phone, recipient_name,
           recipient_first_name, recipient_last_name,
-          amount_cents, fee_cents, pin_hash, reference_number, status, created_at, expires_at,
+          amount_cents, fee_cents, platform_fee_cents, merchant_commission_cents, provider_fee_cents, pin_hash, reference_number, status, created_at, expires_at,
           collected_with_id_verified,
           beneficiary_binding_hash, hold_transaction_id,
           sender_id_hash, recipient_id_hash,
@@ -335,11 +339,11 @@ cashSendRouterPg.post(
           $5, $6,
           $7, $8,
           $9, $10,
-          $11, $12, $13, $14, 'active', $15, $16,
-          0, $17, $18,
-          $19, $20,
-          $21, $22,
-          $23
+          $11, $12, $13, $14, $15, $16, $17, 'active', $18, $19,
+          0, $20, $21,
+          $22, $23,
+          $24, $25,
+          $26
         )`,
         [
           id,
@@ -354,6 +358,9 @@ cashSendRouterPg.post(
           parsed.data.recipientLastName,
           amountCents.toString(),
           feeCents.toString(),
+          platformFeeCents.toString(),
+          merchantCommissionCents.toString(),
+          providerFeeCents.toString(),
           pinHash,
           ref,
           nowIso,
