@@ -7,13 +7,12 @@ test.describe('POS sale', () => {
     await seedMerchantSession(page);
     await loginAsMerchant(page);
     await page.getByRole('button', { name: /shop/i }).first().click();
-    await expect(page.getByText('Bread')).toBeVisible();
-    await page.getByText('Bread').first().click();
-    await page.getByTestId('shop-checkout').click();
+    await page.getByRole('button', { name: /Bread R 12\.00/i }).first().click();
     await page.getByTestId('add-discount').click();
-    await page.getByPlaceholder(/e.g. 10/i).fill('10');
+    await page.locator('input[type="number"]').fill('10');
+    await page.getByTestId('shop-checkout').click();
     await page.getByTestId('complete-sale').click();
-    await expect(page.getByText('Sale Complete')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sale Complete' })).toBeVisible();
     await expect(page.getByText(/Total:/i)).toBeVisible();
   });
 });

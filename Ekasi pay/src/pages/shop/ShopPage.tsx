@@ -555,7 +555,10 @@ export const ShopPage = ({
                 {!showDiscountInput && discountType === 'none' ? (
                   <button
                     data-testid="add-discount"
-                    onClick={() => setShowDiscountInput(true)}
+                    onClick={() => {
+                      setShowDiscountInput(true);
+                      if (discountType === 'none') setDiscountType('percentage');
+                    }}
                     className="text-sm text-blue-600 font-medium flex items-center gap-1"
                   >
                     <Plus className="w-4 h-4" /> Add Discount
