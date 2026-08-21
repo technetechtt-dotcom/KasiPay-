@@ -18,8 +18,10 @@ Merchant statement: `GET /api/commissions/me/statement?from=&to=`
 Platform revenue: `GET /api/ops/platform-revenue?from=&to=` (finance capability)
 
 **Who earns the R3:** the sending shop, posted at voucher create, reversed on
-cancel/expire. A payout-shop split (R1 send / R2 cash-out) is deferred until
-agent-network float exists — `docs/cash-send-agent-network.md`.
+cancel/expire. Schema for a later payout-shop split (R1 send / R2 cash-out) is
+in migration `020_payout_agents_float.js` (`payout_agents`, `merchant_float`
+wallet kind, voucher payout columns). Posting still pays the full R3 to the
+sender until agents are enrolled — `docs/cash-send-agent-network.md`.
 
 ## R600 merchant activation
 

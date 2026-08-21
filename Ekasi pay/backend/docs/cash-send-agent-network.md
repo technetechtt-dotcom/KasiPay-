@@ -3,7 +3,9 @@
 These rules apply before national real-money Cash Send. They do not enable
 funds flags. Current code still posts the full R3 to the **sending shop** at
 voucher create (`cashSendPg.ts` → `recordCommissionPostingPg` with
-`agentUserId = sender userId`).
+`agentUserId = sender userId`). Migration `020_payout_agents_float.js` adds
+`payout_agents`, allows `wallet_kind = merchant_float` (one wallet per user per
+kind), and voucher payout columns. It does **not** change live fee posting.
 
 ## R3 merchant commission
 

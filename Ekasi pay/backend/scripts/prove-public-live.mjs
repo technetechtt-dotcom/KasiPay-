@@ -56,14 +56,27 @@ async function main() {
 
   try {
     const ready = await request(`${API}/health/ready`);
+    let parsed = {};
+    try {
+      parsed = JSON.parse(ready.text);
+    } catch {
+      parsed = {};
+    }
     const bodyOk = ready.status === 200 || (ready.status === 503 && ready.text.includes('database'));
     record(
       'API /health/ready',
       ready.status !== 404 && bodyOk,
       ready.status === 404
         ? '404 — deployed build is older than current main; wait for Render'
-        : `${ready.status} ${ready.text.slice(0, 160)}`,
+        : `${ready.status} ${ready.text.slice(0, 200)}`,
     );
+    if (typeof parsed.schemaMigrations === 'number') {
+      record(
+        'API schema fingerprint',
+        parsed.schemaMigrations >= 19 && parsed.database === 'ready',
+        `schemaMigrations=${parsed.schemaMigrations} gitSha=${parsed.gitSha || '(none)'}`,
+      );
+    }
   } catch (error) {
     record('API /health/ready', false, error instanceof Error ? error.message : 'request failed');
   }

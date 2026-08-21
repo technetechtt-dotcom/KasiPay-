@@ -17,6 +17,7 @@ const required = [
   'operational_controls',
   'merchant_activations',
   'fee_schedules',
+  'payout_agents',
 ];
 
 const connectionString = process.env.DATABASE_URL?.trim();

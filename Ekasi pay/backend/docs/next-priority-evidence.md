@@ -14,30 +14,40 @@ Neon / live health / git, and what still needs a human or a vendor.
 | 017_commercial_launch | 2026-08-19T11:35:32Z |
 | 018_cash_send_r9_pricing | 2026-08-19T11:40:05Z |
 | 019_sale_voids_activation_approvals | 2026-08-21T10:18:04Z |
+| 020_payout_agents_float | 2026-08-21T10:35:44Z |
 
-`npm run schema:verify` on that URL: `public_tables=171`,
-`schema_migrations=19`, `missing=none`. Sale void / receipt columns and
-activation waiver columns exist after 019.
+`npm run schema:verify` on that URL: `public_tables=172`,
+`schema_migrations=20`, `missing=none`.
 
-019 was missing until today. CI on `main` was red (History page lint), so
-Render `checksPass` would not have auto-deployed it.
+CI tip `5c24dbc` is green (validate, secret-scan, codeql, sbom, mobile, ops).
+After the next deploy, `/health/ready` reports `schemaMigrations` so the live
+API can be matched to this database.
 
 ## 2. Render API and reconcile worker share the same DB
 
-**Partial.**
+**Partial — worker code talks to this Neon; Render worker still unproven.**
 
 | Check | Result |
 |---|---|
 | Local `DATABASE_URL` host | Same Neon production pooler as above |
-| Live API `GET /health/ready` | `database: ready`, `nonFunds: true` |
-| `reconciliation_job_leases` | Empty |
-| `reconciliation_runs` | 0 rows |
+| Live API `GET /health/ready` | `database: ready`, `nonFunds: true` (fingerprint field not on this deploy yet) |
+| Local `RECONCILE_ONCE=1` worker | Wrote leases as `worker:21560` at 2026-08-21T10:36Z |
+| `reconcile:journal` / `projection` | passed |
+| `reconcile:wallet_ledger` | **failed** — 3 drifted wallets (see below) |
 
-The API is using a reachable Postgres. The worker has **not** written a lease
-or a run on this database, so worker `DATABASE_URL` equality is still unproven.
-In the Render dashboard, copy the **same** Neon URL onto both
-`ekasi-pay-api` and `ekasi-pay-reconcile-worker`. Then confirm worker logs show
-`reconciliation.worker_started`.
+This proves the worker **can** use this DATABASE_URL. It does **not** prove the
+Render service `ekasi-pay-reconcile-worker` is running. After that service is
+up, `lease_owner` should change from `worker:<local-pid>` to a Render pid.
+Until then, paste the same Neon URL onto both API and worker in the dashboard.
+
+Wallet/ledger drift found (posting already false; kill-switch reaffirmed that):
+
+- two user wallets: `opening_credit_without_ledger` (~R1,000,010 each)
+- ZA escrow: `escrow_fee_retention_mismatch` (−R20)
+
+Do not enable money movement until those are journalled or explicitly written
+off. Do not run `money:remediate-drift` against production without a named
+approver.
 
 ## 3. Exposed ops admin credential rotation
 
@@ -71,12 +81,12 @@ runs on every push; retain the GitHub Actions log for the green tip SHA.
 
 ## 5. Production Redis
 
-**Not configured.** Live `/health/ready` reports
-`redis: { configured: false, healthy: false }`.
+**Blueprint wired; live instance not up yet.** `render.yaml` now defines
+`ekasi-pay-redis` (Render Key Value) and sets `RATE_LIMIT_REDIS_URL` from its
+connection string. Sync the Render blueprint, then confirm live
+`/health/ready` shows `redis.configured: true` and `healthy: true`.
 
-Create a Render Key Value instance (Redis), then set `RATE_LIMIT_REDIS_URL` on
-`ekasi-pay-api` only. Do not commit the URL. Restart and confirm
-`configured: true` and `healthy: true` on `/health/ready`.
+Until that sync, live health still reports `configured: false`.
 
 ## 6. Monitoring and alert routing
 
@@ -95,7 +105,9 @@ Fork `restore-drill-2026-08-21` (`br-cool-heart-adryjyas`) was readable:
 `docs/evidence/neon-restore-drill-2026-08-21.json`.
 
 Still required before funds: encrypted `pg_dump` / `pg_restore` isolated drill
-and a `backup_verification_markers` row (currently 0).
+and a `backup_verification_markers` row (currently 0). Docker Desktop was not
+running on the operator machine (2026-08-21), so the encrypted dump could not
+be produced here.
 
 ## 8. Physical Android / offline testing in 5 shops
 
@@ -104,9 +116,9 @@ false.
 
 ## 9–13. Cash Send network design
 
-**Decided in-repo** — see `docs/cash-send-agent-network.md`. Code still pays
-the full R3 to the sending shop at voucher create. Do not change live posting
-until the payout-shop role and float accounts exist.
+**Decided in-repo** — see `docs/cash-send-agent-network.md`. Migration 020 adds
+`payout_agents` and `merchant_float` wallet kind. Code still pays the full R3
+to the sending shop at voucher create.
 
 ## 14–20. Vendors, legal, pentest, real-money pilot
 

@@ -195,7 +195,13 @@ app.get('/health/ready', async (_req, res) => {
     return res.status(IS_LOCAL_ENV ? 200 : 503).json({ ok: IS_LOCAL_ENV, database: 'local' });
   }
   try {
-    await getPgPool().query('SELECT 1');
+    const readyRow = await getPgPool().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM schema_migrations`,
+    );
+    const schemaMigrations = readyRow.rows[0]?.n ?? 0;
+    const gitSha = (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '')
+      .trim()
+      .slice(0, 12);
     if (!IS_LOCAL_ENV && !NON_FUNDS_DEPLOYMENT) {
       const backup = await getPgPool().query(
         `SELECT 1 FROM backup_verification_markers
@@ -221,6 +227,8 @@ app.get('/health/ready', async (_req, res) => {
       ok: true,
       database: 'ready',
       nonFunds: NON_FUNDS_DEPLOYMENT,
+      schemaMigrations,
+      ...(gitSha ? { gitSha } : {}),
       backupFreshness: IS_LOCAL_ENV
         ? 'not_required_local'
         : NON_FUNDS_DEPLOYMENT

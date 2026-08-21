@@ -8,8 +8,16 @@
 # Money-movement flags stay false until production-readiness evidence is approved.
 # FRONTEND_ORIGINS on ekasi-pay-api must include both web and ops origins
 # (comma-separated), e.g. https://ekasi-pay-web.onrender.com,https://ekasi-ops-dashboard.onrender.com
+# After blueprint sync, confirm ekasi-pay-redis exists and API RATE_LIMIT_REDIS_URL
+# is the Key Value connection string (not a dashboard paste).
 
 services:
+  - type: keyvalue
+    name: ekasi-pay-redis
+    plan: starter
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
   - type: web
     name: ekasi-pay-api
     runtime: node
@@ -106,7 +114,10 @@ services:
       - key: ALERT_ROUTING_MARKER
         sync: false
       - key: RATE_LIMIT_REDIS_URL
-        sync: false
+        fromService:
+          name: ekasi-pay-redis
+          type: keyvalue
+          property: connectionString
       - key: AUDIT_SINK_PROVIDER
         sync: false
       - key: AUDIT_SINK_ENDPOINT
