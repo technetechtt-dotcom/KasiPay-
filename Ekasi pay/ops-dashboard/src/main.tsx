@@ -68,6 +68,7 @@ import {
   type RuntimeProductControls,
 } from './api';
 import { addMoney, formatMoney as fmtMoney } from './money';
+import { ShopsMapTab } from './ShopsMap';
 
 function ProductGateNotice({ title, detail }: { title: string; detail: string }) {
   return (
@@ -81,6 +82,7 @@ type Tab =
   | 'overview'
   | 'users'
   | 'merchants'
+  | 'shopmap'
   | 'claims'
   | 'loans'
   | 'ledger'
@@ -2628,6 +2630,7 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
     { id: 'operators', label: 'Ops Users' },
     { id: 'users', label: 'App Users' },
     { id: 'merchants', label: 'Merchants' },
+    { id: 'shopmap', label: 'Shop map' },
     { id: 'claims', label: 'Claims' },
     { id: 'loans', label: 'Loans' },
     { id: 'ledger', label: 'Ledger' },
@@ -2672,6 +2675,7 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {tab === 'overview' && overview ? <OverviewTab data={overview} /> : null}
         {tab === 'users' ? <UsersTab /> : null}
         {tab === 'merchants' ? <MerchantsTab /> : null}
+        {tab === 'shopmap' ? <ShopsMapTab /> : null}
         {tab === 'claims' ? <ClaimsTab /> : null}
         {tab === 'loans' ? <LoansTab /> : null}
         {tab === 'ledger' ? <LedgerTab /> : null}

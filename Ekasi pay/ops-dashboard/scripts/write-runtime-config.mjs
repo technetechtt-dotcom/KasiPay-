@@ -32,10 +32,14 @@ const configured =
   'https://ekasi-pay-api.onrender.com';
 
 const apiUrl = normalizeApiUrl(configured);
+const mapsKey = String(
+  process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
+).trim();
+
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 fs.writeFileSync(
   out,
-  `window.__KASIPAY_API_URL__=${JSON.stringify(apiUrl)};\n`,
+  `window.__KASIPAY_API_URL__=${JSON.stringify(apiUrl)};\nwindow.__KASIPAY_GOOGLE_MAPS_KEY__=${JSON.stringify(mapsKey)};\n`,
   'utf8',
 );
-console.info(`[ops runtime-config] ${apiUrl}`);
+console.info(`[ops runtime-config] api=${apiUrl} mapsKey=${mapsKey ? 'set' : 'unset'}`);

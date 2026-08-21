@@ -9,6 +9,7 @@ Static monitoring UI for Ekasi Pay. It uses the **same backend** as the merchant
 - Cash Send vouchers
 - Compliance flags, audit events, transactions
 - Ledger reconciliation snapshot
+- Shop map (Google Maps, ops-only) of spaza locations
 
 Admin **writes** (suspend users, approve merchants, resolve flags) stay in the main app: **More → Admin Tools**.
 

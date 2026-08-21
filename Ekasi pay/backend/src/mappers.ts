@@ -189,6 +189,12 @@ export type MerchantApprovalStatus =
   | 'approved'
   | 'rejected';
 
+function parseOptionalCoord(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function toMerchant(row: {
   id: string;
   user_id: string;
@@ -200,6 +206,8 @@ export function toMerchant(row: {
   reviewed_at?: string | Date | null;
   reviewed_by?: string | null;
   docs_submitted_at?: string | Date | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 }) {
   const approvalStatus = (row.approval_status ??
     'approved') as MerchantApprovalStatus;
@@ -208,6 +216,8 @@ export function toMerchant(row: {
     userId: row.user_id,
     businessName: row.business_name,
     location: row.location,
+    latitude: parseOptionalCoord(row.latitude),
+    longitude: parseOptionalCoord(row.longitude),
     category: row.category,
     approvalStatus,
     rejectionReason: row.rejection_reason ?? null,

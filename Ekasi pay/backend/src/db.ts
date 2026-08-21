@@ -672,8 +672,14 @@ function applyIncrementalMigrations(database: Database.Database) {
   if (!merchantCols.has('reviewed_by')) {
     database.exec(`ALTER TABLE merchants ADD COLUMN reviewed_by TEXT`);
   }
-  if (!merchantCols.has('docs_submitted_at')) {
+    if (!merchantCols.has('docs_submitted_at')) {
     database.exec(`ALTER TABLE merchants ADD COLUMN docs_submitted_at TEXT`);
+  }
+  if (!merchantCols.has('latitude')) {
+    database.exec(`ALTER TABLE merchants ADD COLUMN latitude REAL`);
+  }
+  if (!merchantCols.has('longitude')) {
+    database.exec(`ALTER TABLE merchants ADD COLUMN longitude REAL`);
   }
 
   const saleCols = new Set(

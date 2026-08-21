@@ -507,5 +507,16 @@ button.linkish {
   padding-left: 1.1rem;
   display: flex;
   flex-direction: column;
+}
+
+.shops-map {
+  width: 100%;
+  height: min(70vh, 560px);
+  margin-top: 0.75rem;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+}
   gap: 0.35rem;
 }

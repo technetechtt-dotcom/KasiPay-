@@ -12,10 +12,12 @@ const dist = path.join(__dirname, '..', 'dist');
 const port = Number(process.env.PORT || 8790);
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "connect-src 'self' https://ekasi-pay-api.onrender.com",
+  "script-src 'self' https://maps.googleapis.com https://maps.gstatic.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob: https://maps.gstatic.com https://maps.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.ggpht.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "connect-src 'self' https://ekasi-pay-api.onrender.com https://maps.googleapis.com https://maps.gstatic.com",
+  "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "frame-ancestors 'none'",

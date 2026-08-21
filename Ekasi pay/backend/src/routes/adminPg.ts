@@ -552,6 +552,8 @@ type AdminMerchantRow = {
   docs_submitted_at: string | Date | null;
   owner_name: string | null;
   owner_phone: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 const merchantListQuery = z.object({
@@ -665,6 +667,33 @@ adminRouterPg.get('/admin/merchants/:id', ...requireCapability('merchants:read')
     })),
   });
 });
+
+const mapPinBody = z.object({
+  latitude: z.number().gte(-90).lte(90),
+  longitude: z.number().gte(-180).lte(180),
+});
+
+adminRouterPg.patch(
+  '/admin/merchants/:id/map-pin',
+  ...requireCapability('merchants:read'),
+  async (req, res) => {
+    const parsed = mapPinBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const pool = getPgPool();
+    const updated = await pool.query<AdminMerchantRow>(
+      `UPDATE merchants
+          SET latitude = $2, longitude = $3
+        WHERE id = $1
+      RETURNING *`,
+      [req.params.id, parsed.data.latitude, parsed.data.longitude],
+    );
+    const row = updated.rows[0];
+    if (!row) return res.status(404).json({ error: 'Merchant not found' });
+    return res.json({ merchant: toMerchant(row) });
+  },
+);
 
 adminRouterPg.get(
   '/admin/merchants/:id/documents/:docType',

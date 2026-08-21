@@ -501,6 +501,8 @@ export type OpsMerchant = {
   userId: string;
   businessName: string;
   location: string;
+  latitude?: number | null;
+  longitude?: number | null;
   category: string;
   approvalStatus?: string;
   rejectionReason?: string;
@@ -540,6 +542,19 @@ export async function apiReviewMerchant(
 ) {
   return opsFetch<{ merchant: OpsMerchant }>(
     `/api/admin/merchants/${id}/approval`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function apiSaveMerchantMapPin(
+  id: string,
+  body: { latitude: number; longitude: number },
+) {
+  return opsFetch<{ merchant: OpsMerchant }>(
+    `/api/admin/merchants/${id}/map-pin`,
     {
       method: 'PATCH',
       body: JSON.stringify(body),

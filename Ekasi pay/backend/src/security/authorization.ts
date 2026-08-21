@@ -131,6 +131,7 @@ export const ENDPOINT_CAPABILITIES = Object.freeze({
   'POST /admin/reconciliation/run': 'reconciliation:run',
   'GET /admin/merchants': 'merchants:read',
   'GET /admin/merchants/:id': 'merchants:read',
+  'PATCH /admin/merchants/:id/map-pin': 'merchants:read',
   'GET /admin/merchants/:id/documents/:docType': 'kyc:download',
   'PATCH /admin/merchants/:id/approval': 'merchants:review',
 } satisfies Record<string, Capability>);
