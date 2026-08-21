@@ -8,4 +8,5 @@ alwaysApply: true
 - Stay on `main`. Do not create feature branches.
 - After a change, commit on `main` and `git push origin HEAD`.
 - Do not open pull requests (`gh pr create`) unless the user explicitly asks.
+- Do not merge via PRs. Bring work onto `main` with a direct push.
 - Direct pushes to `main` are allowed. Force-push stays blocked.

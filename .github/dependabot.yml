@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - frontend
@@ -24,7 +24,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - backend
@@ -34,7 +34,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - ops-dashboard
@@ -44,7 +44,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - github-actions
