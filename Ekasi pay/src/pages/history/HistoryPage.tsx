@@ -85,7 +85,7 @@ export const HistoryPage = ({
     
     const nav: Navigator & { share?: (data: ShareData) => Promise<void> } = navigator;
     if (typeof nav.share === 'function') {
-      nav.share({ title: 'KasiPay Receipt', text }).catch(() => {});
+      void nav.share({ title: 'KasiPay Receipt', text }).catch(() => undefined);
       return;
     }
     if (typeof navigator.clipboard?.writeText === 'function') {

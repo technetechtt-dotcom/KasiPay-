@@ -11,7 +11,7 @@ before enabling regulated products or live customer funds.
 | Insurance / lending partner certification | Product + legal | **Blocked** — flags stay `false` |
 | POPIA / FICA / payment-services legal advice | Legal | **Blocked** |
 | Production Redis / monitoring / audit sink / private KYC | Platform ops | Env keys declared; live wiring pending |
-| Host restore drill + measured RTO/RPO | Platform ops | Neon branch drill exists; recurring encrypted host drills pending |
+| Host restore drill + measured RTO/RPO | Platform ops | Neon fork `br-cool-heart-adryjyas` proven readable 2026-08-21; encrypted host dump drill pending |
 | Incident-response tabletop + on-call roster | Ops | Alerts table + structured `pageOnCall` logs exist; exercise pending |
 | Production-like load + live settlement rehearsal | Ops + finance | k6 scripts exist; live rehearsal pending |
 | Merchant pilot / payments go-live | Product | Phases 9–11 — pilot UI scaffolding only; no funds |
@@ -30,7 +30,7 @@ Current branch protection (see `npm run github:configure-controls`):
 - Direct pushes to `main` are **allowed** (PR reviews not required)
 - Required status checks are **not** a pre-push gate in this mode (CI still runs on every push)
 - CODEOWNERS retained for path ownership / review guidance on PRs when used
-- `dependency-review` hard-fails on pull requests when Dependency graph is enabled
+- Direct push to `main` is the ship path; CI still runs on every push
 
 ## Engineering scaffolding (in-repo)
 

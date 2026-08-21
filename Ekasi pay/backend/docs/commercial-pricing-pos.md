@@ -17,6 +17,10 @@ Cancel / expire / refund claws back the fee via `reverseFeeAccrualPg` and posts 
 Merchant statement: `GET /api/commissions/me/statement?from=&to=`
 Platform revenue: `GET /api/ops/platform-revenue?from=&to=` (finance capability)
 
+**Who earns the R3:** the sending shop, posted at voucher create, reversed on
+cancel/expire. A payout-shop split (R1 send / R2 cash-out) is deferred until
+agent-network float exists — `docs/cash-send-agent-network.md`.
+
 ## R600 merchant activation
 
 `merchant_activations` records:

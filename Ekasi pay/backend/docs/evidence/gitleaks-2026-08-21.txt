@@ -1,0 +1,8 @@
+gitleaks 8.21.2
+date: 2026-08-21
+source: local full-history scan of origin/main
+config: .gitleaks.toml
+commits_scanned: 103
+result: no leaks found
+exit_code: 0
+machine_report: gitleaks-2026-08-21.json (empty findings array)

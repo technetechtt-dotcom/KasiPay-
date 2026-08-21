@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "phase5.drill.v2",
+  "drillType": "restore_reconcile",
+  "environment": "isolated",
+  "mode": "neon_branch",
+  "startedAt": "2026-08-21T10:18:00Z",
+  "completedAt": "2026-08-21T10:20:00Z",
+  "outcome": "passed",
+  "projectId": "purple-unit-69145144",
+  "parentBranchId": "br-falling-truth-add7cqi1",
+  "restoreBranchId": "br-cool-heart-adryjyas",
+  "restoreBranchName": "restore-drill-2026-08-21",
+  "expiresAt": "2026-08-23T00:00:00Z",
+  "assertions": [
+    {
+      "name": "neon_branch_fork_recorded",
+      "passed": true,
+      "detail": "Forked production branch br-falling-truth-add7cqi1"
+    },
+    {
+      "name": "schema_migrations_present",
+      "passed": true,
+      "detail": "migrations=18 (point-in-time copy taken immediately before 019 applied)"
+    },
+    {
+      "name": "wallet_and_journal_readable",
+      "passed": true,
+      "detail": "wallets=4 journals=3 users=4"
+    }
+  ],
+  "notCovered": [
+    "Encrypted pg_dump / pg_restore host drill",
+    "Measured RTO/RPO against a production-sized dataset",
+    "backup_verification_markers row count remains 0 on production"
+  ]
+}
