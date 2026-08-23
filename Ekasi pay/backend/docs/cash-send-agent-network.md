@@ -1,11 +1,10 @@
 # Cash Send agent network (product decisions)
 
 These rules apply before national real-money Cash Send. They do not enable
-funds flags. Current code still posts the full R3 to the **sending shop** at
-voucher create (`cashSendPg.ts` → `recordCommissionPostingPg` with
-`agentUserId = sender userId`). Migration `020_payout_agents_float.js` adds
-`payout_agents`, allows `wallet_kind = merchant_float` (one wallet per user per
-kind), and voucher payout columns. It does **not** change live fee posting.
+funds flags. Migration `022_payment_architecture.js` publishes Cash Send fee
+**version 3** (R9 = R6 platform + R1 sending shop + R2 payout shop) for **new**
+vouchers only. Historical v1/v2 assessments are not rewritten. Collect credits
+the payout shop `merchant_float` wallet, never a personal `user` wallet.
 
 ## R3 merchant commission
 

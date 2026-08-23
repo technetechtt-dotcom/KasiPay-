@@ -970,3 +970,29 @@ export async function apiImportSettlementStatement(body: {
 export async function apiFeeSchedules() {
   return opsFetch<{ schedules: Array<Record<string, unknown>> }>('/api/ops/fees/schedules');
 }
+
+export async function apiOpsPayments() {
+  return opsFetch<{ payments: Array<Record<string, unknown>> }>('/api/ops/payments');
+}
+
+export async function apiOpsMerchantFloat() {
+  return opsFetch<{ wallets: Array<Record<string, unknown>>; topups: Array<Record<string, unknown>> }>(
+    '/api/ops/merchant-float',
+  );
+}
+
+export async function apiOpsPayoutAgents() {
+  return opsFetch<{ agents: Array<Record<string, unknown>> }>('/api/ops/payout-agents');
+}
+
+export async function apiOpsSafeguarding() {
+  return opsFetch<{ reports: Array<Record<string, unknown>> }>('/api/ops/safeguarding');
+}
+
+export async function apiOpsSettlementSuspense() {
+  return opsFetch<{ cases: Array<Record<string, unknown>> }>('/api/ops/settlement/suspense');
+}
+
+export async function apiOpsCommissionLiabilities() {
+  return opsFetch<{ liabilities: Array<Record<string, unknown>> }>('/api/ops/commissions/liabilities');
+}

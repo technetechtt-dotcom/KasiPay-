@@ -24,6 +24,18 @@ test('financial kill switch blocks postings but preserves reads and login', () =
     false,
   );
   assert.equal(
+    evaluateMutationPolicy('POST', '/payments/p2p', flags).allowed,
+    false,
+  );
+  assert.equal(
+    evaluateMutationPolicy(
+      'POST',
+      '/ops/merchant-float/topups/00000000-0000-4000-8000-000000000001/credit',
+      flags,
+    ).allowed,
+    false,
+  );
+  assert.equal(
     evaluateMutationPolicy('GET', '/wallets/me', flags).allowed,
     true,
   );

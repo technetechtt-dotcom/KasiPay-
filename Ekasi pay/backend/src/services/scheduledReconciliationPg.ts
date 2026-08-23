@@ -5,6 +5,11 @@ import type { Pool, PoolClient } from 'pg';
 import { structuredLog } from '../observability.js';
 import { disableFinancialPostingPg } from './driftPostingGuardPg.js';
 import {
+  checkEscrowVouchersPg,
+  checkMerchantFloatLedgerPg,
+  checkSafeguardingLatestPg,
+} from './paymentArchitectureReconPg.js';
+import {
   classifyDriftOrigin,
   inventoryWalletLedgerDriftPg,
 } from './walletLedgerAlignmentPg.js';
@@ -555,6 +560,13 @@ export async function runScheduledReconciliationPg(
       }
       if (['full', 'insurance'].includes(runType)) {
         await runCheck('insurance', () => withClient(checkInsurance));
+      }
+      if (['full', 'wallet_ledger'].includes(runType)) {
+        await runCheck('merchant_float', () => withClient(checkMerchantFloatLedgerPg));
+        await runCheck('escrow_vouchers', () => withClient(checkEscrowVouchersPg));
+      }
+      if (['full', 'settlement'].includes(runType)) {
+        await runCheck('safeguarding', () => withClient(checkSafeguardingLatestPg));
       }
 
       const criticalFails = checks.filter((c) => !c.ok);

@@ -106,11 +106,21 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
         collectorPhone,
       ],
     );
+    const collectorFloatId = randomUUID();
     await pool.query(
       `INSERT INTO wallets (id, user_id, balance, currency, status, pool_id, wallet_kind)
        VALUES ($1, $2, 1000, 'ZAR', 'active', 'ZA', 'user'),
-              ($3, $4, 0, 'ZAR', 'active', 'ZA', 'user')`,
-      [senderWalletId, senderId, collectorWalletId, collectorId],
+              ($3, $4, 0, 'ZAR', 'active', 'ZA', 'user'),
+              ($5, $4, 0, 'ZAR', 'active', 'ZA', 'merchant_float')`,
+      [senderWalletId, senderId, collectorWalletId, collectorId, collectorFloatId],
+    );
+    await pool.query(
+      `INSERT INTO payout_agents
+         (merchant_id, status, float_floor_cents, per_transaction_limit_cents,
+          daily_payout_limit_cents, enrolled_at)
+       VALUES ($1, 'enrolled', 0, 500000, 200000, NOW())
+       ON CONFLICT (merchant_id) DO UPDATE SET status = 'enrolled'`,
+      [collectorId],
     );
 
     const senderSession = await createAuthSessionPg(pool, senderId);

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-const SECRET_KEY = /(authorization|cookie|password|pin|otp|token|secret|api[-_]?key|id[_-]?document)/i;
+const SECRET_KEY = /(authorization|cookie|password|pin|otp|token|secret|api[-_]?key|id[_-]?document|account[_-]?number|iban|bank[_-]?account)/i;
 const PII_KEY = /(phone|email|address|full[_-]?name|recipient|beneficiary)/i;
 
 export function hashSensitive(value: string): string {

@@ -242,6 +242,7 @@ async function postLocked(
     ],
   );
   observeMetric('posting.success');
+  observeMetric('wallet.posting.success');
   return { transactionId, reference };
 }
 
@@ -272,6 +273,7 @@ export async function postBetweenWalletsWithRetryPg(
     } catch (error) {
       await client.query('ROLLBACK');
       observeMetric('posting.failure');
+      observeMetric('wallet.posting.failure');
       const code = (error as { code?: string }).code;
       if (!code || !RETRYABLE_PG_CODES.has(code) || attempt >= MAX_POSTING_ATTEMPTS) throw error;
       await new Promise((resolve) => setTimeout(resolve, 15 * 2 ** (attempt - 1)));

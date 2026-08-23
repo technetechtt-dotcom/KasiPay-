@@ -1151,7 +1151,8 @@ export function useAppState() {
       | {productId: string;quantity: number;price: MoneyInput;}[]
       | {product: Product;quantity: number;}[],
     paymentMethod: 'cash' | 'wallet',
-    customerPhone?: string
+    customerPhone?: string,
+    discount?: MoneyInput,
   ): Promise<boolean> => {
     if (!currentUser || merchantProfile === null) {
       pushAudit('sale.create.failed', 'Sale failed: no merchant context');
@@ -1183,6 +1184,7 @@ export function useAppState() {
       items,
       paymentMethod,
       customerPhone: walletCustomerPhone,
+      discount,
     };
     // Cash sales are safe to queue offline (they only adjust local stock +
     // ledger). Wallet-paid sales need the live wallet check so we refuse

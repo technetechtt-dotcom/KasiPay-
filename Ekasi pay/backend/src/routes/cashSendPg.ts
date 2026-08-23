@@ -39,12 +39,21 @@ import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 import { evaluateTransactionRiskPg } from '../services/riskPg.js';
 import {
+  createTimeFeeComponents,
+  collectTimeAgentFee,
+  feeComponentsPositive,
+} from '../services/cashSendFeeSplit.js';
+import { recordFeeLifecyclePg } from '../services/feeLifecyclePg.js';
+import {
   calculateFeeCents,
   postFeeAccrualPg,
   recordFeeAssessmentPg,
   reverseFeeAccrualPg,
   resolveFeeSchedulePg,
 } from '../services/feeEnginePg.js';
+import { assertPayoutAgentCanPayPg, recordPayoutUsagePg } from '../services/payoutAgentsPg.js';
+import { observeMetric } from '../observability.js';
+import { assertWalletKindPair } from '../services/walletKindsPg.js';
 import { cashSendVoucherPin } from '../validation.js';
 import {
   clearCollectPinFailuresPg,
@@ -74,6 +83,8 @@ type VoucherRow = {
   expires_at: string;
   collected_at: string | null;
   cancel_reason: string | null;
+  payout_commission_cents?: string;
+  platform_fee_cents?: string;
   recipient_id_document?: string;
   sender_id_document?: string;
   recipient_id_document_encrypted?: string | null;
@@ -257,6 +268,8 @@ cashSendRouterPg.post(
     const platformFeeCents = feeCalculation.components.platform ?? 0n;
     const merchantCommissionCents = feeCalculation.components.merchant ?? 0n;
     const providerFeeCents = feeCalculation.components.provider ?? 0n;
+    const payoutCommissionCents = collectTimeAgentFee(feeCalculation.components);
+    const createFeeComponents = createTimeFeeComponents(feeCalculation.components);
 
     const totalCents = (amountCents + feeCents) as Cents;
     const poolId = wallet.pool_id ?? DEFAULT_POOL_ID;
@@ -389,35 +402,59 @@ cashSendRouterPg.post(
           randomUUID(),
         ],
       );
-      const feeAccrual = await postFeeAccrualPg(client, {
-        sourceWalletId: escrowId,
-        sourceReference: ref,
-        currency: 'ZAR',
-        components: feeCalculation.components,
-        actorId: userId,
-      });
-      const assessment = await recordFeeAssessmentPg(client, {
-        scheduleId: feePolicy.scheduleId,
-        tier: feePolicy.tier,
-        sourceType: 'cash_send',
-        sourceId: id,
-        principalCents: amountCents,
-        currency: 'ZAR',
-        journalTransactionId: feeAccrual.transactionId,
-        beneficiaries: { merchant: userId },
-      });
-      const merchantCommission = feeCalculation.components.merchant;
-      if (merchantCommission > 0n) {
-        await recordCommissionPostingPg(client, {
-          agentUserId: userId,
+      if (feeComponentsPositive(createFeeComponents)) {
+        const feeAccrual = await postFeeAccrualPg(client, {
+          sourceWalletId: escrowId,
+          sourceReference: ref,
+          currency: 'ZAR',
+          components: createFeeComponents,
+          actorId: userId,
+        });
+        const assessment = await recordFeeAssessmentPg(client, {
+          scheduleId: feePolicy.scheduleId,
+          tier: feePolicy.tier,
           sourceType: 'cash_send',
           sourceId: id,
-          amountCents: merchantCommission,
-          description: `Cash Send merchant share R3 for voucher ${ref}`,
-          feeAssessmentId: assessment.assessmentId,
+          principalCents: amountCents,
+          currency: 'ZAR',
           journalTransactionId: feeAccrual.transactionId,
+          beneficiaries: { merchant: userId },
         });
+        if (merchantCommissionCents > 0n) {
+          await recordCommissionPostingPg(client, {
+            agentUserId: userId,
+            sourceType: 'cash_send',
+            sourceId: id,
+            amountCents: merchantCommissionCents,
+            description: `Cash Send sending-shop commission R1 for voucher ${ref}`,
+            feeAssessmentId: assessment.assessmentId,
+            journalTransactionId: feeAccrual.transactionId,
+          });
+          await recordFeeLifecyclePg(client, {
+            sourceType: 'cash_send',
+            sourceId: id,
+            component: 'merchant',
+            amountCents: merchantCommissionCents,
+            state: 'accrued',
+            journalTransactionId: feeAccrual.transactionId,
+          });
+        }
+        if (platformFeeCents > 0n) {
+          await recordFeeLifecyclePg(client, {
+            sourceType: 'cash_send',
+            sourceId: id,
+            component: 'platform',
+            amountCents: platformFeeCents,
+            state: 'accrued',
+            journalTransactionId: feeAccrual.transactionId,
+          });
+        }
       }
+      await client.query(
+        `UPDATE cash_send_vouchers SET payout_commission_cents = $2 WHERE id = $1`,
+        [id, payoutCommissionCents.toString()],
+      );
+      observeMetric('cashsend.created');
       if (amountCents >= 300_000n) {
         await createComplianceFlagPg(client, {
           userId,
@@ -562,6 +599,14 @@ cashSendRouterPg.post(
           ['expired', 'Expired — refunded to sender from escrow', row.id, refundPosting.transactionId],
         );
         await reverseCommissionPostingsPg(client, 'cash_send', row.id);
+        await recordFeeLifecyclePg(client, {
+          sourceType: 'cash_send',
+          sourceId: row.id,
+          component: 'platform',
+          amountCents: parseIntegerCents(row.fee_cents, { allowZero: true }),
+          state: 'reversed',
+        });
+        observeMetric('cashsend.expired');
         await client.query('COMMIT');
       } catch (e) {
         await client.query('ROLLBACK');
@@ -600,6 +645,30 @@ cashSendRouterPg.post(
 
     await clearCollectPinFailuresPg(pool, voucherRef);
 
+    const collectRisk = await evaluateTransactionRiskPg(pool, {
+      eventType: 'cash_out',
+      actorUserId: req.auth!.userId,
+      amountCents: parseIntegerCents(row.amount_cents),
+      financialReference: row.reference_number,
+      deviceId: typeof req.headers['x-device-id'] === 'string' ? req.headers['x-device-id'] : undefined,
+      ip: req.ip,
+      counterparty: row.reference_number,
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+    });
+    if (collectRisk.decision === 'block') {
+      return res.status(403).json({
+        error: 'Collection declined by configured risk controls.',
+        code: 'RISK_BLOCKED',
+      });
+    }
+    if (collectRisk.decision === 'hold') {
+      return res.status(202).json({
+        status: 'held_for_review',
+        referenceNumber: row.reference_number,
+      });
+    }
+
     const storedRecipientHash = row.recipient_id_hash || '';
     const storedSenderHash = row.sender_id_hash || '';
     const scannedNorm = normalizeCashSendId(parsed.data.scannedIdDocument);
@@ -629,21 +698,33 @@ cashSendRouterPg.post(
       });
     }
 
-    const collectorWalletQ = await pool.query<{
+    let payoutWalletId: string;
+    try {
+      const eligibility = await assertPayoutAgentCanPayPg(
+        pool,
+        req.auth!.userId,
+        parseIntegerCents(row.amount_cents),
+      );
+      payoutWalletId = eligibility.floatWalletId;
+    } catch (e) {
+      const err = e as { status?: number; message?: string; code?: string };
+      return res.status(err.status ?? 400).json({
+        error: err.message ?? 'Payout agent cannot collect this voucher',
+        code: err.code,
+      });
+    }
+    const payoutWalletQ = await pool.query<{
       id: string;
       status: string;
       pool_id: string | null;
-    }>(
-      `SELECT * FROM wallets
-       WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-      [req.auth!.userId],
-    );
-    const collectorWallet = collectorWalletQ.rows[0];
-    if (!collectorWallet || collectorWallet.status !== 'active') {
-      return res.status(400).json({ error: 'Collector wallet unavailable' });
+      wallet_kind: string;
+    }>(`SELECT id, status, pool_id, wallet_kind FROM wallets WHERE id = $1`, [payoutWalletId]);
+    const payoutWallet = payoutWalletQ.rows[0];
+    if (!payoutWallet || payoutWallet.status !== 'active') {
+      return res.status(400).json({ error: 'Collector float wallet unavailable' });
     }
     const poolId = senderWalletRow.pool_id ?? DEFAULT_POOL_ID;
-    if ((collectorWallet.pool_id ?? DEFAULT_POOL_ID) !== poolId) {
+    if ((payoutWallet.pool_id ?? DEFAULT_POOL_ID) !== poolId) {
       return res.status(400).json({
         error:
           'Cash Send can only be collected in the same region (wallet pool) as the sender.',
@@ -666,18 +747,64 @@ cashSendRouterPg.post(
       if (lockedVoucher.rows[0]?.status !== 'active') {
         throw Object.assign(new Error('Voucher is no longer active'), { status: 409 });
       }
+      assertWalletKindPair('system_escrow', payoutWallet.wallet_kind, 'cash_send_payout');
       const principalPosting = await postBetweenWalletsPg(client, {
         fromWalletId: escrowId,
-        toWalletId: collectorWallet.id,
+        toWalletId: payoutWallet.id,
         amountCents: parseIntegerCents(row.amount_cents),
         type: 'cash_send_collect',
         referencePrefix: 'CSC',
-        description: `Cash Send payout (${row.reference_number}) principal ${formatCents(parseIntegerCents(row.amount_cents))} from escrow (${poolId}) to collector wallet`,
+        description: `Cash Send payout (${row.reference_number}) principal ${formatCents(parseIntegerCents(row.amount_cents))} from escrow (${poolId}) to payout merchant_float`,
       });
+      const payoutCommission = parseIntegerCents(row.payout_commission_cents ?? '0', {
+        allowZero: true,
+      });
+      if (payoutCommission > 0n) {
+        const payoutFee = await postFeeAccrualPg(client, {
+          sourceWalletId: escrowId,
+          sourceReference: `${row.reference_number}-PAYOUT`,
+          currency: 'ZAR',
+          components: {
+            platform: 0n as Cents,
+            provider: 0n as Cents,
+            tax: 0n as Cents,
+            agent: payoutCommission,
+            merchant: 0n as Cents,
+          },
+          actorId: req.auth!.userId,
+        });
+        await recordCommissionPostingPg(client, {
+          agentUserId: req.auth!.userId,
+          sourceType: 'cash_send',
+          sourceId: `${row.id}:payout`,
+          amountCents: payoutCommission,
+          description: `Cash Send payout-shop commission R2 for voucher ${row.reference_number}`,
+          journalTransactionId: payoutFee.transactionId,
+        });
+        await recordFeeLifecyclePg(client, {
+          sourceType: 'cash_send',
+          sourceId: row.id,
+          component: 'agent',
+          amountCents: payoutCommission,
+          state: 'accrued',
+          journalTransactionId: payoutFee.transactionId,
+        });
+        await recordFeeLifecyclePg(client, {
+          sourceType: 'cash_send',
+          sourceId: row.id,
+          component: 'platform',
+          amountCents: parseIntegerCents(row.platform_fee_cents ?? '0', { allowZero: true }),
+          state: 'earned',
+        });
+      }
+      await recordPayoutUsagePg(client, req.auth!.userId, parseIntegerCents(row.amount_cents));
       await client.query(
-        `UPDATE cash_send_vouchers SET settlement_transaction_ids = $1::jsonb WHERE id = $2`,
-        [JSON.stringify([principalPosting.transactionId]), row.id],
+        `UPDATE cash_send_vouchers
+            SET settlement_transaction_ids = $1::jsonb, payout_merchant_id = $3
+          WHERE id = $2`,
+        [JSON.stringify([principalPosting.transactionId]), row.id, req.auth!.userId],
       );
+      observeMetric('cashsend.collected');
       await client.query(
         `UPDATE cash_send_vouchers
             SET status = 'collected', collected_at = $1,
@@ -784,6 +911,13 @@ cashSendRouterPg.post(
         ['Cancelled by sender — refunded from escrow', voucher.id, refundPosting.transactionId],
       );
       await reverseCommissionPostingsPg(client, 'cash_send', voucher.id);
+      await recordFeeLifecyclePg(client, {
+        sourceType: 'cash_send',
+        sourceId: voucher.id,
+        component: 'merchant',
+        amountCents: parseIntegerCents(voucher.fee_cents, { allowZero: true }),
+        state: 'reversed',
+      });
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK');

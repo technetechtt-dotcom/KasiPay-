@@ -69,6 +69,7 @@ import {
 } from './api';
 import { addMoney, formatMoney as fmtMoney } from './money';
 import { ShopsMapTab } from './ShopsMap';
+import { PaymentsTab } from './PaymentsTab';
 
 function ProductGateNotice({ title, detail }: { title: string; detail: string }) {
   return (
@@ -93,6 +94,7 @@ type Tab =
   | 'cashsend'
   | 'risk'
   | 'settlement'
+  | 'payments'
   | 'readiness';
 
 const MERCHANT_DOC_LABELS: Record<string, string> = {
@@ -2635,6 +2637,7 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
     { id: 'loans', label: 'Loans' },
     { id: 'ledger', label: 'Ledger' },
     { id: 'settlement', label: 'Settlement' },
+    { id: 'payments', label: 'Payments' },
     { id: 'readiness', label: 'Product Readiness' },
     { id: 'cashsend', label: 'Cash Send' },
     { id: 'risk', label: 'Risk Review' },
@@ -2680,6 +2683,7 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {tab === 'loans' ? <LoansTab /> : null}
         {tab === 'ledger' ? <LedgerTab /> : null}
         {tab === 'settlement' ? <SettlementTab /> : null}
+        {tab === 'payments' ? <PaymentsTab /> : null}
         {tab === 'readiness' ? <ProductReadinessTab /> : null}
         {tab === 'cashsend' ? <CashSendTab /> : null}
         {tab === 'risk' ? <RiskReviewTab /> : null}

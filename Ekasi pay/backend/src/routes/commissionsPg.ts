@@ -105,6 +105,12 @@ commissionsRouterPg.get('/commissions/me/statement', requireAuth, async (req, re
     to,
     lines,
     net: formatCents(net),
-    pricing: { cashSendFeeCents: 900, merchantShareCents: 300, platformShareCents: 600 },
+    pricing: {
+      cashSendFeeCents: 900,
+      sendingShopCents: 100,
+      payoutShopCents: 200,
+      platformShareCents: 600,
+      legacyMerchantShareCents: 300,
+    },
   });
 });

@@ -77,6 +77,10 @@ import { phase6OpsRouterPg } from './routes/phase6OpsPg.js';
 import { providerCallbacksRouterPg } from './routes/providerCallbacksPg.js';
 import { refundsRouterPg } from './routes/refundsPg.js';
 import { hashSensitive, metricsSnapshot, observeMetric, structuredLog } from './observability.js';
+import { registerLaunchPaymentRails } from './payments/registerLaunchRails.js';
+import { paymentsP2pRouterPg } from './routes/paymentsP2pPg.js';
+import { merchantFloatRouterPg } from './routes/merchantFloatPg.js';
+import { paymentOpsRouterPg } from './routes/paymentOpsPg.js';
 import {
   phase7OpsRouterPg,
   phase7ProductsRouterPg,
@@ -87,6 +91,7 @@ import {
   customerProtectionRouterPg,
 } from './routes/customerProtectionPg.js';
 
+registerLaunchPaymentRails();
 validateProductionConfig();
 console.log(
   `KasiPay boot mode nonFunds=${NON_FUNDS_DEPLOYMENT} nodeEnv=${NODE_ENV}`,
@@ -365,6 +370,9 @@ api.use(async (req, _res, next) => {
     '/credit/verify/confirm': ['otp_verify'],
     '/cash-send/lookup': ['voucher_lookup'],
     '/cash-send/collect': ['voucher_collect', 'cash_out'],
+    '/payments/p2p': ['transfer'],
+    '/merchant/float/withdrawals': ['cash_out'],
+    '/merchant/float/topups': ['transfer'],
   };
   const eventTypes = events[req.path];
   if (!eventTypes) return next();
@@ -406,6 +414,7 @@ if (isPostgresMode()) {
   api.use(privacyRouterPg);
   api.use(riskOpsRouterPg);
   api.use(reconciliationOpsRouterPg);
+  api.use(paymentOpsRouterPg);
   api.use(adminUsersRouterPg);
   api.use(adminMonitoringRouterPg);
   api.use(adminRouterPg);
@@ -415,6 +424,8 @@ if (isPostgresMode()) {
   api.use(activityRouterPg);
   api.use(productsRouterPg);
   api.use(transfersRouterPg);
+  api.use(paymentsP2pRouterPg);
+  api.use(merchantFloatRouterPg);
   api.use(salesRouterPg);
   api.use(expensesRouterPg);
   api.use(creditRouterPg);

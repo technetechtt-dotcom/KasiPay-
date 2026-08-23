@@ -64,8 +64,13 @@ export async function postRefundPg(
   const typeToProduct: Record<string, typeof input.product> = {
     transfer: 'transfer',
     p2p_transfer: 'transfer',
+    consumer_to_consumer: 'transfer',
+    consumer_to_merchant: 'wallet_sale',
+    payment: 'wallet_sale',
     wallet_sale: 'wallet_sale',
     sale: 'wallet_sale',
+    float_topup: 'wallet_sale',
+    cash_send_collect: 'cash_send',
     utility: 'utility',
     utility_purchase: 'utility',
     cash_send: 'cash_send',

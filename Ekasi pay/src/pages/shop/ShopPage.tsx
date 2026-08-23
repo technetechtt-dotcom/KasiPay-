@@ -36,6 +36,7 @@ export const ShopPage = ({
     items: { product: Product; quantity: number }[],
     method: 'cash' | 'wallet',
     phone?: string,
+    discount?: string,
   ) => boolean | Promise<boolean>;
   navigate: (p: string) => void;
   language?: Language;
@@ -142,27 +143,13 @@ export const ShopPage = ({
   const handleCheckout = () => {
     if (paymentMethod === 'wallet' && customerPhone.length < 10) return;
     void (async () => {
-      // Apply discount proportionally to items
-      const discountedCart = cart.map(item => {
-        if (discountAmount === '0.00' || finalTotal === '0.00') return item;
-        const subtotalCents = Number(moneyToCents(subtotal));
-        if (subtotalCents === 0) return item;
-        const ratio = Number(moneyToCents(finalTotal)) / subtotalCents;
-        
-        const originalPriceCents = Number(moneyToCents(item.product.price));
-        const newPriceCents = Math.round(originalPriceCents * ratio);
-        
-        return {
-          ...item,
-          product: {
-            ...item.product,
-            price: formatMoney((newPriceCents / 100).toFixed(2))
-          }
-        };
-      });
-
       const ok = await Promise.resolve(
-        onMakeSale(discountedCart, paymentMethod, customerPhone)
+        onMakeSale(
+          cart,
+          paymentMethod,
+          customerPhone,
+          discountAmount !== '0.00' ? discountAmount : undefined,
+        )
       );
       if (ok) {
         setSuccess(true);
@@ -463,6 +450,8 @@ export const ShopPage = ({
                   <span className="font-medium text-sm">{t('shop.cash')}</span>
                 </button>
                 <button
+              type="button"
+              data-testid="pay-wallet"
               onClick={() => setPaymentMethod('wallet')}
               className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${paymentMethod === 'wallet' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}>
               

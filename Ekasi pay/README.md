@@ -8,6 +8,11 @@ Roadmap controls:
 - [Critical financial controls](backend/docs/critical-financial-controls.md)
 - [Phase 8 release readiness](backend/docs/phase8-release.md) (CI, production gate, rollback)
 - [Phase 6 settlement, provider, fee and reversal engineering](backend/docs/phase6-settlement-providers-fees.md)
+- [Payment architecture](backend/docs/payment-architecture.md) — PayShap is optional
+- [Payment rails](backend/docs/payment-rails.md)
+- [Merchant float](backend/docs/merchant-float.md)
+- [Safeguarding reconciliation](backend/docs/safeguarding-reconciliation.md)
+- [Payment settlement](backend/docs/payment-settlement.md)
 - [API versioning](backend/docs/api-versioning.md) (`/api` compatibility + `/api/v1`)
 
 ## 1. One-machine dev

@@ -15,6 +15,8 @@ export type PolicyDecision =
 
 const MONEY_POSTING_ROUTES: RegExp[] = [
   /^\/transfers$/,
+  /^\/payments\/p2p$/,
+  /^\/ops\/merchant-float\/topups\/[^/]+\/credit$/,
   /^\/sales$/,
   /^\/expenses$/,
   /^\/credit\/transactions$/,

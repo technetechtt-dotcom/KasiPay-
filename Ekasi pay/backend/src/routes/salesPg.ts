@@ -15,6 +15,11 @@ import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.j
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
+import { computeSaleTotals } from '../money/saleTotals.js';
+import {
+  getCustomerWalletPg,
+  getMerchantSalesWalletPg,
+} from '../services/walletKindsPg.js';
 import { saleCreateSchema, saleVoidSchema } from '../validation.js';
 
 type SaleItem = {
@@ -31,6 +36,7 @@ type SaleRow = {
   merchant_id: string;
   items_json: string;
   total_cents: string;
+  gross_total_cents?: string | null;
   payment_method: string;
   created_at: string;
   voided_at: string | null;
@@ -40,18 +46,22 @@ type SaleRow = {
 };
 
 function toSaleDto(row: SaleRow) {
+  const net = parseIntegerCents(row.total_cents, { allowZero: true });
+  const discount = parseIntegerCents(row.discount_cents ?? '0', { allowZero: true });
+  const gross = row.gross_total_cents
+    ? parseIntegerCents(row.gross_total_cents, { allowZero: true })
+    : ((net + discount) as typeof net);
   return {
     id: row.id,
     merchantId: row.merchant_id,
     items: JSON.parse(row.items_json) as SaleItem[],
-    total: formatCents(parseIntegerCents(row.total_cents, { allowZero: true })),
+    total: formatCents(net),
+    gross: formatCents(gross),
     paymentMethod: row.payment_method,
     createdAt: row.created_at,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
-    discount: formatCents(
-      parseIntegerCents(row.discount_cents ?? '0', { allowZero: true }),
-    ),
+    discount: formatCents(discount),
     receiptNumber: row.receipt_number,
   };
 }
@@ -74,7 +84,8 @@ salesRouterPg.get('/sales', async (req, res) => {
 
   const rows = await pool.query<SaleRow>(
     `SELECT id, merchant_id, items_json, total_cents, payment_method, created_at,
-            voided_at, void_reason, discount_cents, receipt_number
+            voided_at, void_reason, discount_cents, receipt_number,
+            COALESCE(gross_total_cents, total_cents) AS gross_total_cents
        FROM sales WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 200`,
     [merchantId],
   );
@@ -112,21 +123,14 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
   const merchantUser = merchantUserQ.rows[0];
   if (!merchantUser) return res.status(400).json({ error: 'Merchant not found' });
 
-  const merchantWalletQ = await pool.query<{
-    id: string;
-    status: string;
-    pool_id: string | null;
-  }>(
-    `SELECT * FROM wallets WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-    [merchantUser.user_id],
-  );
-  const merchantWallet = merchantWalletQ.rows[0];
+  const merchantWallet = await getMerchantSalesWalletPg(pool, merchantUser.user_id);
   if (!merchantWallet) {
     return res.status(400).json({ error: 'Merchant wallet missing' });
   }
 
   const saleItems: SaleItem[] = [];
-  let computedTotalCents = 0n as Cents;
+  let grossTotalCents = 0n as Cents;
+  let netTotalCents = 0n as Cents;
   const saleId = randomUUID();
   const createdAt = new Date().toISOString();
 
@@ -164,7 +168,7 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       });
       const priceCents = parseZarToCents(line.price, { allowZero: true });
       const subtotalCents = multiplyCentsByQuantity(priceCents, line.quantity);
-      computedTotalCents = (computedTotalCents + subtotalCents) as Cents;
+      grossTotalCents = (grossTotalCents + subtotalCents) as Cents;
       saleItems.push({
         productId: product.id,
         name: product.name,
@@ -197,6 +201,9 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       );
     }
 
+    const totals = computeSaleTotals(grossTotalCents, discountCents);
+    netTotalCents = totals.netTotalCents;
+
     if (paymentMethod === 'wallet') {
       const customerQ = await client.query<{ id: string }>(
         `SELECT id FROM users WHERE phone = $1 AND COALESCE(is_system, 0) = 0`,
@@ -209,43 +216,38 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
         });
       }
 
-      const customerWalletQ = await client.query<{
-        id: string;
-        status: string;
-        pool_id: string | null;
-      }>(
-        `SELECT * FROM wallets WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-        [customer.id],
-      );
-      const customerWallet = customerWalletQ.rows[0];
+      const customerWallet = await getCustomerWalletPg(client, customer.id);
       if (!customerWallet) {
         throw Object.assign(new Error('Customer wallet missing'), { status: 400 });
       }
 
-      await postBetweenWalletsPg(client, {
-        fromWalletId: customerWallet.id,
-        toWalletId: merchantWallet.id,
-        amountCents: computedTotalCents,
-        type: 'payment',
-        referencePrefix: 'PAY',
-        description: `Sale ${saleId}`,
-      });
+      if (totals.netTotalCents > 0n) {
+        await postBetweenWalletsPg(client, {
+          fromWalletId: customerWallet.id,
+          toWalletId: merchantWallet.id,
+          amountCents: totals.netTotalCents,
+          type: 'payment',
+          referencePrefix: 'PAY',
+          description: `Sale ${saleId}`,
+        });
+      }
     }
 
     const receiptNumber = receiptNumberFor(saleId, createdAt);
     await client.query(
       `INSERT INTO sales (id, merchant_id, items_json, total_cents, payment_method, created_at,
-                          discount_cents, receipt_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                          discount_cents, receipt_number, gross_total_cents)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         saleId,
         merchantId,
         JSON.stringify(saleItems),
-        computedTotalCents.toString(),
+        totals.netTotalCents.toString(),
         paymentMethod,
         createdAt,
-        discountCents.toString(),
+        totals.discountCents.toString(),
         receiptNumber,
+        totals.grossTotalCents.toString(),
       ],
     );
 
@@ -266,7 +268,8 @@ salesRouterPg.post('/sales', idempotentPg('POST /sales'), async (req, res) => {
       id: saleId,
       merchantId,
       items: saleItems,
-      total: formatCents(computedTotalCents),
+      total: formatCents(netTotalCents),
+      gross: formatCents(grossTotalCents),
       paymentMethod,
       createdAt,
       voidedAt: null,
@@ -294,7 +297,8 @@ salesRouterPg.post('/sales/:id/void', idempotentPg('POST /sales/:id/void'), asyn
     await client.query('BEGIN');
     const saleQ = await client.query<SaleRow>(
       `SELECT id, merchant_id, items_json, total_cents, payment_method, created_at,
-              voided_at, void_reason, discount_cents, receipt_number
+              voided_at, void_reason, discount_cents, receipt_number,
+              COALESCE(gross_total_cents, total_cents) AS gross_total_cents
          FROM sales WHERE id = $1 AND merchant_id = $2 FOR UPDATE`,
       [req.params.id, merchantId],
     );
@@ -336,10 +340,9 @@ salesRouterPg.post('/sales/:id/void', idempotentPg('POST /sales/:id/void'), asyn
         `SELECT user_id FROM merchants WHERE id = $1`,
         [merchantId],
       );
-      const merchantWalletQ = await client.query<{ id: string }>(
-        `SELECT id FROM wallets WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-        [merchantUserQ.rows[0]?.user_id],
-      );
+      const merchantWallet = merchantUserQ.rows[0]?.user_id
+        ? await getMerchantSalesWalletPg(client, merchantUserQ.rows[0].user_id)
+        : null;
       const originalPay = await client.query<{
         from_wallet_id: string;
         to_wallet_id: string;
@@ -349,15 +352,20 @@ salesRouterPg.post('/sales/:id/void', idempotentPg('POST /sales/:id/void'), asyn
           ORDER BY created_at DESC LIMIT 1`,
         [`Sale ${sale.id}`],
       );
-      if (originalPay.rows[0] && merchantWalletQ.rows[0]) {
-        await postBetweenWalletsPg(client, {
-          fromWalletId: originalPay.rows[0].to_wallet_id,
-          toWalletId: originalPay.rows[0].from_wallet_id,
-          amountCents: parseIntegerCents(sale.total_cents),
-          type: 'refund',
-          referencePrefix: 'VOID',
-          description: `Void sale ${sale.id}`,
-        });
+      if (originalPay.rows[0] && merchantWallet) {
+        const refundable = parseIntegerCents(sale.total_cents, { allowZero: true });
+        if (refundable > 0n) {
+          await postBetweenWalletsPg(client, {
+            fromWalletId: originalPay.rows[0].to_wallet_id,
+            toWalletId: originalPay.rows[0].from_wallet_id,
+            amountCents: refundable,
+            type: 'refund',
+            referencePrefix: 'VOID',
+            description: `Void sale ${sale.id}`,
+            originalTransactionId: undefined,
+            reversalKind: 'refund',
+          });
+        }
       }
     }
 

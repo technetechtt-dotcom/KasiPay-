@@ -9,6 +9,8 @@ const MERCHANT = {
   approvalStatus: 'approved',
 };
 
+export let lastCreateSaleBody: Record<string, unknown> | null = null;
+
 const PRODUCT = {
   id: 'p-bread',
   merchantId: 'm-e2e',
@@ -79,14 +81,18 @@ export async function seedMerchantSession(page: Page) {
       return json({ products: [PRODUCT] });
     }
     if (url.includes('/api/sales') && method === 'POST') {
+      lastCreateSaleBody = request.postDataJSON() as Record<string, unknown>;
+      const discount = lastCreateSaleBody.discount;
       return json(
         {
           sale: {
             id: 'sale-e2e',
             merchantId: 'm-e2e',
             items: [{ productId: PRODUCT.id, name: PRODUCT.name, quantity: 1, price: '12.00', subtotal: '12.00' }],
-            total: '12.00',
-            paymentMethod: 'cash',
+            total: discount ? '10.80' : '12.00',
+            gross: '12.00',
+            discount: discount ?? '0.00',
+            paymentMethod: lastCreateSaleBody.paymentMethod ?? 'cash',
             createdAt: new Date().toISOString(),
             receiptNumber: 'KP-E2E-TEST',
           },

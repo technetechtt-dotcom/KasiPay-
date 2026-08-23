@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-import { loginAsMerchant, seedMerchantSession } from './helpers/mockApi';
+import { lastCreateSaleBody, loginAsMerchant, seedMerchantSession } from './helpers/mockApi';
 
 test.describe('POS sale', () => {
   test('checks out a cash sale with a discount', async ({ page }) => {
@@ -14,5 +14,24 @@ test.describe('POS sale', () => {
     await page.getByTestId('complete-sale').click();
     await expect(page.getByRole('heading', { name: 'Sale Complete' })).toBeVisible();
     await expect(page.getByText(/Total:/i)).toBeVisible();
+    expect(lastCreateSaleBody?.discount).toBeTruthy();
+    const items = lastCreateSaleBody?.items as Array<{ price?: string }>;
+    expect(items?.[0]?.price).toBe('12.00');
+  });
+
+  test('wallet checkout sends original prices plus discount', async ({ page }) => {
+    await seedMerchantSession(page);
+    await loginAsMerchant(page);
+    await page.getByRole('button', { name: /shop/i }).first().click();
+    await page.getByRole('button', { name: /Bread R 12\.00/i }).first().click();
+    await page.getByTestId('add-discount').click();
+    await page.locator('input[type="number"]').fill('10');
+    await page.getByTestId('shop-checkout').click();
+    await page.getByTestId('pay-wallet').click();
+    await page.getByPlaceholder('082 123 4567').fill('0820000000');
+    await page.getByTestId('complete-sale').click();
+    await expect(page.getByRole('heading', { name: 'Sale Complete' })).toBeVisible();
+    expect(lastCreateSaleBody?.paymentMethod).toBe('wallet');
+    expect(lastCreateSaleBody?.discount).toBeTruthy();
   });
 });

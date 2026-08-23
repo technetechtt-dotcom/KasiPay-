@@ -124,6 +124,7 @@ export interface Sale {
   merchantId: string;
   items: SaleItem[];
   total: Money;
+  gross?: Money;
   paymentMethod: 'cash' | 'wallet';
   createdAt: string;
   voidedAt?: string | null;
