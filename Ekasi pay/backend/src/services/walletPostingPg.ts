@@ -85,6 +85,12 @@ async function postLocked(
   opts: WalletPostingOptions,
 ): Promise<{ transactionId: string; reference: string }> {
   const amountCents = parseIntegerCents(opts.amountCents);
+  if (Boolean(opts.originalTransactionId) !== Boolean(opts.reversalKind)) {
+    throw Object.assign(
+      new Error('Reversal kind and original transaction must be paired'),
+      { status: 400 },
+    );
+  }
   if (opts.fromWalletId === opts.toWalletId) {
     throw Object.assign(new Error('Cannot move to the same wallet'), { status: 400 });
   }

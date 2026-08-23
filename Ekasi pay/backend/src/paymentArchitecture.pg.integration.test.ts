@@ -7,7 +7,10 @@ import { Pool } from 'pg';
 import { parseIntegerCents } from './money.js';
 import { computeSaleTotals } from './money/saleTotals.js';
 import { classifyBankDepositMatch } from './services/bankDepositMatchingPg.js';
-import { postBetweenWalletsPg } from './services/walletPostingPg.js';
+import {
+  postBetweenWalletsPg,
+  reverseWalletPostingPg,
+} from './services/walletPostingPg.js';
 import { assertWalletKindPair } from './services/walletKindsPg.js';
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -47,9 +50,10 @@ test(
       const totals = computeSaleTotals(10_000n, 1_000n);
       assert.equal(totals.netTotalCents, 9_000n);
       const client = await pool.connect();
+      let paymentId: string;
       try {
         await client.query('BEGIN');
-        await postBetweenWalletsPg(client, {
+        const posted = await postBetweenWalletsPg(client, {
           fromWalletId: customerWallet,
           toWalletId: merchantWallet,
           amountCents: totals.netTotalCents,
@@ -57,6 +61,7 @@ test(
           referencePrefix: 'PAY',
           description: `Sale discounted-${suffix}`,
         });
+        paymentId = posted.transactionId;
         await client.query('COMMIT');
       } finally {
         client.release();
@@ -75,14 +80,12 @@ test(
       const refundClient = await pool.connect();
       try {
         await refundClient.query('BEGIN');
-        await postBetweenWalletsPg(refundClient, {
-          fromWalletId: merchantWallet,
-          toWalletId: customerWallet,
+        await reverseWalletPostingPg(refundClient, {
+          originalTransactionId: paymentId,
           amountCents: totals.netTotalCents,
-          type: 'refund',
+          kind: 'refund',
           referencePrefix: 'VOID',
           description: `Void discounted-${suffix}`,
-          reversalKind: 'refund',
         });
         await refundClient.query('COMMIT');
       } finally {

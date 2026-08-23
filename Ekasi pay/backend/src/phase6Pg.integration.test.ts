@@ -94,7 +94,7 @@ test('Phase 6 PostgreSQL controls', { skip: !connectionString }, async (suite) =
        WHERE s.product = 'cash_send' AND s.state = 'published'
        ORDER BY s.version DESC LIMIT 1`,
     );
-    assert.equal(seeded.rows[0]?.version, 2);
+    assert.equal(seeded.rows[0]?.version, 3);
     assert.equal(seeded.rows[0]?.flat_cents, '900');
   });
 });

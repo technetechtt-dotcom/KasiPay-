@@ -14,7 +14,10 @@ import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
-import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
+import {
+  postBetweenWalletsPg,
+  reverseWalletPostingPg,
+} from '../services/walletPostingPg.js';
 import { computeSaleTotals } from '../money/saleTotals.js';
 import {
   getCustomerWalletPg,
@@ -343,11 +346,8 @@ salesRouterPg.post('/sales/:id/void', idempotentPg('POST /sales/:id/void'), asyn
       const merchantWallet = merchantUserQ.rows[0]?.user_id
         ? await getMerchantSalesWalletPg(client, merchantUserQ.rows[0].user_id)
         : null;
-      const originalPay = await client.query<{
-        from_wallet_id: string;
-        to_wallet_id: string;
-      }>(
-        `SELECT from_wallet_id, to_wallet_id FROM transactions
+      const originalPay = await client.query<{ id: string }>(
+        `SELECT id FROM transactions
           WHERE type = 'payment' AND description = $1
           ORDER BY created_at DESC LIMIT 1`,
         [`Sale ${sale.id}`],
@@ -355,15 +355,12 @@ salesRouterPg.post('/sales/:id/void', idempotentPg('POST /sales/:id/void'), asyn
       if (originalPay.rows[0] && merchantWallet) {
         const refundable = parseIntegerCents(sale.total_cents, { allowZero: true });
         if (refundable > 0n) {
-          await postBetweenWalletsPg(client, {
-            fromWalletId: originalPay.rows[0].to_wallet_id,
-            toWalletId: originalPay.rows[0].from_wallet_id,
+          await reverseWalletPostingPg(client, {
+            originalTransactionId: originalPay.rows[0].id,
             amountCents: refundable,
-            type: 'refund',
+            kind: 'refund',
             referencePrefix: 'VOID',
             description: `Void sale ${sale.id}`,
-            originalTransactionId: undefined,
-            reversalKind: 'refund',
           });
         }
       }
