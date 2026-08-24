@@ -26,4 +26,14 @@ describe('wallet kind pairs', () => {
       /not allowed/,
     );
   });
+
+  it('requires Cash Send create to debit merchant_float, not a user wallet', () => {
+    assert.doesNotThrow(() =>
+      assertWalletKindPair('merchant_float', 'system_escrow', 'cash_send_hold'),
+    );
+    assert.throws(
+      () => assertWalletKindPair('user', 'system_escrow', 'cash_send_hold'),
+      /not allowed/,
+    );
+  });
 });

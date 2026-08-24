@@ -7,6 +7,7 @@ import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
+import { CASH_AVAILABILITY_BANDS } from '../services/cashAvailabilityPg.js';
 import {
   getFloatHistoryPg,
   requestFloatTopupPg,
@@ -109,15 +110,6 @@ merchantFloatRouterPg.post(
   },
 );
 
-const CASH_BANDS = [
-  'unavailable',
-  'under_500',
-  '500_to_1000',
-  '1000_to_2000',
-  '2000_to_5000',
-  'over_5000',
-] as const;
-
 merchantFloatRouterPg.get('/merchant/cash-availability', async (req, res) => {
   const pool = getPgPool();
   const merchantId = await requireMerchantIdPg(pool, req.auth!.userId);
@@ -133,7 +125,7 @@ merchantFloatRouterPg.get('/merchant/cash-availability', async (req, res) => {
 
 merchantFloatRouterPg.post('/merchant/cash-availability', async (req, res) => {
   const parsed = z
-    .object({ availabilityBand: z.enum(CASH_BANDS) })
+    .object({ availabilityBand: z.enum(CASH_AVAILABILITY_BANDS) })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const pool = getPgPool();

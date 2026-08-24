@@ -21,7 +21,29 @@ paymentOpsRouterPg.get(
       `SELECT id, product, rail, state, amount_cents, currency, financial_reference, created_at
          FROM payment_intents ORDER BY created_at DESC LIMIT 200`,
     );
-    return res.json({ payments: rows.rows });
+    const journals = await getPgPool().query(
+      `SELECT j.id, j.reference, j.transaction_type, j.state, j.currency, j.pool_id,
+              j.effective_at, j.posted_at,
+              COALESCE(SUM(e.amount_cents) FILTER (WHERE e.side = 'debit'), 0)::text AS debit_cents,
+              COALESCE(SUM(e.amount_cents) FILTER (WHERE e.side = 'credit'), 0)::text AS credit_cents
+         FROM journal_transactions j
+         JOIN journal_entries e ON e.transaction_id = j.id
+        WHERE j.transaction_type IN (
+          'payment','refund','reversal','cash_send_hold','cash_send_collect',
+          'cash_send_cancel_refund','cash_send_expire_refund','float_topup',
+          'p2p_transfer','transfer','balance_adjustment'
+        )
+        GROUP BY j.id
+        ORDER BY j.effective_at DESC NULLS LAST
+        LIMIT 200`,
+    );
+    return res.json({
+      source: 'journal_transactions',
+      intentScope: 'orchestrated_external_rails_only',
+      journals: journals.rows,
+      orchestrated: rows.rows,
+      payments: rows.rows,
+    });
   },
 );
 

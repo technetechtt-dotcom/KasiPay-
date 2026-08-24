@@ -43,7 +43,7 @@ import {
   collectTimeAgentFee,
   feeComponentsPositive,
 } from '../services/cashSendFeeSplit.js';
-import { recordFeeLifecyclePg } from '../services/feeLifecyclePg.js';
+import { recordFeeLifecyclePg, reverseCashSendCreateFeesPg } from '../services/feeLifecyclePg.js';
 import {
   calculateFeeCents,
   postFeeAccrualPg,
@@ -51,9 +51,9 @@ import {
   reverseFeeAccrualPg,
   resolveFeeSchedulePg,
 } from '../services/feeEnginePg.js';
-import { assertPayoutAgentCanPayPg, recordPayoutUsagePg } from '../services/payoutAgentsPg.js';
+import { assertAgentCanSendPg, assertPayoutAgentCanPayPg, recordPayoutUsagePg } from '../services/payoutAgentsPg.js';
 import { observeMetric } from '../observability.js';
-import { assertWalletKindPair } from '../services/walletKindsPg.js';
+import { assertWalletKindPair, getMerchantFloatWalletPg } from '../services/walletKindsPg.js';
 import { cashSendVoucherPin } from '../validation.js';
 import {
   clearCollectPinFailuresPg,
@@ -91,6 +91,8 @@ type VoucherRow = {
   sender_id_document_encrypted?: string | null;
   sender_id_hash?: string | null;
   recipient_id_hash?: string | null;
+  hold_transaction_id?: string | null;
+  merchant_commission_cents?: string;
 };
 
 cashSendRouterPg.get('/cash-send/me', requireAuth, async (req, res) => {
@@ -116,6 +118,30 @@ async function findVoucherByReferencePg(
     [ref],
   );
   return byRef.rows[0];
+}
+
+async function resolveCashSendRefundWalletPg(
+  pool: ReturnType<typeof getPgPool>,
+  senderUserId: string,
+  holdTransactionId?: string | null,
+): Promise<{ id: string; pool_id: string | null; wallet_kind: string } | undefined> {
+  if (holdTransactionId) {
+    const fromHold = await pool.query<{
+      id: string;
+      pool_id: string | null;
+      wallet_kind: string;
+    }>(
+      `SELECT w.id, w.pool_id, w.wallet_kind
+         FROM transactions t
+         JOIN wallets w ON w.id = t.from_wallet_id
+        WHERE t.id = $1`,
+      [holdTransactionId],
+    );
+    if (fromHold.rows[0]) return fromHold.rows[0];
+  }
+  const float = await getMerchantFloatWalletPg(pool, senderUserId);
+  if (!float) return undefined;
+  return { id: float.id, pool_id: float.pool_id, wallet_kind: float.wallet_kind };
 }
 
 const COLLECT_REFERENCE_MSG =
@@ -245,19 +271,6 @@ cashSendRouterPg.post(
     const pool = getPgPool();
     const userId = req.auth!.userId;
     const customerSenderPhone = parsed.data.senderPhone;
-    const walletQ = await pool.query<{
-      id: string;
-      status: string;
-      pool_id: string | null;
-    }>(
-      `SELECT * FROM wallets
-       WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-      [userId],
-    );
-    const wallet = walletQ.rows[0];
-    if (!wallet || wallet.status !== 'active') {
-      return res.status(400).json({ error: 'Wallet unavailable' });
-    }
     const feePolicy = await resolveFeeSchedulePg(pool, {
       product: 'cash_send',
       currency: 'ZAR',
@@ -272,6 +285,27 @@ cashSendRouterPg.post(
     const createFeeComponents = createTimeFeeComponents(feeCalculation.components);
 
     const totalCents = (amountCents + feeCents) as Cents;
+    let floatWalletId: string;
+    try {
+      const sendEligible = await assertAgentCanSendPg(pool, userId, totalCents);
+      floatWalletId = sendEligible.floatWalletId;
+    } catch (e) {
+      const err = e as { status?: number; message?: string; code?: string };
+      return res.status(err.status ?? 400).json({
+        error: err.message ?? 'Cash Send create is not allowed',
+        code: err.code,
+      });
+    }
+    const walletQ = await pool.query<{
+      id: string;
+      status: string;
+      pool_id: string | null;
+      wallet_kind: string;
+    }>(`SELECT id, status, pool_id, wallet_kind FROM wallets WHERE id = $1`, [floatWalletId]);
+    const wallet = walletQ.rows[0];
+    if (!wallet || wallet.status !== 'active') {
+      return res.status(400).json({ error: 'Merchant float wallet unavailable' });
+    }
     const poolId = wallet.pool_id ?? DEFAULT_POOL_ID;
     const escrowId = await getEscrowWalletIdForPoolPg(pool, poolId);
     if (!escrowId) {
@@ -323,6 +357,7 @@ cashSendRouterPg.post(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      assertWalletKindPair(wallet.wallet_kind, 'system_escrow', 'cash_send_hold');
       const holdPosting = await postBetweenWalletsPg(client, {
         fromWalletId: wallet.id,
         toWalletId: escrowId,
@@ -540,16 +575,11 @@ cashSendRouterPg.post(
       return res.status(400).json({ error: 'Voucher is not active' });
     }
 
-    const senderWalletQ = await pool.query<{
-      id: string;
-      status: string;
-      pool_id: string | null;
-    }>(
-      `SELECT * FROM wallets
-       WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-      [row.sender_user_id],
+    const senderWalletRow = await resolveCashSendRefundWalletPg(
+      pool,
+      row.sender_user_id,
+      row.hold_transaction_id,
     );
-    const senderWalletRow = senderWalletQ.rows[0];
 
     if (Date.now() > new Date(row.expires_at).getTime()) {
       if (!senderWalletRow) {
@@ -599,12 +629,11 @@ cashSendRouterPg.post(
           ['expired', 'Expired — refunded to sender from escrow', row.id, refundPosting.transactionId],
         );
         await reverseCommissionPostingsPg(client, 'cash_send', row.id);
-        await recordFeeLifecyclePg(client, {
-          sourceType: 'cash_send',
-          sourceId: row.id,
-          component: 'platform',
-          amountCents: parseIntegerCents(row.fee_cents, { allowZero: true }),
-          state: 'reversed',
+        await reverseCashSendCreateFeesPg(client, {
+          voucherId: row.id,
+          platformFeeCents: row.platform_fee_cents ?? '0',
+          merchantCommissionCents: row.merchant_commission_cents ?? '0',
+          journalTransactionId: refundPosting.transactionId,
         });
         observeMetric('cashsend.expired');
         await client.query('COMMIT');
@@ -853,6 +882,9 @@ cashSendRouterPg.post(
       amount_cents: string;
       fee_cents: string;
       status: string;
+      hold_transaction_id: string | null;
+      platform_fee_cents: string;
+      merchant_commission_cents: string;
     }>(`SELECT * FROM cash_send_vouchers WHERE id = $1`, [req.params.id]);
     const voucher = voucherQ.rows[0];
     if (!voucher || voucher.sender_user_id !== req.auth!.userId) {
@@ -861,15 +893,11 @@ cashSendRouterPg.post(
     if (voucher.status !== 'active') {
       return res.status(400).json({ error: 'Cannot cancel' });
     }
-    const senderWalletQ = await pool.query<{
-      id: string;
-      pool_id: string | null;
-    }>(
-      `SELECT * FROM wallets
-       WHERE user_id = $1 AND COALESCE(wallet_kind, 'user') = 'user'`,
-      [req.auth!.userId],
+    const senderWalletFull = await resolveCashSendRefundWalletPg(
+      pool,
+      req.auth!.userId,
+      voucher.hold_transaction_id,
     );
-    const senderWalletFull = senderWalletQ.rows[0];
     if (!senderWalletFull) {
       return res.status(400).json({ error: 'Wallet missing' });
     }
@@ -911,12 +939,11 @@ cashSendRouterPg.post(
         ['Cancelled by sender — refunded from escrow', voucher.id, refundPosting.transactionId],
       );
       await reverseCommissionPostingsPg(client, 'cash_send', voucher.id);
-      await recordFeeLifecyclePg(client, {
-        sourceType: 'cash_send',
-        sourceId: voucher.id,
-        component: 'merchant',
-        amountCents: parseIntegerCents(voucher.fee_cents, { allowZero: true }),
-        state: 'reversed',
+      await reverseCashSendCreateFeesPg(client, {
+        voucherId: voucher.id,
+        platformFeeCents: voucher.platform_fee_cents,
+        merchantCommissionCents: voucher.merchant_commission_cents,
+        journalTransactionId: refundPosting.transactionId,
       });
       await client.query('COMMIT');
     } catch (e) {

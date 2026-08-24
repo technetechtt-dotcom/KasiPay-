@@ -20,6 +20,7 @@ export function isMerchantOnlyRequest(path: string): boolean {
     /^\/supplier-orders(?:\/|$)/,
     /^\/stokvel(?:\/|$)/,
     /^\/insurance(?:\/|$)/,
+    /^\/cash-send(?:\/|$)/,
   ].some((pattern) => pattern.test(path));
 }
 

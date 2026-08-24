@@ -32,7 +32,9 @@ export function PaymentsTab() {
     <section>
       <h2>Payments &amp; safeguarding</h2>
       <p className="muted">
-        PayShap is optional. Sensitive credits require finance/ops maker-checker on the API.
+        Posted money is the journal. <code>payment_intents</code> is only for
+        orchestrated/external rails — not Cash Send, POS wallet, or cash.
+        PayShap is optional. Sensitive credits require finance/ops maker-checker.
         Shortfalls never auto-correct balances.
       </p>
       {error ? <p className="error">{error}</p> : null}

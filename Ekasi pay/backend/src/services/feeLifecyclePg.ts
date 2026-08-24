@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 
 import type { Cents } from '../money.js';
 import type { FeeComponent } from './feeEnginePg.js';
+import { createFeeReversalAmounts } from './cashSendFeeSplit.js';
 
 type Db = Pool | PoolClient;
 
@@ -58,4 +59,37 @@ export function platformFeeSweepable(input: {
   component: FeeComponent;
 }): boolean {
   return input.component === 'platform' && input.voucherStatus === 'collected';
+}
+
+export async function reverseCashSendCreateFeesPg(
+  database: Db,
+  input: {
+    voucherId: string;
+    platformFeeCents: string | number | bigint;
+    merchantCommissionCents: string | number | bigint;
+    journalTransactionId?: string;
+  },
+): Promise<{ platform: Cents; merchant: Cents }> {
+  const amounts = createFeeReversalAmounts(input);
+  if (amounts.platform > 0n) {
+    await recordFeeLifecyclePg(database, {
+      sourceType: 'cash_send',
+      sourceId: input.voucherId,
+      component: 'platform',
+      amountCents: amounts.platform,
+      state: 'reversed',
+      journalTransactionId: input.journalTransactionId,
+    });
+  }
+  if (amounts.merchant > 0n) {
+    await recordFeeLifecyclePg(database, {
+      sourceType: 'cash_send',
+      sourceId: input.voucherId,
+      component: 'merchant',
+      amountCents: amounts.merchant,
+      state: 'reversed',
+      journalTransactionId: input.journalTransactionId,
+    });
+  }
+  return amounts;
 }

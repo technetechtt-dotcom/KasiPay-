@@ -1,23 +1,50 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
-/** Deterministic merchant float deposit reference: KP-FLOAT-{short}-{checksum} */
-export function generateMerchantFloatReference(merchantId: string): string {
+const LEGACY =
+  /^KP-FLOAT-([A-Z0-9]{8})-([A-F0-9]{4})$/;
+const CURRENT =
+  /^KP-FLOAT-([A-Z0-9]{8})-([A-Z0-9]{8})-([A-F0-9]{4})$/;
+
+function merchantShortId(merchantId: string): string {
   const compact = merchantId.replace(/-/g, '').toUpperCase();
-  const shortId = compact.slice(0, 8).padEnd(8, '0');
-  const checksum = createHash('sha256')
+  return compact.slice(0, 8).padEnd(8, '0');
+}
+
+function checksum(shortId: string, unique: string): string {
+  return createHash('sha256')
+    .update(`KP-FLOAT:${shortId}:${unique}`)
+    .digest('hex')
+    .slice(0, 4)
+    .toUpperCase();
+}
+
+function legacyChecksum(shortId: string): string {
+  return createHash('sha256')
     .update(`KP-FLOAT:${shortId}`)
     .digest('hex')
     .slice(0, 4)
     .toUpperCase();
-  return `KP-FLOAT-${shortId}-${checksum}`;
+}
+
+/** Unique per request: KP-FLOAT-{merchant}-{entropy}-{checksum} */
+export function generateMerchantFloatReference(merchantId: string): string {
+  const shortId = merchantShortId(merchantId);
+  const unique = randomBytes(4).toString('hex').toUpperCase();
+  return `KP-FLOAT-${shortId}-${unique}-${checksum(shortId, unique)}`;
 }
 
 export function parseMerchantFloatReference(
   raw: string,
-): { shortId: string; checksum: string } | null {
-  const match = /^KP-FLOAT-([A-Z0-9]{8})-([A-F0-9]{4})$/.exec(raw.trim().toUpperCase());
-  if (!match) return null;
-  const expected = generateMerchantFloatReference(match[1]);
-  if (expected !== `KP-FLOAT-${match[1]}-${match[2]}`) return null;
-  return { shortId: match[1], checksum: match[2] };
+): { shortId: string; unique?: string; checksum: string } | null {
+  const value = raw.trim().toUpperCase();
+  const current = CURRENT.exec(value);
+  if (current) {
+    const expected = checksum(current[1], current[2]);
+    if (expected !== current[3]) return null;
+    return { shortId: current[1], unique: current[2], checksum: current[3] };
+  }
+  const legacy = LEGACY.exec(value);
+  if (!legacy) return null;
+  if (legacyChecksum(legacy[1]) !== legacy[2]) return null;
+  return { shortId: legacy[1], checksum: legacy[2] };
 }

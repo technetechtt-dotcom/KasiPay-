@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 
 import { parseIntegerCents, type Cents } from '../money.js';
 import { observeMetric } from '../observability.js';
+import { parseMerchantFloatReference } from './floatReference.js';
 
 type Db = Pool | PoolClient;
 
@@ -65,22 +66,26 @@ export async function ingestBankDepositPg(
     return { id: existing.rows[0].id, matchState: 'duplicate' };
   }
 
-  const exact = input.merchantReference
+  const merchantReference = input.merchantReference?.trim();
+  const validReference = merchantReference
+    ? parseMerchantFloatReference(merchantReference)
+    : null;
+  const exact = validReference && merchantReference
     ? await database.query<{ id: string; amount_cents: string; state: string }>(
         `SELECT id, amount_cents, state FROM merchant_float_topups
           WHERE merchant_reference = $1 AND currency = $2
           FOR UPDATE`,
-        [input.merchantReference, input.currency],
+        [merchantReference, input.currency],
       )
     : { rows: [] as Array<{ id: string; amount_cents: string; state: string }> };
 
-  const amountOnly = input.merchantReference
+  const amountOnly = merchantReference
     ? await database.query<{ id: string }>(
         `SELECT id FROM merchant_float_topups
           WHERE currency = $1 AND amount_cents = $2
             AND merchant_reference <> $3
             AND state IN ('requested','awaiting_bank_match')`,
-        [input.currency, amount.toString(), input.merchantReference],
+        [input.currency, amount.toString(), merchantReference],
       )
     : { rows: [] };
 

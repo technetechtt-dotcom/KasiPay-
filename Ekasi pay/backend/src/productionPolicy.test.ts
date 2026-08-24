@@ -160,6 +160,8 @@ test('regulated product flags fail independently of global posting flag', () => 
 test('merchant-only policy is based on route context, not token role', () => {
   assert.equal(isMerchantOnlyRequest('/products'), true);
   assert.equal(isMerchantOnlyRequest('/insurance/abc/claims'), true);
+  assert.equal(isMerchantOnlyRequest('/cash-send'), true);
+  assert.equal(isMerchantOnlyRequest('/cash-send/collect'), true);
   assert.equal(isMerchantOnlyRequest('/wallets/me'), false);
   assert.equal(isMerchantOnlyRequest('/transfers'), false);
 });

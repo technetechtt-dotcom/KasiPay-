@@ -66,8 +66,7 @@ export async function requestFloatTopupPg(
     `INSERT INTO merchant_float_topups
        (id, merchant_user_id, merchant_id, amount_cents, currency, pool_id,
         merchant_reference, state, requested_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'awaiting_bank_match',$2)
-     ON CONFLICT (merchant_reference) DO NOTHING`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'awaiting_bank_match',$2)`,
     [
       id,
       input.merchantUserId,
@@ -78,14 +77,10 @@ export async function requestFloatTopupPg(
       merchantReference,
     ],
   );
-  const row = await database.query<{ id: string; state: string }>(
-    `SELECT id, state FROM merchant_float_topups WHERE merchant_reference = $1`,
-    [merchantReference],
-  );
   return {
-    id: row.rows[0]?.id ?? id,
+    id,
     merchantReference,
-    state: row.rows[0]?.state ?? 'awaiting_bank_match',
+    state: 'awaiting_bank_match',
   };
 }
 

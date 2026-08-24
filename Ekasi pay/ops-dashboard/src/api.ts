@@ -972,7 +972,13 @@ export async function apiFeeSchedules() {
 }
 
 export async function apiOpsPayments() {
-  return opsFetch<{ payments: Array<Record<string, unknown>> }>('/api/ops/payments');
+  return opsFetch<{
+    source?: string;
+    intentScope?: string;
+    journals?: Array<Record<string, unknown>>;
+    orchestrated?: Array<Record<string, unknown>>;
+    payments: Array<Record<string, unknown>>;
+  }>('/api/ops/payments');
 }
 
 export async function apiOpsMerchantFloat() {

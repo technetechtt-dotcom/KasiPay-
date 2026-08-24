@@ -5,6 +5,8 @@ funds flags. Migration `022_payment_architecture.js` publishes Cash Send fee
 **version 3** (R9 = R6 platform + R1 sending shop + R2 payout shop) for **new**
 vouchers only. Historical v1/v2 assessments are not rewritten. Collect credits
 the payout shop `merchant_float` wallet, never a personal `user` wallet.
+Create debits the sending shop's dedicated `merchant_float`, never a generic
+`user` wallet.
 
 ## R3 merchant commission
 
@@ -29,8 +31,9 @@ When (and only when) a shop is enrolled as a cash-out agent:
 2. Post R2 as `commission_postings` with `agent_user_id = payout_shop_id` and
    `source_type = cash_send_payout`.
 3. Daily settlement nets: float drawdown vs commission vs activation balance.
-4. Caps: per-voucher, per-day, and per-shop float floor. Below floor, the shop
-   cannot pay out until they top up.
+4. Caps: per-voucher, per-day, and **physical cash availability**. Below the
+   reported cash band, the shop cannot pay out. Electronic float is credited
+   after cash-out; it is not the eligibility gate.
 
 Keep the same-region collect check until inter-pool settlement exists.
 

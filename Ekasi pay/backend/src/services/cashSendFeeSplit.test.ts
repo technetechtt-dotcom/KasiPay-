@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { parseIntegerCents } from '../money.js';
 import { calculateFeeCents } from './feeEnginePg.js';
-import { collectTimeAgentFee, createTimeFeeComponents } from './cashSendFeeSplit.js';
+import { collectTimeAgentFee, createFeeReversalAmounts, createTimeFeeComponents } from './cashSendFeeSplit.js';
 
 describe('Cash Send v3 fee split', () => {
   const fee = calculateFeeCents(parseIntegerCents('15000'), {
@@ -30,5 +30,15 @@ describe('Cash Send v3 fee split', () => {
     assert.equal(atCreate.platform, 600n);
     assert.equal(atCreate.agent, 0n);
     assert.equal(collectTimeAgentFee(fee.components), 200n);
+  });
+
+  it('reverses R6 platform + R1 send on cancel/expiry, never the full R9', () => {
+    const reversed = createFeeReversalAmounts({
+      platformFeeCents: fee.components.platform,
+      merchantCommissionCents: fee.components.merchant,
+    });
+    assert.equal(reversed.platform, 600n);
+    assert.equal(reversed.merchant, 100n);
+    assert.notEqual(reversed.platform, fee.totalFeeCents);
   });
 });

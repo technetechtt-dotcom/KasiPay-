@@ -42,9 +42,7 @@ export function assertWalletKindPair(
     (purpose === 'merchant_internal_transfer' &&
       (from === 'merchant_sales' || from === 'user') &&
       (to === 'merchant_sales' || to === 'merchant_float' || to === 'user')) ||
-    (purpose === 'cash_send_hold' &&
-      (from === 'user' || from === 'merchant_sales' || from === 'merchant_float') &&
-      ESCROW.has(to)) ||
+    (purpose === 'cash_send_hold' && FLOAT_ONLY.has(from) && ESCROW.has(to)) ||
     (purpose === 'cash_send_payout' && ESCROW.has(from) && FLOAT_ONLY.has(to)) ||
     (purpose === 'float_credit' && ESCROW.has(from) && FLOAT_ONLY.has(to)) ||
     (purpose === 'float_debit' && FLOAT_ONLY.has(from) && (ESCROW.has(to) || to === 'user'));

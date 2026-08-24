@@ -90,11 +90,15 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
     const now = new Date().toISOString();
     const senderWalletId = randomUUID();
     const collectorWalletId = randomUUID();
+    const senderMerchantId = randomUUID();
+    const collectorMerchantId = randomUUID();
+    const senderFloatId = randomUUID();
+    const collectorFloatId = randomUUID();
 
     await pool.query(
       `INSERT INTO users (id, name, phone, pin_hash, role, kyc_status, account_tier, created_at)
-       VALUES ($1, $2, $3, $4, 'agent', 'verified', 'Basic', $5),
-              ($6, $7, $8, $4, 'agent', 'verified', 'Basic', $5)`,
+       VALUES ($1, $2, $3, $4, 'merchant', 'verified', 'Basic', $5),
+              ($6, $7, $8, $4, 'merchant', 'verified', 'Basic', $5)`,
       [
         senderId,
         'PG Test Sender',
@@ -106,13 +110,29 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
         collectorPhone,
       ],
     );
-    const collectorFloatId = randomUUID();
     await pool.query(
-      `INSERT INTO wallets (id, user_id, balance, currency, status, pool_id, wallet_kind)
-       VALUES ($1, $2, 1000, 'ZAR', 'active', 'ZA', 'user'),
-              ($3, $4, 0, 'ZAR', 'active', 'ZA', 'user'),
-              ($5, $4, 0, 'ZAR', 'active', 'ZA', 'merchant_float')`,
-      [senderWalletId, senderId, collectorWalletId, collectorId, collectorFloatId],
+      `INSERT INTO merchants (id, user_id, business_name, location, category, approval_status)
+       VALUES ($1,$2,'Sender Shop','ZA','spaza','approved'),
+              ($3,$4,'Collector Shop','ZA','spaza','approved')`,
+      [senderMerchantId, senderId, collectorMerchantId, collectorId],
+    );
+    await pool.query(
+      `INSERT INTO merchant_activations (id, merchant_id, status)
+       VALUES ($1,$2,'complete'), ($3,$4,'complete')`,
+      [randomUUID(), senderId, randomUUID(), collectorId],
+    );
+    await pool.query(
+      `INSERT INTO wallets (id, user_id, balance_cents, currency, status, pool_id, wallet_kind)
+       VALUES ($1, $2, 0, 'ZAR', 'active', 'ZA', 'user'),
+              ($3, $2, 100000, 'ZAR', 'active', 'ZA', 'merchant_float'),
+              ($4, $5, 0, 'ZAR', 'active', 'ZA', 'user'),
+              ($6, $5, 0, 'ZAR', 'active', 'ZA', 'merchant_float')`,
+      [senderWalletId, senderId, senderFloatId, collectorWalletId, collectorId, collectorFloatId],
+    );
+    await pool.query(
+      `INSERT INTO merchant_cash_availability (merchant_id, availability_band)
+       VALUES ($1, 'over_5000')`,
+      [collectorMerchantId],
     );
     await pool.query(
       `INSERT INTO payout_agents
@@ -128,13 +148,13 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
     senderToken = signToken({
       sub: senderId,
       phone: senderPhone,
-      role: 'agent',
+      role: 'merchant',
       sid: senderSession.sessionId,
     });
     collectorToken = signToken({
       sub: collectorId,
       phone: collectorPhone,
-      role: 'agent',
+      role: 'merchant',
       sid: collectorSession.sessionId,
     });
 
@@ -171,6 +191,18 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
     );
     await pool.query(`DELETE FROM cash_send_vouchers WHERE sender_user_id = $1`, [
       senderId,
+    ]);
+    await pool.query(`DELETE FROM merchant_cash_availability WHERE merchant_id IN (
+      SELECT id FROM merchants WHERE user_id = ANY($1::text[])
+    )`, [[senderId, collectorId]]);
+    await pool.query(`DELETE FROM merchant_activations WHERE merchant_id = ANY($1::text[])`, [
+      [senderId, collectorId],
+    ]);
+    await pool.query(`DELETE FROM payout_agents WHERE merchant_id = ANY($1::text[])`, [
+      [senderId, collectorId],
+    ]);
+    await pool.query(`DELETE FROM merchants WHERE user_id = ANY($1::text[])`, [
+      [senderId, collectorId],
     ]);
     await pool.query(`DELETE FROM auth_sessions WHERE user_id = ANY($1::text[])`, [
       [senderId, collectorId],

@@ -43,8 +43,20 @@ idempotency). There is no second ledger.
 
 Wallet kinds: `user`, `merchant_sales`, `merchant_float`, `system_escrow`.
 
-Historical merchant `user` wallets still receive sales if `merchant_sales` has
-not been provisioned. Float and sales balances are never mixed in service checks.
+Agent float is one wallet for both Cash Send legs:
+
+- cash-in: `merchant_float` → `system_escrow`
+- cash-out: `system_escrow` → `merchant_float`
+- bank-matched top-up: `system_escrow` → `merchant_float`
+
+POS sales stay on `merchant_sales` / `user`.
+
+## payment_intents
+
+`payment_intents` is **not** universal. It is only for orchestrated/external
+rails (`bank_deposit`, `bank_payout`, and future PSPs). Cash, internal wallet,
+and Cash Send post journals directly. Ops payments reads
+`journal_transactions` as the source of truth.
 
 ## POS totals
 

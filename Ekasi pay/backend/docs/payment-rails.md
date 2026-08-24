@@ -20,6 +20,10 @@ Optional future stubs exist in `rails/optionalRails.ts` but are **not registered
 
 Requesting an unregistered rail (`requestedRail: 'payshap'`) fails closed.
 
+`payment_intents` rows are written only for orchestrated/external rails. Launch
+rails that post in-process (`internal_wallet`, `cash`, `cash_send`) do not
+insert an intent; the journal is authoritative.
+
 ## Interface
 
 ```ts
