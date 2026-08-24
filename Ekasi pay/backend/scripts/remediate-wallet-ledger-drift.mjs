@@ -6,7 +6,8 @@
  *   DATABASE_URL=... npm run money:remediate-drift
  *
  * Apply with maker-checker approval id (required in production):
- *   ALLOW_DRIFT_REMEDIATION=1 DRIFT_APPROVAL_REQUEST_ID=<uuid> npm run money:remediate-drift
+ *   ALLOW_DRIFT_REMEDIATION=1 DRIFT_APPROVAL_REQUEST_ID=<uuid> \
+ *   DRIFT_EXECUTOR_OPERATOR_ID=<ops uuid> npm run money:remediate-drift
  *
  * Non-prod staging fallback:
  *   ALLOW_DRIFT_REMEDIATION=1 DRIFT_REMEDIATION_APPROVAL=FIN-... npm run money:remediate-drift
@@ -28,6 +29,7 @@ if (!connectionString) throw new Error('DATABASE_URL is required.');
 const apply = process.env.ALLOW_DRIFT_REMEDIATION === '1';
 const approvalRequestId = process.env.DRIFT_APPROVAL_REQUEST_ID?.trim() ?? '';
 const approval = process.env.DRIFT_REMEDIATION_APPROVAL?.trim() ?? '';
+const executorOperatorId = process.env.DRIFT_EXECUTOR_OPERATOR_ID?.trim() ?? '';
 const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
 if (apply) {
   if (!approvalRequestId) {
@@ -39,6 +41,8 @@ if (apply) {
     console.warn(
       '[remediate-drift] Using DRIFT_REMEDIATION_APPROVAL fallback — production must use DRIFT_APPROVAL_REQUEST_ID.',
     );
+  } else if (!executorOperatorId) {
+    throw new Error('DRIFT_EXECUTOR_OPERATOR_ID must be a real ops_admin_users id.');
   }
 }
 
@@ -83,7 +87,7 @@ try {
           actionType: 'balance_adjustment',
           resourceType: batch ? 'wallet_batch' : 'wallet',
           resourceId: row.resource_id,
-          executorOperatorId: 'script:remediate-drift',
+          executorOperatorId,
         });
         for (const drift of before) {
           if (!allowed.has(drift.walletId)) {
@@ -92,7 +96,7 @@ try {
           const result = await alignLegacyLedgerToWalletPg(client, {
             walletId: drift.walletId,
             approvalReference: approvalRequestId,
-            actorId: 'script:remediate-drift',
+            actorId: executorOperatorId,
             reason: `Align legacy ledger to wallet (${drift.origin}); approval ${approvalRequestId}`,
           });
           applied.push({
@@ -105,7 +109,7 @@ try {
         await markApprovalExecuted(
           client,
           approvalRequestId,
-          'script:remediate-drift',
+          executorOperatorId,
           'Batch drift remediation executed',
         );
       } else {
