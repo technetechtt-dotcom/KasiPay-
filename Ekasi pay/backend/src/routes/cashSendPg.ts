@@ -35,6 +35,10 @@ import {
 } from '../services/commissionsPg.js';
 import { createComplianceFlagPg } from '../services/compliancePg.js';
 import { notifySenderCashSendVoucher } from '../services/cashSendSms.js';
+import {
+  consumeCashSendPayoutOtpPg,
+  issueCashSendPayoutOtpPg,
+} from '../services/cashSendPayoutOtpPg.js';
 import { getEscrowWalletIdForPoolPg } from '../services/escrowPg.js';
 import { postBetweenWalletsPg } from '../services/walletPostingPg.js';
 import { evaluateTransactionRiskPg } from '../services/riskPg.js';
@@ -51,7 +55,7 @@ import {
   reverseFeeAccrualPg,
   resolveFeeSchedulePg,
 } from '../services/feeEnginePg.js';
-import { assertAgentCanSendPg, assertPayoutAgentCanPayPg, recordPayoutUsagePg } from '../services/payoutAgentsPg.js';
+import { assertAgentCanSendPg, consumeReservedPayoutPg, lockAndReservePayoutCapacityPg } from '../services/payoutAgentsPg.js';
 import { observeMetric } from '../observability.js';
 import { assertWalletKindPair, getMerchantFloatWalletPg } from '../services/walletKindsPg.js';
 import { cashSendVoucherPin } from '../validation.js';
@@ -534,6 +538,7 @@ cashSendRouterPg.post(
     return res.status(201).json({
       voucher: toCashSendVoucher(row),
       smsSent,
+      recipientVerification: recipientIdHash ? 'id_on_file' : 'payout_otp_required',
     });
   },
 );
@@ -548,6 +553,76 @@ const collectBody = z.object({
     }),
   pin: cashSendVoucherPin,
   scannedIdDocument: z.string().min(1),
+  payoutOtp: z
+    .string()
+    .regex(/^\d{6}$/)
+    .optional(),
+});
+
+const collectOtpBody = z.object({
+  referenceNumber: z
+    .string()
+    .min(1)
+    .transform((v) => parseCashSendVoucherReference(v))
+    .refine((v): v is string => v !== null, {
+      message: COLLECT_REFERENCE_MSG,
+    }),
+  pin: cashSendVoucherPin,
+});
+
+cashSendRouterPg.post('/cash-send/collect/otp', requireAuth, async (req, res) => {
+  const parsed = collectOtpBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const pool = getPgPool();
+  const row = await findVoucherByReferencePg(pool, parsed.data.referenceNumber);
+  if (!row) {
+    return res.status(404).json({
+      error:
+        'Voucher not found — ask the beneficiary for the unique CS… reference they received from the sender.',
+    });
+  }
+  if (row.status !== 'active') {
+    return res.status(400).json({ error: 'Voucher is not active' });
+  }
+  try {
+    await ensureCollectNotLockedPg(pool, row.reference_number);
+  } catch (e: unknown) {
+    const err = e as { status?: number; message?: string };
+    return res.status(err.status ?? 423).json({
+      error: err.message ?? 'Too many wrong PINs for this voucher.',
+    });
+  }
+  if (!verifyPin(parsed.data.pin, row.pin_hash)) {
+    await recordCollectPinFailurePg(pool, row.reference_number);
+    return res.status(401).json({ error: 'Incorrect PIN for this voucher.' });
+  }
+  await clearCollectPinFailuresPg(pool, row.reference_number);
+  if (row.recipient_id_hash) {
+    return res.json({
+      sent: false,
+      recipientVerification: 'id_on_file',
+      notice: 'Recipient ID is already on file. Scan that ID at payout; OTP is not required.',
+    });
+  }
+  try {
+    const issued = await issueCashSendPayoutOtpPg(pool, {
+      voucherId: row.id,
+      recipientPhone: row.recipient_phone,
+      referenceNumber: row.reference_number,
+    });
+    return res.json({
+      sent: issued.sent,
+      expiresAt: issued.expiresAt,
+      recipientVerification: 'payout_otp_required',
+    });
+  } catch (e) {
+    const err = e as { status?: number; message?: string };
+    return res.status(typeof err.status === 'number' ? err.status : 500).json({
+      error: err.message ?? 'Could not send payout OTP',
+    });
+  }
 });
 
 cashSendRouterPg.post(
@@ -726,39 +801,15 @@ cashSendRouterPg.post(
           'The ID scanned does not match the beneficiary on file for this voucher. Confirm the beneficiary and try again.',
       });
     }
-
-    let payoutWalletId: string;
-    try {
-      const eligibility = await assertPayoutAgentCanPayPg(
-        pool,
-        req.auth!.userId,
-        parseIntegerCents(row.amount_cents),
-      );
-      payoutWalletId = eligibility.floatWalletId;
-    } catch (e) {
-      const err = e as { status?: number; message?: string; code?: string };
-      return res.status(err.status ?? 400).json({
-        error: err.message ?? 'Payout agent cannot collect this voucher',
-        code: err.code,
-      });
-    }
-    const payoutWalletQ = await pool.query<{
-      id: string;
-      status: string;
-      pool_id: string | null;
-      wallet_kind: string;
-    }>(`SELECT id, status, pool_id, wallet_kind FROM wallets WHERE id = $1`, [payoutWalletId]);
-    const payoutWallet = payoutWalletQ.rows[0];
-    if (!payoutWallet || payoutWallet.status !== 'active') {
-      return res.status(400).json({ error: 'Collector float wallet unavailable' });
-    }
-    const poolId = senderWalletRow.pool_id ?? DEFAULT_POOL_ID;
-    if ((payoutWallet.pool_id ?? DEFAULT_POOL_ID) !== poolId) {
+    if (!storedRecipientHash && !parsed.data.payoutOtp) {
       return res.status(400).json({
         error:
-          'Cash Send can only be collected in the same region (wallet pool) as the sender.',
+          'Recipient ID was not captured at create. Request a payout OTP to the beneficiary phone, then collect with that code.',
+        code: 'PAYOUT_OTP_REQUIRED',
       });
     }
+
+    const poolId = senderWalletRow.pool_id ?? DEFAULT_POOL_ID;
     const escrowId = await getEscrowWalletIdForPoolPg(pool, poolId);
     if (!escrowId) {
       return res
@@ -775,6 +826,39 @@ cashSendRouterPg.post(
       );
       if (lockedVoucher.rows[0]?.status !== 'active') {
         throw Object.assign(new Error('Voucher is no longer active'), { status: 409 });
+      }
+      if (!storedRecipientHash) {
+        await consumeCashSendPayoutOtpPg(client, {
+          voucherId: row.id,
+          recipientPhone: row.recipient_phone,
+          code: parsed.data.payoutOtp!,
+        });
+      }
+      const eligibility = await lockAndReservePayoutCapacityPg(
+        client,
+        req.auth!.userId,
+        parseIntegerCents(row.amount_cents),
+        row.id,
+      );
+      const payoutWalletQ = await client.query<{
+        id: string;
+        status: string;
+        pool_id: string | null;
+        wallet_kind: string;
+      }>(`SELECT id, status, pool_id, wallet_kind FROM wallets WHERE id = $1`, [
+        eligibility.floatWalletId,
+      ]);
+      const payoutWallet = payoutWalletQ.rows[0];
+      if (!payoutWallet || payoutWallet.status !== 'active') {
+        throw Object.assign(new Error('Collector float wallet unavailable'), { status: 400 });
+      }
+      if ((payoutWallet.pool_id ?? DEFAULT_POOL_ID) !== poolId) {
+        throw Object.assign(
+          new Error(
+            'Cash Send can only be collected in the same region (wallet pool) as the sender.',
+          ),
+          { status: 400 },
+        );
       }
       assertWalletKindPair('system_escrow', payoutWallet.wallet_kind, 'cash_send_payout');
       const principalPosting = await postBetweenWalletsPg(client, {
@@ -826,7 +910,12 @@ cashSendRouterPg.post(
           state: 'earned',
         });
       }
-      await recordPayoutUsagePg(client, req.auth!.userId, parseIntegerCents(row.amount_cents));
+      await consumeReservedPayoutPg(
+        client,
+        eligibility.merchantId,
+        row.id,
+        parseIntegerCents(row.amount_cents),
+      );
       await client.query(
         `UPDATE cash_send_vouchers
             SET settlement_transaction_ids = $1::jsonb, payout_merchant_id = $3
@@ -855,9 +944,10 @@ cashSendRouterPg.post(
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK');
-      const err = e as { status?: number; message?: string };
+      const err = e as { status?: number; message?: string; code?: string };
       return res.status(typeof err.status === 'number' ? err.status : 500).json({
         error: err.message ?? 'Collection failed',
+        code: err.code,
       });
     } finally {
       client.release();

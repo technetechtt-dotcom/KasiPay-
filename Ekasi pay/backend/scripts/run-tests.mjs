@@ -30,6 +30,8 @@ if (mode === 'unit') {
     'src/phase7Pg.integration.test.ts',
     'src/phase8Pg.integration.test.ts',
     'src/paymentArchitecture.pg.integration.test.ts',
+    'src/agentFloat.pg.integration.test.ts',
+    'src/payoutAgentConcurrency.pg.integration.test.ts',
   ]);
   files = all.filter((file) => allowed.has(file));
 } else {

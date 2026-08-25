@@ -135,6 +135,13 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       [collectorMerchantId],
     );
     await pool.query(
+      `INSERT INTO merchant_cash_liquidity (merchant_id, available_cents, reserved_cents)
+       VALUES ($1, 1000000, 0)
+       ON CONFLICT (merchant_id)
+       DO UPDATE SET available_cents = 1000000, reserved_cents = 0`,
+      [collectorMerchantId],
+    );
+    await pool.query(
       `INSERT INTO payout_agents
          (merchant_id, status, float_floor_cents, per_transaction_limit_cents,
           daily_payout_limit_cents, enrolled_at)
@@ -182,6 +189,18 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
     }
     const { getPgPool, closePg } = await import('./dbPg.js');
     const pool = getPgPool();
+    await pool.query(`DELETE FROM cash_send_payout_otps WHERE voucher_id IN (
+      SELECT id FROM cash_send_vouchers WHERE sender_user_id = $1
+    )`, [senderId]);
+    await pool.query(
+      `DELETE FROM merchant_cash_reservations WHERE merchant_id IN (
+        SELECT id FROM merchants WHERE user_id = ANY($1::text[])
+      )`,
+      [[senderId, collectorId]],
+    );
+    await pool.query(`DELETE FROM merchant_cash_liquidity WHERE merchant_id IN (
+      SELECT id FROM merchants WHERE user_id = ANY($1::text[])
+    )`, [[senderId, collectorId]]);
     await pool.query(
       `DELETE FROM cash_send_collect_failures
         WHERE reference_number IN (
@@ -226,7 +245,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
       recipientPhone,
-      recipientIdDocument: '',
+      recipientIdDocument: recipientSaId,
       amount: 50,
       atmPin: voucherPin,
     });
@@ -243,7 +262,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
       recipientPhone,
-      recipientIdDocument: '',
+      recipientIdDocument: recipientSaId,
       amount: 50,
       atmPin: voucherPin,
     });
@@ -264,7 +283,7 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
       recipientFirstName: 'Ben',
       recipientLastName: 'Eficiary',
       recipientPhone: `081${String(num + 3).padStart(7, '0')}`.slice(0, 10),
-      recipientIdDocument: '',
+      recipientIdDocument: recipientSaId,
       amount: 25,
       atmPin: voucherPin,
     });
@@ -307,5 +326,35 @@ describe('cashSendPg integration', { skip: !RUN_PG }, () => {
     assert.equal(body.voucher?.status, 'collected');
     const replay = await collect();
     assert.equal(replay.status, 400);
+  });
+
+  it('requires a payout OTP when recipient ID was omitted at create', async () => {
+    const otpPhone = `086${String(num + 6).padStart(7, '0')}`.slice(0, 10);
+    const created = await httpJson(baseUrl, 'POST', '/cash-send', senderToken, {
+      senderFirstName: 'Test',
+      senderLastName: 'Sender',
+      senderIdDocument: senderSaId,
+      senderPhone: customerSenderPhone,
+      senderAddress: '1 Test St, Johannesburg',
+      recipientFirstName: 'Otp',
+      recipientLastName: 'User',
+      recipientPhone: otpPhone,
+      recipientIdDocument: '',
+      amount: 20,
+      atmPin: voucherPin,
+    });
+    assert.equal(created.status, 201);
+    const body = created.json as {
+      voucher?: { referenceNumber?: string };
+      recipientVerification?: string;
+    };
+    assert.equal(body.recipientVerification, 'payout_otp_required');
+    const missing = await httpJson(baseUrl, 'POST', '/cash-send/collect', collectorToken, {
+      referenceNumber: body.voucher!.referenceNumber!,
+      pin: voucherPin,
+      scannedIdDocument: recipientSaId,
+    });
+    assert.equal(missing.status, 400);
+    assert.equal((missing.json as { code?: string }).code, 'PAYOUT_OTP_REQUIRED');
   });
 });

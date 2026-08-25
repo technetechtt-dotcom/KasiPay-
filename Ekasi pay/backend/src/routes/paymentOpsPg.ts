@@ -209,6 +209,7 @@ paymentOpsRouterPg.post(
         currency: z.string().regex(/^[A-Z]{3}$/).default('ZAR'),
         direction: z.enum(['credit', 'debit']).default('credit'),
         valueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        destinationAccount: z.string().min(1).max(256).optional(),
       })
       .safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -222,14 +223,15 @@ paymentOpsRouterPg.post(
         currency: parsed.data.currency,
         direction: parsed.data.direction,
         valueDate: parsed.data.valueDate,
+        destinationAccount: parsed.data.destinationAccount,
       });
       await client.query('COMMIT');
       return res.status(201).json({
         ...ingested,
         notice:
           ingested.matchState === 'matched'
-            ? 'Matched. Credit still requires an explicit ops confirmation.'
-            : 'Not credited. Routed for ops review.',
+            ? 'Matched to an approved client-funds credit. Credit still requires an explicit ops confirmation.'
+            : 'Not credited. Debits, non-client-funds destinations, and unmatched rows go to suspense.',
       });
     } catch (e) {
       await client.query('ROLLBACK');

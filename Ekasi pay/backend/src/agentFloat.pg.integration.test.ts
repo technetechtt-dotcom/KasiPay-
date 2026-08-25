@@ -4,12 +4,36 @@ import test from 'node:test';
 
 import { Pool } from 'pg';
 
-import { requestFloatTopupPg } from './services/merchantFloatPg.js';
 import { ingestBankDepositPg } from './services/bankDepositMatchingPg.js';
 import { createFeeReversalAmounts } from './services/cashSendFeeSplit.js';
 import { reverseCashSendCreateFeesPg } from './services/feeLifecyclePg.js';
+import { requestFloatTopupPg } from './services/merchantFloatPg.js';
 import { postBetweenWalletsPg } from './services/walletPostingPg.js';
 import { assertWalletKindPair } from './services/walletKindsPg.js';
+
+const CLIENT_FUNDS_FINGERPRINT = 'TEST-CLIENT-FUNDS-ZA-ZAR';
+
+async function seedApprovedClientFunds(pool: Pool) {
+  const accountId = randomUUID();
+  await pool.query(
+    `INSERT INTO bank_accounts
+       (id, label, purpose, currency, pool_id, account_fingerprint, approved)
+     VALUES ($1,'Test client funds','client_funds','ZAR','ZA',$2,TRUE)
+     ON CONFLICT (purpose, currency, pool_id)
+     DO UPDATE SET approved = TRUE, account_fingerprint = EXCLUDED.account_fingerprint`,
+    [accountId, CLIENT_FUNDS_FINGERPRINT],
+  );
+  const account = await pool.query<{ id: string }>(
+    `SELECT id FROM bank_accounts
+      WHERE purpose = 'client_funds' AND currency = 'ZAR' AND pool_id = 'ZA'`,
+  );
+  await pool.query(
+    `INSERT INTO safeguarding_accounts (id, bank_account_id, pool_id, currency)
+     VALUES ($1,$2,'ZA','ZAR')
+     ON CONFLICT (pool_id, currency) DO NOTHING`,
+    [randomUUID(), account.rows[0].id],
+  );
+}
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -190,6 +214,7 @@ test(
         correlationId: randomUUID(),
       });
       assert.notEqual(first.merchantReference, second.merchantReference);
+      await seedApprovedClientFunds(pool);
       const matchFirst = await ingestBankDepositPg(pool, {
         bankReference: `BNK-${suffix}-1`,
         merchantReference: first.merchantReference,
@@ -197,6 +222,7 @@ test(
         currency: 'ZAR',
         direction: 'credit',
         valueDate: new Date().toISOString().slice(0, 10),
+        destinationAccount: CLIENT_FUNDS_FINGERPRINT,
       });
       const matchSecond = await ingestBankDepositPg(pool, {
         bankReference: `BNK-${suffix}-2`,
@@ -205,9 +231,25 @@ test(
         currency: 'ZAR',
         direction: 'credit',
         valueDate: new Date().toISOString().slice(0, 10),
+        destinationAccount: CLIENT_FUNDS_FINGERPRINT,
       });
       assert.equal(matchFirst.matchState, 'matched');
       assert.equal(matchSecond.matchState, 'matched');
+      const debit = await ingestBankDepositPg(pool, {
+        bankReference: `BNK-${suffix}-debit`,
+        merchantReference: first.merchantReference,
+        amountCents: 10_000n,
+        currency: 'ZAR',
+        direction: 'debit',
+        valueDate: new Date().toISOString().slice(0, 10),
+        destinationAccount: CLIENT_FUNDS_FINGERPRINT,
+      });
+      assert.equal(debit.matchState, 'suspense');
+      const reuse = await pool.query(
+        `UPDATE merchant_float_topups SET bank_transaction_id = $1 WHERE id = $2`,
+        [matchFirst.id, second.id],
+      ).catch((error: { code?: string }) => error);
+      assert.equal((reuse as { code?: string }).code, '23505');
     });
   },
 );

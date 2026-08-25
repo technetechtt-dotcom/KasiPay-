@@ -74,6 +74,7 @@ const report = {
   notes: [
     'Wallet↔legacy drift must be zero each cycle.',
     'Journal debit=credit, projection match, and non-negative balances required.',
+    'Approved balance_adjustment (ALIGN) journals are excluded from wallet projection derivation because those journals catch up legacy ledger while wallet projections are snapped to wallets.balance_cents.',
     'ledger_backfill_status=pending_signoff remains a separate finance gate.',
   ],
 };

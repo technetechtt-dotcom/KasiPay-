@@ -25,4 +25,25 @@ describe('bank deposit matching', () => {
       'unmatched',
     );
   });
+
+  it('never matches a debit or a non-client-funds destination', () => {
+    assert.equal(
+      classifyBankDepositMatch({
+        exactMatches: 1,
+        amountMatches: 0,
+        alreadyMatched: false,
+        creditOnly: false,
+      }),
+      'unmatched',
+    );
+    assert.equal(
+      classifyBankDepositMatch({
+        exactMatches: 1,
+        amountMatches: 0,
+        alreadyMatched: false,
+        clientFundsDestination: false,
+      }),
+      'unmatched',
+    );
+  });
 });

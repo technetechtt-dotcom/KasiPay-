@@ -7,7 +7,13 @@ import { idempotentPg } from '../middleware/idempotencyPg.js';
 import { requireApprovedMerchant } from '../middleware/requireApprovedMerchant.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireMerchantIdPg } from '../services/merchantPg.js';
-import { CASH_AVAILABILITY_BANDS } from '../services/cashAvailabilityPg.js';
+import {
+  CASH_AVAILABILITY_BANDS,
+  bandToAvailableCents,
+  declareCashLiquidityPg,
+  getCashLiquidityPg,
+  parseAvailableCentsInput,
+} from '../services/cashAvailabilityPg.js';
 import {
   getFloatHistoryPg,
   requestFloatTopupPg,
@@ -117,27 +123,55 @@ merchantFloatRouterPg.get('/merchant/cash-availability', async (req, res) => {
     `SELECT availability_band, updated_at FROM merchant_cash_availability WHERE merchant_id = $1`,
     [merchantId],
   );
+  const liquidity = await getCashLiquidityPg(pool, merchantId);
   return res.json({
     availabilityBand: row.rows[0]?.availability_band ?? 'unavailable',
+    availableCents: liquidity.availableCents.toString(),
+    reservedCents: liquidity.reservedCents.toString(),
+    freeCents: liquidity.freeCents.toString(),
     updatedAt: row.rows[0]?.updated_at ?? null,
   });
 });
 
 merchantFloatRouterPg.post('/merchant/cash-availability', async (req, res) => {
   const parsed = z
-    .object({ availabilityBand: z.enum(CASH_AVAILABILITY_BANDS) })
+    .object({
+      availabilityBand: z.enum(CASH_AVAILABILITY_BANDS).optional(),
+      availableCents: z.union([z.string(), z.number()]).optional(),
+    })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (parsed.data.availableCents === undefined && !parsed.data.availabilityBand) {
+    return res.status(400).json({
+      error: 'Provide availableCents or an availabilityBand to seed cash-on-hand',
+    });
+  }
   const pool = getPgPool();
   const merchantId = await requireMerchantIdPg(pool, req.auth!.userId);
-  await pool.query(
-    `INSERT INTO merchant_cash_availability (merchant_id, availability_band, updated_at)
-     VALUES ($1,$2,clock_timestamp())
-     ON CONFLICT (merchant_id)
-     DO UPDATE SET availability_band = EXCLUDED.availability_band, updated_at = clock_timestamp()`,
-    [merchantId, parsed.data.availabilityBand],
-  );
-  return res.json({ availabilityBand: parsed.data.availabilityBand });
+  try {
+    const available =
+      parsed.data.availableCents !== undefined
+        ? parseAvailableCentsInput(parsed.data.availableCents)
+        : bandToAvailableCents(parsed.data.availabilityBand!);
+    const liquidity = await declareCashLiquidityPg(
+      pool,
+      merchantId,
+      available,
+      parsed.data.availabilityBand,
+    );
+    return res.json({
+      availabilityBand: parsed.data.availabilityBand ?? null,
+      availableCents: liquidity.availableCents.toString(),
+      reservedCents: liquidity.reservedCents.toString(),
+      freeCents: liquidity.freeCents.toString(),
+    });
+  } catch (e) {
+    const err = e as { status?: number; message?: string; code?: string };
+    return res.status(typeof err.status === 'number' ? err.status : 400).json({
+      error: err.message ?? 'Cash availability update failed',
+      code: err.code,
+    });
+  }
 });
 
 merchantFloatRouterPg.get('/merchant/payout-agent', async (req, res) => {

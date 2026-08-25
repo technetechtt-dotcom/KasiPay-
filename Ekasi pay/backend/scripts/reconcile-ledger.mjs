@@ -39,6 +39,10 @@ try {
       LEFT JOIN journal_entries e ON e.account_id = a.id
       LEFT JOIN journal_transactions t ON t.id = e.transaction_id
         AND t.state IN ('posted','settled','reversed')
+        AND NOT (
+          t.transaction_type = 'balance_adjustment'
+          AND a.id LIKE 'wallet:%'
+        )
       GROUP BY a.id
     )
     SELECT

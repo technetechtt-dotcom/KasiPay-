@@ -11,6 +11,8 @@ import {
   ensureMerchantFloatWalletPg,
   getMerchantFloatWalletPg,
 } from './walletKindsPg.js';
+import { isApprovedClientFundsDestinationPg } from './clientFundsAccountsPg.js';
+import { recognizeClientFundsBankCreditPg } from './clientFundsRecognitionPg.js';
 import { postBetweenWalletsPg } from './walletPostingPg.js';
 
 type Db = Pool | PoolClient;
@@ -100,6 +102,7 @@ export async function creditMatchedFloatTopupPg(
     pool_id: string;
     state: string;
     bank_transaction_id: string | null;
+    bank_recognition_journal_id: string | null;
   }>(`SELECT * FROM merchant_float_topups WHERE id = $1 FOR UPDATE`, [input.topupId]);
   const row = topup.rows[0];
   if (!row) throw Object.assign(new Error('Float top-up not found'), { status: 404 });
@@ -117,6 +120,53 @@ export async function creditMatchedFloatTopupPg(
       status: 409,
     });
   }
+  const bankTx = await client.query<{
+    id: string;
+    direction: string;
+    destination_account: string | null;
+    matched_topup_id: string | null;
+    currency: string;
+  }>(
+    `SELECT id, direction, destination_account, matched_topup_id, currency
+       FROM bank_transactions WHERE id = $1 FOR UPDATE`,
+    [row.bank_transaction_id],
+  );
+  const evidence = bankTx.rows[0];
+  if (!evidence || evidence.direction !== 'credit') {
+    throw Object.assign(new Error('Only a client-funds bank credit can back a float top-up'), {
+      status: 409,
+      code: 'BANK_CREDIT_REQUIRED',
+    });
+  }
+  if (evidence.matched_topup_id && evidence.matched_topup_id !== row.id) {
+    throw Object.assign(new Error('This bank transaction already backs another float top-up'), {
+      status: 409,
+      code: 'BANK_TX_ALREADY_USED',
+    });
+  }
+  const clientFunds = await isApprovedClientFundsDestinationPg(client, {
+    destinationAccount: evidence.destination_account,
+    currency: evidence.currency,
+    poolId: row.pool_id,
+  });
+  if (!clientFunds) {
+    throw Object.assign(
+      new Error('Destination must be an approved client_funds safeguarding account'),
+      { status: 409, code: 'CLIENT_FUNDS_DESTINATION_REQUIRED' },
+    );
+  }
+  const claimedBank = await client.query(
+    `UPDATE bank_transactions
+        SET matched_topup_id = $2
+      WHERE id = $1 AND (matched_topup_id IS NULL OR matched_topup_id = $2)`,
+    [evidence.id, row.id],
+  );
+  if (!claimedBank.rowCount) {
+    throw Object.assign(new Error('This bank transaction already backs another float top-up'), {
+      status: 409,
+      code: 'BANK_TX_ALREADY_USED',
+    });
+  }
   const float = await ensureMerchantFloatWalletPg(
     client,
     row.merchant_user_id,
@@ -126,6 +176,18 @@ export async function creditMatchedFloatTopupPg(
   const escrowId = await getEscrowWalletIdForPoolPg(client, row.pool_id);
   if (!escrowId) {
     throw Object.assign(new Error('Regional escrow is not available'), { status: 503 });
+  }
+  let recognitionId = row.bank_recognition_journal_id;
+  if (!recognitionId) {
+    const recognized = await recognizeClientFundsBankCreditPg(client, {
+      escrowWalletId: escrowId,
+      amountCents: parseIntegerCents(row.amount_cents),
+      currency: row.currency,
+      poolId: row.pool_id,
+      bankTransactionId: evidence.id,
+      actorId: input.actorId,
+    });
+    recognitionId = recognized.transactionId;
   }
   assertWalletKindPair('system_escrow', float.wallet_kind, 'float_credit');
   const posted = await postBetweenWalletsPg(client, {
@@ -140,9 +202,9 @@ export async function creditMatchedFloatTopupPg(
   await client.query(
     `UPDATE merchant_float_topups
         SET state = 'credited', journal_transaction_id = $2, approved_by = $3,
-            updated_at = clock_timestamp()
+            bank_recognition_journal_id = $4, updated_at = clock_timestamp()
       WHERE id = $1`,
-    [row.id, posted.transactionId, input.actorId],
+    [row.id, posted.transactionId, input.actorId, recognitionId],
   );
   return { journalTransactionId: posted.transactionId };
 }

@@ -16,6 +16,7 @@ import {
 } from './config.js';
 import { getDb } from './db.js';
 import { getPgPool } from './dbPg.js';
+import { schemaFingerprintPg } from './services/schemaFingerprintPg.js';
 import { closeDataStore, initDataStore, isPostgresMode } from './dbRuntime.js';
 import { validateProductionConfig } from './validateProductionConfig.js';
 import { initMonitoring } from './monitoring.js';
@@ -204,6 +205,10 @@ app.get('/health/ready', async (_req, res) => {
       `SELECT count(*)::int AS n FROM schema_migrations`,
     );
     const schemaMigrations = readyRow.rows[0]?.n ?? 0;
+    const fingerprint = await schemaFingerprintPg(getPgPool()).catch(() => ({
+      schemaMigrations,
+      schemaFingerprint: '',
+    }));
     const gitSha = (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '')
       .trim()
       .slice(0, 12);
@@ -232,7 +237,8 @@ app.get('/health/ready', async (_req, res) => {
       ok: true,
       database: 'ready',
       nonFunds: NON_FUNDS_DEPLOYMENT,
-      schemaMigrations,
+      schemaMigrations: fingerprint.schemaMigrations || schemaMigrations,
+      ...(fingerprint.schemaFingerprint ? { schemaFingerprint: fingerprint.schemaFingerprint } : {}),
       ...(gitSha ? { gitSha } : {}),
       backupFreshness: IS_LOCAL_ENV
         ? 'not_required_local'

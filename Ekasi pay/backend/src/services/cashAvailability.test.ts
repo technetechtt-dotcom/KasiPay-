@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  bandToAvailableCents,
   cashBandMaxPayoutCents,
   physicalCashCoversPayout,
 } from './cashAvailabilityPg.js';
@@ -18,4 +19,11 @@ describe('physical cash-out eligibility', () => {
     assert.equal(physicalCashCoversPayout('under_500', 50_000n), false);
     assert.equal(physicalCashCoversPayout('over_5000', 800_000n), true);
   });
+
+  it('seeds liquidity from a band ceiling and requires cents for over_5000', () => {
+    assert.equal(bandToAvailableCents('under_500'), 49_999n);
+    assert.equal(bandToAvailableCents('over_5000', 800_000n), 800_000n);
+    assert.throws(() => bandToAvailableCents('over_5000'), /explicit availableCents/);
+  });
 });
+

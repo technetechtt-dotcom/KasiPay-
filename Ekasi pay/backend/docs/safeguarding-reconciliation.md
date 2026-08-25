@@ -6,6 +6,9 @@ client-funds bank account. Contracting a bank remains **BLOCKED**.
 ## Entities
 
 - `bank_accounts` with purpose `client_funds | operating | settlement | suspense`
+  and `approved` (matching requires an approved `client_funds` row plus a
+  `safeguarding_accounts` link)
+- Unique bank-transaction backing for merchant float top-ups
 - `safeguarding_accounts` (pool + currency → bank account)
 - `safeguarding_reconciliations` (daily report rows)
 

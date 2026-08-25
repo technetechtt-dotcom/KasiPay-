@@ -31,9 +31,14 @@ When (and only when) a shop is enrolled as a cash-out agent:
 2. Post R2 as `commission_postings` with `agent_user_id = payout_shop_id` and
    `source_type = cash_send_payout`.
 3. Daily settlement nets: float drawdown vs commission vs activation balance.
-4. Caps: per-voucher, per-day, and **physical cash availability**. Below the
-   reported cash band, the shop cannot pay out. Electronic float is credited
-   after cash-out; it is not the eligibility gate.
+4. Caps: per-voucher, per-day (locked `FOR UPDATE` + atomic remaining check),
+   and **reserved physical cash liquidity**. Below free cash-on-hand, the shop
+   cannot pay out. Electronic float is credited after cash-out; it is not the
+   eligibility gate.
+
+Create requires recipient SA ID **or** payout uses a phone OTP sent to the
+beneficiary (`POST /cash-send/collect/otp`). Collect still captures the
+presented ID for the audit trail.
 
 Keep the same-region collect check until inter-pool settlement exists.
 
@@ -43,9 +48,12 @@ Separate **sales wallet** (POS takings) from **cash-out float wallet**.
 
 Top-up path:
 
-1. Merchant EFT / cash deposit into the **safeguarded client-funds account**.
-2. Bank statement import matches `merchant_id` + reference.
-3. Only after exact match: credit that shop’s float wallet from regional escrow.
+1. Merchant EFT / cash deposit into an **approved `client_funds` safeguarding
+   account** (not operating funds).
+2. Bank statement import matches merchant reference + amount, **credits only**.
+3. Recognition journal: Dr bank client-funds asset / Cr regional escrow.
+4. Only after that journal: credit that shop’s float wallet from escrow.
+5. The same bank transaction cannot fund a second top-up.
 4. Rebalancing between shops is an ops job, not a merchant-to-merchant transfer.
 
 Never let a shop pay out from uncleared sales takings.

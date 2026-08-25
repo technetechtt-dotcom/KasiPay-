@@ -10,6 +10,7 @@ import 'dotenv/config';
 import { closePg, getPgPool } from '../src/dbPg.ts';
 import { isNonFundsDeployment } from '../src/deploymentMode.ts';
 import { structuredLog } from '../src/observability.ts';
+import { schemaFingerprintPg } from '../src/services/schemaFingerprintPg.ts';
 import {
   claimQueuedReconciliationJobsPg,
   runScheduledReconciliationPg,
@@ -87,8 +88,33 @@ async function processQueue() {
   }
 }
 
+async function beat() {
+  const pool = getPgPool();
+  const fingerprint = await schemaFingerprintPg(pool).catch(() => ({
+    schemaMigrations: 0,
+    schemaFingerprint: '',
+  }));
+  await pool.query(
+    `INSERT INTO reconciliation_worker_heartbeats
+       (worker_id, schema_fingerprint, schema_migrations, last_seen_at)
+     VALUES ($1,$2,$3,clock_timestamp())
+     ON CONFLICT (worker_id)
+     DO UPDATE SET schema_fingerprint = EXCLUDED.schema_fingerprint,
+                   schema_migrations = EXCLUDED.schema_migrations,
+                   last_seen_at = clock_timestamp()`,
+    [workerId, fingerprint.schemaFingerprint, fingerprint.schemaMigrations],
+  );
+  return fingerprint;
+}
+
 async function tick() {
   const pool = getPgPool();
+  const fingerprint = await beat().catch((error) => {
+    structuredLog('error', 'reconciliation.worker_heartbeat_failed', {
+      message: error instanceof Error ? error.message : 'failed',
+    });
+    return null;
+  });
   await processQueue();
   for (const runType of jobTypes) {
     try {
@@ -99,6 +125,7 @@ async function tick() {
       structuredLog(result.ok ? 'info' : 'error', 'reconciliation.worker', {
         ...result,
         runType,
+        schemaFingerprint: fingerprint?.schemaFingerprint,
         alert: !result.ok && !result.skipped && !nonFunds,
         pageOnCall: !result.ok && !result.skipped && !nonFunds,
       });

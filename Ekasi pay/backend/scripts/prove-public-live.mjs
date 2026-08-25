@@ -74,7 +74,7 @@ async function main() {
       record(
         'API schema fingerprint',
         parsed.schemaMigrations >= 19 && parsed.database === 'ready',
-        `schemaMigrations=${parsed.schemaMigrations} gitSha=${parsed.gitSha || '(none)'}`,
+        `schemaMigrations=${parsed.schemaMigrations} fingerprint=${parsed.schemaFingerprint || '(none)'} gitSha=${parsed.gitSha || '(none)'}`,
       );
     }
   } catch (error) {

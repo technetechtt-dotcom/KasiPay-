@@ -18,6 +18,7 @@ if (process.env.NODE_ENV === 'production' || /prod/i.test(process.env.RESTORE_DA
 
 const mode = (process.env.RESTORE_MODE ?? 'pg_restore').trim().toLowerCase();
 const startedAt = new Date().toISOString();
+const startedMs = Date.now();
 
 async function assertRestoredDatabase(connectionString) {
   const client = new pg.Client({
@@ -54,12 +55,15 @@ if (mode === 'neon_branch') {
   const passed =
     counts.migrationCount > 0 && counts.walletCount >= 0 && counts.journalCount >= 0;
   const result = {
-    schemaVersion: 'phase5.drill.v2',
+    schemaVersion: 'phase5.drill.v3',
     drillType: 'restore_reconcile',
     environment: 'isolated',
     mode: 'neon_branch',
     startedAt,
     completedAt: new Date().toISOString(),
+    rtoMs: Date.now() - startedMs,
+    rpoNote:
+      'Neon branch fork copies the parent tip. RPO is fork lag (typically seconds), not a timed encrypted dump restore.',
     outcome: passed ? 'passed' : 'failed',
     assertions: [
       {
@@ -110,12 +114,15 @@ const passed =
   counts.journalCount >= 0;
 
 const result = {
-  schemaVersion: 'phase5.drill.v2',
+  schemaVersion: 'phase5.drill.v3',
   drillType: 'restore_reconcile',
   environment: 'isolated',
   mode: 'pg_restore',
   startedAt,
   completedAt: new Date().toISOString(),
+  rtoMs: Date.now() - startedMs,
+  rpoNote:
+    'RPO is the age of RESTORE_DUMP_FILE versus production writes after the dump started. Encrypted dumps require openssl decrypt before pg_restore.',
   outcome: passed ? 'passed' : 'failed',
   assertions: [
     { name: 'pg_restore_completed', passed: code === 0 },

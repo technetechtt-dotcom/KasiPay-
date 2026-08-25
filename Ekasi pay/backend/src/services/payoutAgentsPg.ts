@@ -1,7 +1,10 @@
 import type { Pool, PoolClient } from 'pg';
 
 import { parseIntegerCents, type Cents } from '../money.js';
-import { assertPhysicalCashForPayoutPg } from './cashAvailabilityPg.js';
+import {
+  consumeCashReservationPg,
+  reserveCashLiquidityPg,
+} from './cashAvailabilityPg.js';
 import { ensureMerchantFloatWalletPg, getMerchantFloatWalletPg } from './walletKindsPg.js';
 
 type Db = Pool | PoolClient;
@@ -134,10 +137,94 @@ export async function assertAgentCanSendPg(
 }
 
 /**
- * Cash-out: physical cash on hand is the eligibility gate.
- * Electronic float is credited after payout; a float floor is not sufficient
- * and is not required to pay.
+ * Cash-out eligibility checked inside the collect transaction after the voucher
+ * row is locked. Locks the payout-agent row FOR UPDATE, atomically reserves
+ * daily capacity, then reserves physical cash liquidity.
  */
+export async function lockAndReservePayoutCapacityPg(
+  client: PoolClient,
+  merchantUserId: string,
+  amountCents: Cents,
+  voucherId: string,
+): Promise<{ floatWalletId: string; merchantId: string }> {
+  const amount = parseIntegerCents(amountCents);
+  const { merchantId } = await assertMerchantAgentReadyPg(client, merchantUserId);
+  const agent = await client.query<{
+    status: string;
+    per_transaction_limit_cents: string;
+    daily_payout_limit_cents: string;
+    float_suspended: boolean;
+  }>(
+    `SELECT status, per_transaction_limit_cents, daily_payout_limit_cents, float_suspended
+       FROM payout_agents
+      WHERE merchant_id = $1
+      FOR UPDATE`,
+    [merchantUserId],
+  );
+  const row = agent.rows[0];
+  if (!row || !['enrolled', 'approved'].includes(row.status)) {
+    throw Object.assign(new Error('Payout agent is not enrolled'), {
+      status: 403,
+      code: 'PAYOUT_AGENT_NOT_ENROLLED',
+    });
+  }
+  if (row.status === 'suspended' || row.float_suspended) {
+    throw Object.assign(new Error('Payout agent is suspended'), {
+      status: 403,
+      code: 'PAYOUT_AGENT_SUSPENDED',
+    });
+  }
+  if (amount > BigInt(row.per_transaction_limit_cents)) {
+    throw Object.assign(new Error('Payout exceeds per-transaction limit'), {
+      status: 400,
+      code: 'PAYOUT_TX_LIMIT',
+    });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const reserved = await client.query(
+    `UPDATE payout_agents SET
+       daily_payout_used_cents = CASE
+         WHEN daily_payout_used_on = $2::date THEN daily_payout_used_cents + $3
+         ELSE $3 END,
+       daily_payout_used_on = $2::date,
+       updated_at = clock_timestamp()
+     WHERE merchant_id = $1
+       AND status IN ('enrolled','approved')
+       AND float_suspended = FALSE
+       AND $3 <= per_transaction_limit_cents
+       AND CASE
+             WHEN daily_payout_used_on = $2::date THEN daily_payout_used_cents
+             ELSE 0 END + $3 <= daily_payout_limit_cents
+     RETURNING merchant_id`,
+    [merchantUserId, today, amount.toString()],
+  );
+  if (!reserved.rowCount) {
+    throw Object.assign(new Error('Daily payout limit exceeded'), {
+      status: 400,
+      code: 'PAYOUT_DAILY_LIMIT',
+    });
+  }
+  await reserveCashLiquidityPg(client, merchantId, amount, voucherId);
+  const float = await getMerchantFloatWalletPg(client, merchantUserId);
+  if (!float || float.status !== 'active') {
+    throw Object.assign(new Error('Merchant float wallet is required for cash-out credit'), {
+      status: 400,
+      code: 'FLOAT_WALLET_REQUIRED',
+    });
+  }
+  return { floatWalletId: float.id, merchantId };
+}
+
+export async function consumeReservedPayoutPg(
+  client: PoolClient,
+  merchantId: string,
+  voucherId: string,
+  amountCents: Cents,
+): Promise<void> {
+  await consumeCashReservationPg(client, merchantId, voucherId, amountCents);
+}
+
+/** Diagnostic pre-check only. Collect must use lockAndReservePayoutCapacityPg. */
 export async function assertPayoutAgentCanPayPg(
   database: Db,
   merchantUserId: string,
@@ -172,17 +259,6 @@ export async function assertPayoutAgentCanPayPg(
       code: 'PAYOUT_TX_LIMIT',
     });
   }
-  const usedOn = row.daily_payout_used_on;
-  const today = new Date().toISOString().slice(0, 10);
-  const used = usedOn === today ? BigInt(row.daily_payout_used_cents) : 0n;
-  const dailyLimit = BigInt(row.daily_payout_limit_cents);
-  if (used + amount > dailyLimit) {
-    throw Object.assign(new Error('Daily payout limit exceeded'), {
-      status: 400,
-      code: 'PAYOUT_DAILY_LIMIT',
-    });
-  }
-  await assertPhysicalCashForPayoutPg(database, merchantId, amount);
   const float = await getMerchantFloatWalletPg(database, merchantUserId);
   if (!float || float.status !== 'active') {
     throw Object.assign(new Error('Merchant float wallet is required for cash-out credit'), {
