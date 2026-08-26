@@ -29,7 +29,8 @@ import {
   ShieldCheck,
   Wallet,
   Download,
-  History } from
+  History,
+  Banknote } from
 'lucide-react';
 import type {
   User,
@@ -354,6 +355,19 @@ export const MorePage = ({
 
       {showFullShopTools && !agentWithoutMerchantProfile ?
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
+          <button
+            onClick={() => navigate('float-cash')}
+            className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Banknote className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">
+                Float &amp; payout cash
+              </span>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
           <button
             onClick={() => navigate('commissions')}
             className="w-full flex items-center justify-between p-4 active:bg-slate-50">

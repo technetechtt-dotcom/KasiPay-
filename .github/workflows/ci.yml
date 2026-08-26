@@ -38,6 +38,8 @@ jobs:
             echo '- Protected `main` with enforce_admins; force-push blocked'
             echo '- Ship by direct push to `main` only (no PR / feature-branch workflow)'
             echo '- CI still runs on push; it is not a pre-push branch gate'
+            echo '- Production deploys from Render checksPass only — never Manual Deploy a failed SHA'
+            echo '- Tag a release candidate with `npm run release:candidate` after validate is green'
             echo '- Set ALLOW_DIRECT_MAIN_PUSH=0 only if you later want PR+CODEOWNERS+required checks'
             echo '- Staging/production Environments (add required reviewers in UI)'
             echo '- Dependency graph must be enabled for dependency-review (Settings → Code security)'

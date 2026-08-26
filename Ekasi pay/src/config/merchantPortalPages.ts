@@ -19,6 +19,7 @@ export const MERCHANT_PORTAL_PAGE_IDS = new Set([
   'price-comparison',
   'voice-notes',
   'food-safety',
+  'float-cash',
 ]);
 
 /**

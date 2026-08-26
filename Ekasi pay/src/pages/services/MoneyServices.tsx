@@ -49,7 +49,7 @@ import {
   isSaCellphoneInput,
   parseCashSendVoucherReference,
 } from '../../lib/cashSendReference';
-import { ApiError, apiLookupCashSend } from '../../services/api';
+import { ApiError, apiLookupCashSend, apiRequestCashSendPayoutOtp } from '../../services/api';
 import { CashSendConsentGate } from '../../components/consent/CashSendDataConsent';
 
 const onlyDigits = (v: string) => v.replace(/\D/g, '');
@@ -113,7 +113,8 @@ export const MoneyServices = ({
   collectCashSend: (
     referenceNumber: string,
     pin: string,
-    scannedIdDocument: string
+    scannedIdDocument: string,
+    payoutOtp?: string,
   ) => Promise<{
     success: boolean;
     reason?: string;
@@ -921,7 +922,8 @@ type CollectCashFlowProps = {
   collectCashSend: (
     referenceNumber: string,
     pin: string,
-    scannedIdDocument: string
+    scannedIdDocument: string,
+    payoutOtp?: string,
   ) => Promise<{ success: boolean; reason?: string; voucher?: CashSendVoucher }>;
   navigate: (p: string) => void;
   scanReturnRoute: string;
@@ -936,6 +938,7 @@ const CollectCashFlow = ({
   const [reference, setReference] = useState('');
   const [pin, setPin] = useState('');
   const [scannedIdDoc, setScannedIdDoc] = useState('');
+  const [payoutOtp, setPayoutOtp] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [voucher, setVoucher] = useState<CashSendVoucher | null>(null);
@@ -1029,7 +1032,7 @@ const CollectCashFlow = ({
         setError('Enter a valid voucher number (CS…) and PIN.');
         return;
       }
-      const result = await collectCashSend(refNorm, pin, digits);
+      const result = await collectCashSend(refNorm, pin, digits, payoutOtp || undefined);
       if (result.success && result.voucher) {
         setVoucher(result.voucher);
         setStep(3);
@@ -1169,6 +1172,46 @@ const CollectCashFlow = ({
             onChange={(e) =>
             setScannedIdDoc(onlyDigits(e.target.value).slice(0, 13))
             } />
+          <KPInput
+            label="Payout OTP (if no recipient ID was captured at send)"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="6-digit SMS code"
+            value={payoutOtp}
+            onChange={(e) => setPayoutOtp(onlyDigits(e.target.value).slice(0, 6))}
+          />
+          <KPButton
+            type="button"
+            variant="outline"
+            className="w-full mt-2"
+            disabled={busy}
+            onClick={async () => {
+              const refNorm = parseCashSendVoucherReference(reference);
+              if (!refNorm) {
+                setError('Enter a valid voucher number (CS…) and PIN first.');
+                return;
+              }
+              setBusy(true);
+              setError('');
+              try {
+                const issued = await apiRequestCashSendPayoutOtp({
+                  referenceNumber: refNorm,
+                  pin,
+                });
+                toast.success(
+                  issued.notice ??
+                    (issued.sent ? 'OTP sent to the beneficiary phone' : 'OTP not required'),
+                );
+              } catch (e) {
+                setError(e instanceof ApiError ? e.message : 'Could not send payout OTP');
+              } finally {
+                setBusy(false);
+              }
+            }}>
+            Send payout OTP
+          </KPButton>
 
         </div>
       </div>

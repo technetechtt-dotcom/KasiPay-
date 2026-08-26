@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   bandToAvailableCents,
   cashBandMaxPayoutCents,
+  cashLiquidityIsStale,
   physicalCashCoversPayout,
 } from './cashAvailabilityPg.js';
 
@@ -24,6 +25,15 @@ describe('physical cash-out eligibility', () => {
     assert.equal(bandToAvailableCents('under_500'), 49_999n);
     assert.equal(bandToAvailableCents('over_5000', 800_000n), 800_000n);
     assert.throws(() => bandToAvailableCents('over_5000'), /explicit availableCents/);
+  });
+
+  it('treats cash declarations older than 6 hours as stale', () => {
+    assert.equal(cashLiquidityIsStale(null), true);
+    assert.equal(cashLiquidityIsStale(new Date().toISOString()), false);
+    assert.equal(
+      cashLiquidityIsStale(new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString()),
+      true,
+    );
   });
 });
 

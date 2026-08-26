@@ -12,11 +12,13 @@
 4. A bank statement/deposit is ingested (`POST /ops/bank-deposits`).
 5. Exact match on merchant + reference + currency + amount, **credit-only**, and
    destination fingerprint of an **approved `client_funds` safeguarding account**.
-6. Ops confirms credit (`POST /ops/merchant-float/topups/:id/credit`).
-7. Ledger posts **Dr safeguarded client-funds bank asset / Cr regional escrow**,
+6. Ops confirms the bank transaction is **settled** (`POST /ops/bank-transactions/:id/settle`
+   or a signed bank webhook `credit.settled`). Pending EFTs never create float.
+7. Ops confirms credit (`POST /ops/merchant-float/topups/:id/credit`).
+8. Ledger posts **Dr safeguarded client-funds bank asset / Cr regional escrow**,
    then escrow → `merchant_float`. Merchant float is never issued before the
    bank asset journal.
-8. The same bank transaction cannot back more than one float top-up
+9. The same bank transaction cannot back more than one float top-up
    (`merchant_float_topups.bank_transaction_id` and
    `bank_transactions.matched_topup_id` are unique).
 

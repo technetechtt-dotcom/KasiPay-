@@ -6,6 +6,10 @@ import { parseIntegerCents, type Cents } from '../money.js';
 import { observeMetric } from '../observability.js';
 import { isApprovedClientFundsDestinationPg } from './clientFundsAccountsPg.js';
 import { parseMerchantFloatReference } from './floatReference.js';
+import {
+  recordBankLifecycleEventPg,
+  type BankLifecycleStatus,
+} from './bankTransactionLifecyclePg.js';
 
 type Db = Pool | PoolClient;
 
@@ -20,6 +24,8 @@ export type BankDepositInput = {
   destinationAccount?: string;
   statementFileId?: string;
   poolId?: string;
+  providerEventId?: string;
+  lifecycleStatus?: BankLifecycleStatus;
 };
 
 export type BankMatchState = 'matched' | 'partial' | 'duplicate' | 'unmatched' | 'suspense';
@@ -74,6 +80,15 @@ async function ingestBankDepositLocked(
   if (existing.rows[0]) {
     observeMetric('float.topup.unmatched');
     return { id: existing.rows[0].id, matchState: 'duplicate' };
+  }
+  if (input.providerEventId) {
+    const byEvent = await database.query<{ id: string; match_state: BankMatchState }>(
+      `SELECT id, match_state FROM bank_transactions WHERE provider_event_id = $1`,
+      [input.providerEventId],
+    );
+    if (byEvent.rows[0]) {
+      return { id: byEvent.rows[0].id, matchState: 'duplicate' };
+    }
   }
 
   const clientFundsApproved = await isApprovedClientFundsDestinationPg(database, {
@@ -142,12 +157,17 @@ async function ingestBankDepositLocked(
       ? 'suspense'
       : matchState;
 
+  const lifecycle: BankLifecycleStatus =
+    input.lifecycleStatus && input.lifecycleStatus !== 'settled'
+      ? input.lifecycleStatus
+      : 'received';
   await database.query(
     `INSERT INTO bank_transactions
        (id, bank_reference, merchant_reference, amount_cents, currency, direction,
         value_date, source_account_fingerprint, destination_account, raw_hash,
-        statement_file_id, match_state, matched_topup_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        statement_file_id, match_state, matched_topup_id, lifecycle_status,
+        provider_event_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [
       id,
       input.bankReference,
@@ -162,8 +182,17 @@ async function ingestBankDepositLocked(
       input.statementFileId ?? null,
       persistedState,
       topupId ?? null,
+      lifecycle,
+      input.providerEventId ?? null,
     ],
   );
+  await recordBankLifecycleEventPg(database, {
+    bankTransactionId: id,
+    fromStatus: null,
+    toStatus: lifecycle,
+    reason: 'ingest',
+    metadata: { matchState: persistedState },
+  });
 
   if (topupId) {
     observeMetric('float.topup.matched');

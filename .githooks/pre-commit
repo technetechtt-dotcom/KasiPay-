@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Optional local hook. Install with:
+#   git config core.hooksPath .githooks
+# (do not enable automatically — operators must opt in.)
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+CONFIG="$ROOT/.gitleaks.toml"
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --config "$CONFIG" --redact --verbose
+else
+  echo "gitleaks is not installed; CI secret-scan still runs on push." >&2
+fi

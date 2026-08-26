@@ -35,6 +35,7 @@
     "reconcile:worker": "node --import tsx scripts/reconcile-worker.mjs",
     "migrate:deploy": "node scripts/deploy-migrate.mjs",
     "github:configure-controls": "node scripts/configure-github-controls.mjs",
+    "release:candidate": "node scripts/release-candidate.mjs",
     "voucher:expire": "npm run build && node scripts/expire-vouchers.mjs",
     "phase7:stokvel-inventory": "npm run build && node scripts/inventory-phase7-stokvel.mjs",
     "production:ready": "node scripts/production-readiness.mjs",

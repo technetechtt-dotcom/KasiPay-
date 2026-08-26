@@ -96,13 +96,20 @@ async function beat() {
   }));
   await pool.query(
     `INSERT INTO reconciliation_worker_heartbeats
-       (worker_id, schema_fingerprint, schema_migrations, last_seen_at)
-     VALUES ($1,$2,$3,clock_timestamp())
+       (worker_id, schema_fingerprint, schema_migrations, last_seen_at, last_ok_at, worker_version)
+     VALUES ($1,$2,$3,clock_timestamp(),clock_timestamp(),$4)
      ON CONFLICT (worker_id)
      DO UPDATE SET schema_fingerprint = EXCLUDED.schema_fingerprint,
                    schema_migrations = EXCLUDED.schema_migrations,
-                   last_seen_at = clock_timestamp()`,
-    [workerId, fingerprint.schemaFingerprint, fingerprint.schemaMigrations],
+                   last_seen_at = clock_timestamp(),
+                   last_ok_at = clock_timestamp(),
+                   worker_version = EXCLUDED.worker_version`,
+    [
+      workerId,
+      fingerprint.schemaFingerprint,
+      fingerprint.schemaMigrations,
+      process.env.RENDER_GIT_COMMIT?.slice(0, 12) || process.env.npm_package_version || '0.1.0',
+    ],
   );
   return fingerprint;
 }

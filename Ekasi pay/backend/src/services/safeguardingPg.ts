@@ -89,8 +89,11 @@ export async function generateSafeguardingReportPg(
     merchantFloatLiabilitiesCents +
     customerWalletLiabilitiesCents +
     outstandingCashSendPrincipalCents;
-  const actual =
-    input.actualClientFundsCents === undefined ? null : input.actualClientFundsCents;
+  const imported =
+    input.actualClientFundsCents === undefined
+      ? await latestClientFundsBankBalancePg(database, { poolId, currency }).catch(() => null)
+      : input.actualClientFundsCents;
+  const actual = imported === undefined ? null : imported;
   const classified = classifySafeguarding({
     expectedClientFundsCents,
     actualClientFundsCents: actual,
@@ -154,4 +157,72 @@ export async function generateSafeguardingReportPg(
       operatingRevenueExcludedCents,
     },
   };
+}
+
+export async function importSafeguardingBankBalancePg(
+  database: Db,
+  input: {
+    bankAccountId: string;
+    asOf: string;
+    availableCents: bigint;
+    source: string;
+    importedBy: string;
+  },
+): Promise<{ id: string }> {
+  const id = randomUUID();
+  await database.query(
+    `INSERT INTO bank_account_balances
+       (id, bank_account_id, as_of, available_cents, source, imported_by)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (bank_account_id, as_of, source)
+     DO UPDATE SET available_cents = EXCLUDED.available_cents, imported_by = EXCLUDED.imported_by`,
+    [
+      id,
+      input.bankAccountId,
+      input.asOf,
+      input.availableCents.toString(),
+      input.source,
+      input.importedBy,
+    ],
+  );
+  return { id };
+}
+
+export async function latestClientFundsBankBalancePg(
+  database: Db,
+  input: { poolId?: string; currency?: string } = {},
+): Promise<bigint | null> {
+  const row = await database.query<{ available_cents: string }>(
+    `SELECT b.available_cents
+       FROM bank_account_balances b
+       JOIN bank_accounts a ON a.id = b.bank_account_id
+      WHERE a.purpose = 'client_funds'
+        AND a.currency = $1
+        AND a.pool_id = $2
+        AND a.approved = TRUE
+      ORDER BY b.as_of DESC, b.created_at DESC
+      LIMIT 1`,
+    [input.currency ?? 'ZAR', input.poolId ?? 'ZA'],
+  );
+  return row.rows[0] ? BigInt(row.rows[0].available_cents) : null;
+}
+
+export async function signOffSafeguardingReportPg(
+  database: Db,
+  input: { reportId: string; operatorId: string; note?: string },
+): Promise<{ id: string }> {
+  const report = await database.query<{ id: string }>(
+    `SELECT id FROM safeguarding_reconciliations WHERE id = $1`,
+    [input.reportId],
+  );
+  if (!report.rows[0]) {
+    throw Object.assign(new Error('Safeguarding report not found'), { status: 404 });
+  }
+  const id = randomUUID();
+  await database.query(
+    `INSERT INTO safeguarding_signoffs (id, report_id, operator_id, note)
+     VALUES ($1,$2,$3,$4)`,
+    [id, input.reportId, input.operatorId, input.note ?? null],
+  );
+  return { id };
 }

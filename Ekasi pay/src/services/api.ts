@@ -1365,6 +1365,7 @@ export async function apiCollectCashSend(
     referenceNumber: string;
     pin: string;
     scannedIdDocument: string;
+    payoutOtp?: string;
   },
   idempotencyKey?: string,
 ) {
@@ -1378,11 +1379,125 @@ export async function apiCollectCashSend(
   );
 }
 
+export async function apiRequestCashSendPayoutOtp(body: {
+  referenceNumber: string;
+  pin: string;
+}) {
+  return apiRequest<{
+    sent: boolean;
+    expiresAt?: string;
+    recipientVerification: string;
+    notice?: string;
+  }>('/api/cash-send/collect/otp', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiCancelCashSend(id: string) {
   return apiRequest<{ ok: boolean }>(`/api/cash-send/${id}/cancel`, {
     method: 'POST',
     idempotencyKey: true,
   });
+}
+
+export async function apiGetMerchantFloat() {
+  return apiRequest<{
+    walletId: string;
+    walletKind: string;
+    balance: string;
+    currency: string;
+    poolId: string | null;
+    status: string;
+  }>('/api/merchant/float');
+}
+
+export async function apiGetMerchantFloatHistory() {
+  return apiRequest<{
+    topups: Array<Record<string, unknown>>;
+    pendingTopups: Array<Record<string, unknown>>;
+    clearedTopups: Array<Record<string, unknown>>;
+    rejectedTopups: Array<Record<string, unknown>>;
+    withdrawals: Array<Record<string, unknown>>;
+    adjustments: Array<Record<string, unknown>>;
+    alerts: Array<{ code: string; severity: string; message: string }>;
+    frozen: boolean;
+    balanceCents: string;
+  }>('/api/merchant/float/history');
+}
+
+export async function apiRequestMerchantFloatTopup(amount: string) {
+  return apiRequest<{ id: string; merchantReference: string; state: string; notice?: string }>(
+    '/api/merchant/float/topups',
+    { method: 'POST', body: JSON.stringify({ amount }), idempotencyKey: true },
+  );
+}
+
+export async function apiRequestMerchantFloatWithdrawal(amount: string) {
+  return apiRequest<{ id: string; state: string; simulation: boolean; notice?: string }>(
+    '/api/merchant/float/withdrawals',
+    { method: 'POST', body: JSON.stringify({ amount }), idempotencyKey: true },
+  );
+}
+
+export async function apiGetCashAvailability() {
+  return apiRequest<{
+    availabilityBand: string;
+    availableCents: string;
+    reservedCents: string;
+    freeCents: string;
+    updatedAt: string | null;
+    stale: boolean;
+  }>('/api/merchant/cash-availability');
+}
+
+export async function apiDeclareCashAvailability(body: {
+  availabilityBand?: string;
+  availableCents?: string;
+}) {
+  return apiRequest<{
+    availabilityBand: string | null;
+    availableCents: string;
+    reservedCents: string;
+    freeCents: string;
+  }>('/api/merchant/cash-availability', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiAdjustCashAvailability(body: {
+  availableCents: string;
+  reason: string;
+}) {
+  return apiRequest<{
+    availableCents: string;
+    reservedCents: string;
+    freeCents: string;
+  }>('/api/merchant/cash-availability/adjust', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function apiSearchPayoutShops(input: {
+  amount: string;
+  lat?: number;
+  lng?: number;
+}) {
+  const params = new URLSearchParams({ amount: input.amount });
+  if (input.lat != null) params.set('lat', String(input.lat));
+  if (input.lng != null) params.set('lng', String(input.lng));
+  return apiRequest<{
+    shops: Array<{
+      merchantId: string;
+      businessName: string;
+      location: string;
+      freeCents: string;
+      stale: boolean;
+      distanceKm: number | null;
+    }>;
+  }>(`/api/merchant/payout-shops?${params.toString()}`);
 }
 
 export async function apiGetAdminUsers() {

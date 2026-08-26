@@ -233,6 +233,34 @@ app.get('/health/ready', async (_req, res) => {
         }
       }
     }
+    const worker = await getPgPool()
+      .query<{
+        worker_id: string;
+        schema_fingerprint: string | null;
+        last_seen_at: string;
+        last_ok_at: string | null;
+        last_error: string | null;
+        drift_count: number;
+        worker_version: string | null;
+      }>(
+        `SELECT worker_id, schema_fingerprint, last_seen_at::text, last_ok_at::text,
+                last_error, drift_count, worker_version
+           FROM reconciliation_worker_heartbeats
+          ORDER BY last_seen_at DESC LIMIT 1`,
+      )
+      .catch(() => ({ rows: [] as Array<never> }));
+    const beat = worker.rows[0] as
+      | {
+          worker_id: string;
+          schema_fingerprint: string | null;
+          last_seen_at: string;
+          last_ok_at: string | null;
+          last_error: string | null;
+          drift_count: number;
+          worker_version: string | null;
+        }
+      | undefined;
+    const heartbeatAgeMs = beat ? Date.now() - Date.parse(beat.last_seen_at) : null;
     return res.json({
       ok: true,
       database: 'ready',
@@ -246,6 +274,24 @@ app.get('/health/ready', async (_req, res) => {
           ? 'not_required_non_funds'
           : 'verified',
       redis: getRedisHealth(),
+      worker: beat
+        ? {
+            workerId: beat.worker_id,
+            lastSeenAt: beat.last_seen_at,
+            lastOkAt: beat.last_ok_at,
+            lastError: beat.last_error,
+            driftCount: beat.drift_count,
+            workerVersion: beat.worker_version,
+            heartbeatAgeMs,
+            stale: heartbeatAgeMs != null && heartbeatAgeMs > 5 * 60_000,
+            schemaFingerprint: beat.schema_fingerprint,
+            fingerprintMismatch: Boolean(
+              beat.schema_fingerprint &&
+                fingerprint.schemaFingerprint &&
+                beat.schema_fingerprint !== fingerprint.schemaFingerprint,
+            ),
+          }
+        : { stale: true, heartbeatAgeMs: null },
     });
   } catch {
     return res.status(503).json({ ok: false, database: 'unavailable' });
@@ -376,6 +422,7 @@ api.use(async (req, _res, next) => {
     '/credit/verify/confirm': ['otp_verify'],
     '/cash-send/lookup': ['voucher_lookup'],
     '/cash-send/collect': ['voucher_collect', 'cash_out'],
+    '/cash-send/collect/otp': ['otp_request'],
     '/payments/p2p': ['transfer'],
     '/merchant/float/withdrawals': ['cash_out'],
     '/merchant/float/topups': ['transfer'],

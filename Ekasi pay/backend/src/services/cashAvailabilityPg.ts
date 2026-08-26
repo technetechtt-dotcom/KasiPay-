@@ -93,10 +93,13 @@ export async function declareCashLiquidityPg(
 ): Promise<CashLiquidity> {
   const available = parseIntegerCents(availableCents, { allowZero: true });
   const updated = await database.query<{ available_cents: string; reserved_cents: string }>(
-    `INSERT INTO merchant_cash_liquidity (merchant_id, available_cents, reserved_cents, updated_at)
-     VALUES ($1, $2, 0, clock_timestamp())
+    `INSERT INTO merchant_cash_liquidity
+       (merchant_id, available_cents, reserved_cents, updated_at, last_verified_at)
+     VALUES ($1, $2, 0, clock_timestamp(), clock_timestamp())
      ON CONFLICT (merchant_id)
-     DO UPDATE SET available_cents = EXCLUDED.available_cents, updated_at = clock_timestamp()
+     DO UPDATE SET available_cents = EXCLUDED.available_cents,
+                   updated_at = clock_timestamp(),
+                   last_verified_at = clock_timestamp()
      WHERE merchant_cash_liquidity.reserved_cents <= EXCLUDED.available_cents
      RETURNING available_cents, reserved_cents`,
     [merchantId, available.toString()],
@@ -236,6 +239,57 @@ export async function assertPhysicalCashForPayoutPg(
   };
 }
 
+export const CASH_LIQUIDITY_STALE_MS = 6 * 60 * 60 * 1000;
+
+export function cashLiquidityIsStale(updatedAt: string | Date | null | undefined): boolean {
+  if (!updatedAt) return true;
+  const ts = typeof updatedAt === 'string' ? Date.parse(updatedAt) : updatedAt.getTime();
+  if (!Number.isFinite(ts)) return true;
+  return Date.now() - ts > CASH_LIQUIDITY_STALE_MS;
+}
+
 export function parseAvailableCentsInput(raw: string | number): Cents {
   return parseZarToCents(raw, { allowZero: true });
+}
+
+export async function adjustCashLiquidityPg(
+  database: Db,
+  input: {
+    merchantId: string;
+    nextAvailableCents: Cents;
+    reason: string;
+    actorUserId: string;
+  },
+): Promise<CashLiquidity> {
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw Object.assign(new Error('Cash adjustment reason is required'), { status: 400 });
+  }
+  const current = await getCashLiquidityPg(database, input.merchantId);
+  const next = await declareCashLiquidityPg(database, input.merchantId, input.nextAvailableCents);
+  await database.query(
+    `INSERT INTO merchant_cash_adjustments
+       (id, merchant_id, actor_user_id, reason, previous_available_cents, next_available_cents)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [
+      randomUUID(),
+      input.merchantId,
+      input.actorUserId,
+      reason,
+      current.availableCents.toString(),
+      next.availableCents.toString(),
+    ],
+  );
+  return next;
+}
+
+export async function listCashAdjustmentsPg(database: Db, merchantId: string) {
+  const rows = await database.query(
+    `SELECT id, actor_user_id, reason, previous_available_cents, next_available_cents, created_at
+       FROM merchant_cash_adjustments
+      WHERE merchant_id = $1
+      ORDER BY created_at DESC LIMIT 100`,
+    [merchantId],
+  );
+  return rows.rows;
 }

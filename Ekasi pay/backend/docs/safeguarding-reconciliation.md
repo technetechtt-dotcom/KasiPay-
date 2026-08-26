@@ -36,3 +36,6 @@ If `status = shortfall`:
 3. Do **not** invent a correcting journal
 
 Ops reviews `GET /ops/safeguarding` and `POST /ops/safeguarding/run`.
+Import a client-funds bank balance with `POST /ops/safeguarding/bank-balance`.
+When no override is supplied, the latest imported balance is used. Daily
+sign-off is `POST /ops/safeguarding/:reportId/sign-off`.

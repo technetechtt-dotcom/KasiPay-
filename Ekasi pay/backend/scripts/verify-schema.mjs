@@ -35,6 +35,14 @@ const cashLiquidity = [
   'reconciliation_worker_heartbeats',
 ];
 
+const bankFinality = [
+  'bank_transaction_events',
+  'bank_account_balances',
+  'merchant_cash_adjustments',
+  'safeguarding_signoffs',
+  'merchant_float_debts',
+];
+
 const connectionString = process.env.DATABASE_URL?.trim();
 if (!connectionString) {
   console.error('DATABASE_URL is required.');
@@ -60,7 +68,7 @@ try {
        FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
   );
-  const allExpected = [...required, ...paymentArchitecture, ...cashLiquidity];
+  const allExpected = [...required, ...paymentArchitecture, ...cashLiquidity, ...bankFinality];
   const have = await client.query(
     `SELECT tablename FROM pg_tables
       WHERE schemaname = 'public' AND tablename = ANY($1::text[])`,
@@ -70,6 +78,7 @@ try {
   const missing = required.filter((name) => !names.has(name));
   const missing022 = paymentArchitecture.filter((name) => !names.has(name));
   const missing023 = cashLiquidity.filter((name) => !names.has(name));
+  const missing024 = bankFinality.filter((name) => !names.has(name));
   const applied = await client.query(
     `SELECT name FROM schema_migrations ORDER BY name`,
   );
@@ -86,9 +95,11 @@ try {
   console.log(`migration_021=${appliedNames.has('021_merchant_map_pins') ? 'applied' : 'missing'}`);
   console.log(`migration_022=${appliedNames.has('022_payment_architecture') ? 'applied' : 'missing'}`);
   console.log(`migration_023=${appliedNames.has('023_client_funds_cash_liquidity') ? 'applied' : 'missing'}`);
+  console.log(`migration_024=${appliedNames.has('024_bank_finality_otp_hardening') ? 'applied' : 'missing'}`);
   console.log(`missing=${missing.join(',') || 'none'}`);
   console.log(`missing_022_tables=${missing022.join(',') || 'none'}`);
   console.log(`missing_023_tables=${missing023.join(',') || 'none'}`);
+  console.log(`missing_024_tables=${missing024.join(',') || 'none'}`);
   if (missing.length > 0) process.exitCode = 1;
 } finally {
   await client.end();

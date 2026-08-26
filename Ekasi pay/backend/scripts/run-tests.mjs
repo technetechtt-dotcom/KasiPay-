@@ -32,6 +32,8 @@ if (mode === 'unit') {
     'src/paymentArchitecture.pg.integration.test.ts',
     'src/agentFloat.pg.integration.test.ts',
     'src/payoutAgentConcurrency.pg.integration.test.ts',
+    'src/bankFinality.pg.integration.test.ts',
+    'src/cashSendPayoutOtp.pg.integration.test.ts',
   ]);
   files = all.filter((file) => allowed.has(file));
 } else {

@@ -611,6 +611,12 @@ cashSendRouterPg.post('/cash-send/collect/otp', requireAuth, async (req, res) =>
       voucherId: row.id,
       recipientPhone: row.recipient_phone,
       referenceNumber: row.reference_number,
+      actorUserId: req.auth!.userId,
+      ipHash: hashSensitiveIdentifier(req.ip ?? ''),
+      deviceHash:
+        typeof req.headers['x-device-id'] === 'string'
+          ? hashSensitiveIdentifier(req.headers['x-device-id'])
+          : undefined,
     });
     return res.json({
       sent: issued.sent,
@@ -832,6 +838,7 @@ cashSendRouterPg.post(
           voucherId: row.id,
           recipientPhone: row.recipient_phone,
           code: parsed.data.payoutOtp!,
+          actorUserId: req.auth!.userId,
         });
       }
       const eligibility = await lockAndReservePayoutCapacityPg(

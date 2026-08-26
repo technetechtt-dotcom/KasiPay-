@@ -9,6 +9,7 @@ import {
   providerPayloadHash,
   verifyProviderCallback,
 } from '../services/providerFrameworkPg.js';
+import { ingestSignedBankWebhookPg } from '../services/bankWebhookPg.js';
 
 export const providerCallbacksRouterPg = Router();
 
@@ -113,6 +114,46 @@ providerCallbacksRouterPg.post('/providers/:endpointId/callback', async (req, re
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
+  } finally {
+    client.release();
+  }
+});
+
+providerCallbacksRouterPg.post('/webhooks/bank', async (req, res) => {
+  const parsed = z
+    .object({
+      eventId: z.string().min(1).max(200),
+      eventType: z.enum(['credit.received', 'credit.settled', 'credit.reversed', 'credit.rejected']),
+      occurredAt: z.string().min(1),
+      bankReference: z.string().min(1).max(128),
+      merchantReference: z.string().min(1).max(128).optional(),
+      amountCents: z.string().regex(/^\d+$/),
+      currency: z.string().regex(/^[A-Z]{3}$/),
+      valueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      destinationAccount: z.string().min(1).max(256).optional(),
+      sourceAccountFingerprint: z.string().min(1).max(256).optional(),
+      reversalOfEventId: z.string().min(1).max(200).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const signature = String(req.headers['x-bank-signature'] ?? '');
+  const client = await getPgPool().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await ingestSignedBankWebhookPg(client, {
+      rawPayload: Buffer.from(JSON.stringify(req.body)),
+      signature,
+      payload: parsed.data,
+    });
+    await client.query('COMMIT');
+    return res.status(result.duplicate ? 200 : 202).json(result);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    const err = e as { status?: number; message?: string; code?: string };
+    return res.status(typeof err.status === 'number' ? err.status : 500).json({
+      error: err.message ?? 'Bank webhook failed',
+      code: err.code,
+    });
   } finally {
     client.release();
   }

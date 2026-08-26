@@ -1329,7 +1329,8 @@ export function useAppState() {
   const collectCashSend = async (
     referenceNumber: string,
     pin: string,
-    scannedIdDocument: string
+    scannedIdDocument: string,
+    payoutOtp?: string,
   ): Promise<{
     success: boolean;
     reason?: string;
@@ -1356,6 +1357,7 @@ export function useAppState() {
         referenceNumber: voucherRef,
         pin: atm,
         scannedIdDocument: idDigits,
+        ...(payoutOtp ? { payoutOtp } : {}),
       });
       await refreshAfterMutation();
       return { success: true, voucher };

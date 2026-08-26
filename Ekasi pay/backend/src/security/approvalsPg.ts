@@ -22,7 +22,8 @@ export type ControlledAction =
   | 'transaction_limit_change'
   | 'insurance_claim_payout'
   | 'posting_control_enable'
-  | 'merchant_activation_waiver';
+  | 'merchant_activation_waiver'
+  | 'float_adjustment';
 
 /** Action types that have an execution adapter consuming approved requests. */
 export const EXECUTABLE_CONTROLLED_ACTIONS: readonly ControlledAction[] = [
@@ -33,6 +34,7 @@ export const EXECUTABLE_CONTROLLED_ACTIONS: readonly ControlledAction[] = [
   'balance_adjustment',
   'posting_control_enable',
   'merchant_activation_waiver',
+  'float_adjustment',
 ] as const;
 
 /**
@@ -172,6 +174,7 @@ const createBody = z.object({
     'balance_adjustment',
     'posting_control_enable',
     'merchant_activation_waiver',
+    'float_adjustment',
   ]),
   resourceType: z.string().trim().min(1).max(100),
   resourceId: z.string().trim().min(1).max(200),
@@ -199,6 +202,8 @@ approvalsRouterPg.post(
               ? 'balance-adjustments:request'
               : parsed.data.actionType === 'merchant_activation_waiver'
                 ? 'merchant-overrides:request'
+              : parsed.data.actionType === 'float_adjustment'
+                ? 'balance-adjustments:request'
               : parsed.data.actionType === 'posting_control_enable'
                 ? 'posting-control:manage'
                 : 'refunds:request';

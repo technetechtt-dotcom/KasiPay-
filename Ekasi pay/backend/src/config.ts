@@ -249,6 +249,8 @@ export const MONITORING_DSN = process.env.MONITORING_DSN?.trim() ?? '';
  */
 export const RATE_LIMIT_REDIS_URL =
   process.env.RATE_LIMIT_REDIS_URL?.trim() ?? '';
+/** HMAC secret for the eventual banking-partner statement/webhook feed. */
+export const BANK_WEBHOOK_SECRET = process.env.BANK_WEBHOOK_SECRET?.trim() ?? '';
 export const BACKUP_PROVIDER =
   process.env.BACKUP_PROVIDER?.trim().toLowerCase() ?? '';
 export const BACKUP_RETENTION_DAYS = positiveNumber(

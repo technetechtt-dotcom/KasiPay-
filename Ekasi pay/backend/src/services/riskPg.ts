@@ -98,11 +98,15 @@ export async function evaluateTransactionRiskPg(
     dailyCount: tier.daily_count,
     monthlyCount: tier.monthly_count,
   });
-  const velocity = await database.query<{ ten_minute: string; day: string; linked: string }>(
+  const velocity = await database.query<{
+    events_10m: string;
+    events_24h: string;
+    linked: string;
+  }>(
     `SELECT
-       count(*) FILTER (WHERE occurred_at >= clock_timestamp() - interval '10 minutes')::text ten_minute,
-       count(*) FILTER (WHERE occurred_at >= clock_timestamp() - interval '24 hours')::text day,
-       (SELECT count(DISTINCT right_hash)::text FROM linked_identity_edges WHERE left_hash = $2) linked
+       count(*) FILTER (WHERE occurred_at >= clock_timestamp() - interval '10 minutes')::text AS events_10m,
+       count(*) FILTER (WHERE occurred_at >= clock_timestamp() - interval '24 hours')::text AS events_24h,
+       (SELECT count(DISTINCT right_hash)::text FROM linked_identity_edges WHERE left_hash = $2) AS linked
      FROM risk_signals WHERE actor_user_id = $1`,
     [input.actorUserId, actorHash],
   );
@@ -133,8 +137,8 @@ export async function evaluateTransactionRiskPg(
   }
   const calculated = evaluateRiskRules(configured.rows, {
     amountCents: Number(input.amountCents),
-    events10m: Number(velocity.rows[0]?.ten_minute ?? 0),
-    events24h: Number(velocity.rows[0]?.day ?? 0),
+    events10m: Number(velocity.rows[0]?.events_10m ?? 0),
+    events24h: Number(velocity.rows[0]?.events_24h ?? 0),
     linkedAccounts: Number(velocity.rows[0]?.linked ?? 0),
     circularHops,
   });

@@ -25,6 +25,7 @@ import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { AnalyticsPage } from './pages/analytics/AnalyticsPage';
 import { FinancialReportsPage } from './pages/reports/FinancialReportsPage';
 import { CommissionsPage } from './pages/commissions/CommissionsPage';
+import { FloatCashPage } from './pages/float/FloatCashPage';
 import { ScannerPage } from './pages/scanner/ScannerPage';
 import { CalculatorPage } from './pages/calculator/CalculatorPage';
 import { CreditBookPage } from './pages/credit/CreditBookPage';
@@ -606,6 +607,8 @@ export function App() {
 
       case 'commissions':
         return <CommissionsPage navigate={state.navigate} />;
+      case 'float-cash':
+        return <FloatCashPage navigate={state.navigate} />;
 
 
       case 'calculator':

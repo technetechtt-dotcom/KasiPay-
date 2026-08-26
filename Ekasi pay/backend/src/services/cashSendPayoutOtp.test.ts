@@ -19,4 +19,12 @@ describe('cash send payout OTP', () => {
   it('generates a 6-digit code', () => {
     assert.match(generateCashSendPayoutOtpCode(), /^\d{6}$/);
   });
+
+  it('keeps TTL, cooldown, max sends and lock thresholds explicit', async () => {
+    const mod = await import('./cashSendPayoutOtpPg.js');
+    assert.equal(mod.CASH_SEND_PAYOUT_OTP_TTL_MS, 10 * 60_000);
+    assert.equal(mod.CASH_SEND_PAYOUT_OTP_COOLDOWN_MS, 60_000);
+    assert.equal(mod.CASH_SEND_PAYOUT_OTP_MAX_SENDS, 5);
+    assert.equal(mod.CASH_SEND_PAYOUT_OTP_MAX_FAILED, 5);
+  });
 });

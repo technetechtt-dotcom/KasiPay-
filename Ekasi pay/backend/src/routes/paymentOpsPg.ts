@@ -8,8 +8,14 @@ import { requireCapability } from '../security/authorization.js';
 import { ingestBankDepositPg } from '../services/bankDepositMatchingPg.js';
 import { creditMatchedFloatTopupPg } from '../services/merchantFloatPg.js';
 import { listPayoutAgentsPg, setPayoutAgentStatusPg } from '../services/payoutAgentsPg.js';
-import { generateSafeguardingReportPg } from '../services/safeguardingPg.js';
+import { generateSafeguardingReportPg, importSafeguardingBankBalancePg, signOffSafeguardingReportPg } from '../services/safeguardingPg.js';
 import { createNetSettlementBatchPg } from '../services/settlementNettingPg.js';
+import {
+  listBankTransactionHistoryPg,
+  reverseBankTransactionPg,
+  settleBankTransactionPg,
+} from '../services/bankTransactionLifecyclePg.js';
+import { applyFloatAdjustmentPg, freezeMerchantFloatPg } from '../services/merchantFloatPg.js';
 
 export const paymentOpsRouterPg = Router();
 
@@ -230,7 +236,7 @@ paymentOpsRouterPg.post(
         ...ingested,
         notice:
           ingested.matchState === 'matched'
-            ? 'Matched to an approved client-funds credit. Credit still requires an explicit ops confirmation.'
+            ? 'Matched to an approved client-funds credit. Float is not available until this bank transaction is settled.'
             : 'Not credited. Debits, non-client-funds destinations, and unmatched rows go to suspense.',
       });
     } catch (e) {
@@ -298,7 +304,7 @@ paymentOpsRouterPg.post(
       poolId: parsed.data.poolId,
       actualClientFundsCents: parsed.data.actualClientFundsCents
         ? BigInt(parsed.data.actualClientFundsCents)
-        : null,
+        : undefined,
     });
     return res.status(201).json({
       ...report,
@@ -343,3 +349,207 @@ paymentOpsRouterPg.get(
     });
   },
 );
+
+paymentOpsRouterPg.get(
+  '/ops/bank-transactions/:id',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const history = await listBankTransactionHistoryPg(getPgPool(), String(req.params.id));
+    if (!history.transaction) return res.status(404).json({ error: 'Bank transaction not found' });
+    return res.json(history);
+  },
+);
+
+paymentOpsRouterPg.post(
+  '/ops/bank-transactions/:id/settle',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const parsed = z
+      .object({ settlementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })
+      .safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const client = await getPgPool().connect();
+    try {
+      await client.query('BEGIN');
+      const result = await settleBankTransactionPg(client, {
+        bankTransactionId: String(req.params.id),
+        actorId: req.opsAuth!.operatorId,
+        settlementDate: parsed.data.settlementDate,
+      });
+      await client.query('COMMIT');
+      return res.json(result);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      const err = e as { status?: number; message?: string; code?: string };
+      return res.status(typeof err.status === 'number' ? err.status : 500).json({
+        error: err.message ?? 'Settle failed',
+        code: err.code,
+      });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+paymentOpsRouterPg.post(
+  '/ops/bank-transactions/:id/reverse',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const parsed = z
+      .object({
+        reversalReference: z.string().min(1).max(128),
+        reason: z.string().min(10).max(2000),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const client = await getPgPool().connect();
+    try {
+      await client.query('BEGIN');
+      const result = await reverseBankTransactionPg(client, {
+        bankTransactionId: String(req.params.id),
+        actorId: req.opsAuth!.operatorId,
+        reversalReference: parsed.data.reversalReference,
+        reason: parsed.data.reason,
+      });
+      await client.query('COMMIT');
+      return res.json(result);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      const err = e as { status?: number; message?: string; code?: string };
+      return res.status(typeof err.status === 'number' ? err.status : 500).json({
+        error: err.message ?? 'Reversal failed',
+        code: err.code,
+      });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+paymentOpsRouterPg.post(
+  '/ops/merchant-float/:merchantUserId/freeze',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const reason =
+      typeof req.body?.reason === 'string' && req.body.reason.trim().length >= 10
+        ? req.body.reason.trim()
+        : null;
+    if (!reason) return res.status(400).json({ error: 'A freeze reason of at least 10 characters is required' });
+    await freezeMerchantFloatPg(getPgPool(), String(req.params.merchantUserId), reason);
+    return res.json({ frozen: true });
+  },
+);
+
+paymentOpsRouterPg.post(
+  '/ops/merchant-float/:merchantUserId/adjust',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const parsed = z
+      .object({
+        amount: z.union([z.string(), z.number()]),
+        reason: z.string().min(10).max(2000),
+        approvalRequestId: z.string().uuid(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const client = await getPgPool().connect();
+    try {
+      await client.query('BEGIN');
+      const result = await applyFloatAdjustmentPg(client, {
+        merchantUserId: String(req.params.merchantUserId),
+        amountCents: parseZarToCents(parsed.data.amount, { allowNegative: true }),
+        reason: parsed.data.reason,
+        actorId: req.opsAuth!.operatorId,
+        approvalRequestId: parsed.data.approvalRequestId,
+      });
+      await client.query('COMMIT');
+      return res.json(result);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      const err = e as { status?: number; message?: string; code?: string };
+      return res.status(typeof err.status === 'number' ? err.status : 500).json({
+        error: err.message ?? 'Float adjustment failed',
+        code: err.code,
+      });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+paymentOpsRouterPg.post(
+  '/ops/safeguarding/bank-balance',
+  ...requireCapability('reconciliation:run'),
+  async (req, res) => {
+    const parsed = z
+      .object({
+        bankAccountId: z.string().uuid(),
+        asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        availableCents: z.string().regex(/^-?\d+$/),
+        source: z.string().min(2).max(64),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const result = await importSafeguardingBankBalancePg(getPgPool(), {
+      bankAccountId: parsed.data.bankAccountId,
+      asOf: parsed.data.asOf,
+      availableCents: BigInt(parsed.data.availableCents),
+      source: parsed.data.source,
+      importedBy: req.opsAuth!.operatorId,
+    });
+    return res.status(201).json(result);
+  },
+);
+
+paymentOpsRouterPg.post(
+  '/ops/safeguarding/:reportId/sign-off',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    try {
+      const result = await signOffSafeguardingReportPg(getPgPool(), {
+        reportId: String(req.params.reportId),
+        operatorId: req.opsAuth!.operatorId,
+        note: typeof req.body?.note === 'string' ? req.body.note : undefined,
+      });
+      return res.status(201).json(result);
+    } catch (e) {
+      const err = e as { status?: number; message?: string };
+      return res.status(typeof err.status === 'number' ? err.status : 500).json({
+        error: err.message ?? 'Sign-off failed',
+      });
+    }
+  },
+);
+
+paymentOpsRouterPg.get(
+  '/ops/settlement/statements/:merchantUserId',
+  ...requireCapability('finance:approve'),
+  async (req, res) => {
+    const pool = getPgPool();
+    const positions = await pool.query(
+      `SELECT * FROM merchant_settlement_positions
+        WHERE merchant_user_id = $1
+        ORDER BY position_date DESC LIMIT 90`,
+      [String(req.params.merchantUserId)],
+    );
+    const topups = await pool.query(
+      `SELECT id, amount_cents, merchant_reference, state, created_at
+         FROM merchant_float_topups WHERE merchant_user_id = $1
+         ORDER BY created_at DESC LIMIT 90`,
+      [String(req.params.merchantUserId)],
+    );
+    const withdrawals = await pool.query(
+      `SELECT id, amount_cents, state, created_at
+         FROM merchant_float_withdrawals WHERE merchant_user_id = $1
+         ORDER BY created_at DESC LIMIT 90`,
+      [String(req.params.merchantUserId)],
+    );
+    return res.json({
+      merchantUserId: String(req.params.merchantUserId),
+      positions: positions.rows,
+      bankTopups: topups.rows,
+      withdrawals: withdrawals.rows,
+    });
+  },
+);
+
