@@ -31,13 +31,24 @@ test('bank transaction finality postgres', { skip: !enabled }, async (suite) => 
        VALUES ($1,$2,'Final Shop','ZA','spaza','approved')`,
       [merchantPk, userId],
     );
+    const accountId = randomUUID();
     await pool.query(
       `INSERT INTO bank_accounts
          (id, label, purpose, currency, pool_id, account_fingerprint, approved)
        VALUES ($1,'Test client funds','client_funds','ZAR','ZA',$2,TRUE)
        ON CONFLICT (purpose, currency, pool_id)
        DO UPDATE SET approved = TRUE, account_fingerprint = EXCLUDED.account_fingerprint`,
-      [randomUUID(), CLIENT_FUNDS_FINGERPRINT],
+      [accountId, CLIENT_FUNDS_FINGERPRINT],
+    );
+    const account = await pool.query<{ id: string }>(
+      `SELECT id FROM bank_accounts
+        WHERE purpose = 'client_funds' AND currency = 'ZAR' AND pool_id = 'ZA'`,
+    );
+    await pool.query(
+      `INSERT INTO safeguarding_accounts (id, bank_account_id, pool_id, currency)
+       VALUES ($1,$2,'ZA','ZAR')
+       ON CONFLICT (pool_id, currency) DO NOTHING`,
+      [randomUUID(), account.rows[0].id],
     );
     const topup = await requestFloatTopupPg(pool, {
       merchantUserId: userId,

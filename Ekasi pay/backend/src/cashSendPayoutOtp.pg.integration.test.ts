@@ -27,10 +27,11 @@ async function seedVoucher(pool: Pool, suffix: string) {
   await pool.query(
     `INSERT INTO cash_send_vouchers
        (id, sender_user_id, sender_phone, sender_first_name, sender_last_name,
-        recipient_phone, recipient_first_name, recipient_last_name, amount, fee,
-        pin_hash, reference_number, status, created_at, expires_at)
-     VALUES ($1,$2,$3,'A','B',$3,'C','D',100,9,'x',$4,'active',clock_timestamp(),
-             clock_timestamp() + interval '14 days')`,
+        sender_id_document_encrypted, sender_address_encrypted, recipient_phone,
+        recipient_first_name, recipient_last_name, recipient_id_document_encrypted,
+        amount_cents, fee_cents, pin_hash, reference_number, status, created_at, expires_at)
+     VALUES ($1,$2,$3,'A','B','enc-id','enc-addr',$3,'C','D','enc-rid',10000,900,'x',$4,
+             'active',clock_timestamp(), clock_timestamp() + interval '14 days')`,
     [voucherId, userId, phone, `CS${suffix.replaceAll('-', '').slice(0, 16).toUpperCase()}`],
   );
   return { userId, voucherId, phone };
