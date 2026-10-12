@@ -44,6 +44,8 @@ import {
   apiGenerateDriftProposals,
   apiAlignWallet,
   apiCreateApproval,
+  apiRecordProductReadinessEvidence,
+  apiRunProductReadinessCheck,
   apiReviewMerchant,
   apiTransactions,
   apiUpdateAdminUser,
@@ -70,6 +72,8 @@ import {
 import { addMoney, formatMoney as fmtMoney } from './money';
 import { ShopsMapTab } from './ShopsMap';
 import { PaymentsTab } from './PaymentsTab';
+import { ApprovalsTab } from './ApprovalsTab';
+import { ProductMonitorsTab } from './ProductMonitorsTab';
 
 function ProductGateNotice({ title, detail }: { title: string; detail: string }) {
   return (
@@ -95,7 +99,9 @@ type Tab =
   | 'risk'
   | 'settlement'
   | 'payments'
-  | 'readiness';
+  | 'approvals'
+  | 'readiness'
+  | 'products';
 
 const MERCHANT_DOC_LABELS: Record<string, string> = {
   cipc_14_3: 'CIPC 14.3',
@@ -2022,16 +2028,31 @@ function OperatorsTab({ me }: { me: OpsAdminUser }) {
 function AuditTab() {
   const [events, setEvents] = useState<Awaited<ReturnType<typeof apiAuditEvents>>['events']>([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    void apiAuditEvents()
+      .then((r) => {
+        setEvents(r.events);
+        setError('');
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
-    void apiAuditEvents()
-      .then((r) => setEvents(r.events))
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'));
-  }, []);
+    load();
+  }, [load]);
 
   return (
     <div className="panel">
-      <h2>Audit events</h2>
+      <div className="panel-head">
+        <h2>Audit events</h2>
+        <button type="button" onClick={load} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
       {error ? <p className="error">{error}</p> : null}
       <ul className="audit-list">
         {events.map((e) => (
@@ -2217,6 +2238,28 @@ function CashSendTab() {
                   {open ? (
                     <tr className="detail-row">
                       <td colSpan={18}>
+                        <div className="filters" style={{ marginBottom: '0.75rem' }}>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => void navigator.clipboard.writeText(v.id)}
+                          >
+                            Copy voucher id
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() =>
+                              void navigator.clipboard.writeText(v.referenceNumber)
+                            }
+                          >
+                            Copy reference
+                          </button>
+                          <span className="muted">
+                            Ops cancel/expire stays with the sender path or a
+                            dual-control refund — use ledger tools for disputes.
+                          </span>
+                        </div>
                         <div className="detail-grid">
                           <div>
                             <strong>Voucher ID</strong>
@@ -2551,6 +2594,18 @@ function RiskReviewTab() {
 function ProductReadinessTab() {
   const [data, setData] = useState<Awaited<ReturnType<typeof apiProductReadiness>> | null>(null);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    product: 'stokvel',
+    environment: 'sandbox' as 'sandbox' | 'production',
+    control: 'legal',
+    decision: 'approved' as 'approved' | 'rejected' | 'withdrawn',
+    authority: '',
+    authorityReference: '',
+    artifactUri: '',
+    artifactSha256: '',
+    notes: '',
+  });
   const load = useCallback(() => {
     void apiProductReadiness()
       .then((result) => {
@@ -2560,6 +2615,37 @@ function ProductReadinessTab() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load readiness'));
   }, []);
   useEffect(() => load(), [load]);
+
+  const submitEvidence = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await apiRecordProductReadinessEvidence(form);
+      setForm((prev) => ({ ...prev, notes: '', artifactSha256: '', artifactUri: '' }));
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to record evidence');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runCheck = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await apiRunProductReadinessCheck({
+        product: form.product,
+        environment: form.environment,
+      });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to run readiness check');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -2569,7 +2655,7 @@ function ProductReadinessTab() {
             Evidence shown here is append-only. It records external decisions; it does not create legal or provider approval.
           </p>
         </div>
-        <button onClick={load}>Refresh</button>
+        <button type="button" onClick={load}>Refresh</button>
       </div>
       {error ? <p className="error">{error}</p> : null}
       <div className="table-wrap">
@@ -2588,6 +2674,93 @@ function ProductReadinessTab() {
           </tbody>
         </table>
       </div>
+
+      <h3>Record evidence / run check</h3>
+      <div className="filters" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+        <select
+          value={form.product}
+          onChange={(e) => setForm((p) => ({ ...p, product: e.target.value }))}
+        >
+          {['stokvel', 'lending', 'merchant_credit', 'insurance', 'utilities'].map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          value={form.environment}
+          onChange={(e) =>
+            setForm((p) => ({
+              ...p,
+              environment: e.target.value as 'sandbox' | 'production',
+            }))
+          }
+        >
+          <option value="sandbox">sandbox</option>
+          <option value="production">production</option>
+        </select>
+        <select
+          value={form.control}
+          onChange={(e) => setForm((p) => ({ ...p, control: e.target.value }))}
+        >
+          {[
+            'legal',
+            'provider',
+            'accounting',
+            'customer_journey',
+            'reconciliation',
+            'testing',
+            'runbook',
+          ].map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        <select
+          value={form.decision}
+          onChange={(e) =>
+            setForm((p) => ({
+              ...p,
+              decision: e.target.value as 'approved' | 'rejected' | 'withdrawn',
+            }))
+          }
+        >
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+          <option value="withdrawn">withdrawn</option>
+        </select>
+        <input
+          placeholder="Authority"
+          value={form.authority}
+          onChange={(e) => setForm((p) => ({ ...p, authority: e.target.value }))}
+        />
+        <input
+          placeholder="Authority reference"
+          value={form.authorityReference}
+          onChange={(e) => setForm((p) => ({ ...p, authorityReference: e.target.value }))}
+        />
+        <input
+          placeholder="Artifact URI"
+          value={form.artifactUri}
+          onChange={(e) => setForm((p) => ({ ...p, artifactUri: e.target.value }))}
+        />
+        <input
+          placeholder="Artifact SHA-256 (64 hex)"
+          value={form.artifactSha256}
+          onChange={(e) => setForm((p) => ({ ...p, artifactSha256: e.target.value }))}
+          style={{ minWidth: '18rem' }}
+        />
+        <input
+          placeholder="Notes (min 20 chars)"
+          value={form.notes}
+          onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+          style={{ minWidth: '18rem' }}
+        />
+        <button type="button" disabled={busy} onClick={() => void submitEvidence()}>
+          Append evidence
+        </button>
+        <button type="button" className="ghost" disabled={busy} onClick={() => void runCheck()}>
+          Run check snapshot
+        </button>
+      </div>
+
       <h3>Immutable evidence register</h3>
       <div className="table-wrap">
         <table>
@@ -2638,7 +2811,9 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
     { id: 'ledger', label: 'Ledger' },
     { id: 'settlement', label: 'Settlement' },
     { id: 'payments', label: 'Payments' },
+    { id: 'approvals', label: 'Approvals' },
     { id: 'readiness', label: 'Product Readiness' },
+    { id: 'products', label: 'Product Monitors' },
     { id: 'cashsend', label: 'Cash Send' },
     { id: 'risk', label: 'Risk Review' },
     { id: 'compliance', label: 'Compliance' },
@@ -2684,7 +2859,9 @@ function Dashboard({ me }: { me: OpsAdminUser }) {
         {tab === 'ledger' ? <LedgerTab /> : null}
         {tab === 'settlement' ? <SettlementTab /> : null}
         {tab === 'payments' ? <PaymentsTab /> : null}
+        {tab === 'approvals' ? <ApprovalsTab /> : null}
         {tab === 'readiness' ? <ProductReadinessTab /> : null}
+        {tab === 'products' ? <ProductMonitorsTab /> : null}
         {tab === 'cashsend' ? <CashSendTab /> : null}
         {tab === 'risk' ? <RiskReviewTab /> : null}
         {tab === 'compliance' ? <ComplianceTab /> : null}

@@ -106,6 +106,18 @@ export function apiProductReadiness() {
   }>('/api/ops/product-readiness');
 }
 
+export type OpsProductMonitors = {
+  stokvelAccounts: Array<Record<string, unknown>>;
+  utilityPurchases: Array<Record<string, unknown>>;
+  creditObligations: Array<Record<string, unknown>>;
+  insurancePolicies: Array<Record<string, unknown>>;
+  reconciliation: Array<Record<string, unknown>>;
+};
+
+export function apiProductMonitors() {
+  return opsFetch<OpsProductMonitors>('/api/ops/product-monitors');
+}
+
 async function readJson(res: Response): Promise<unknown> {
   const text = await res.text();
   if (!text) return null;
@@ -747,7 +759,9 @@ export async function apiCreateApproval(body: {
     | 'loan_disbursement'
     | 'refund_reversal'
     | 'user_role_change'
-    | 'insurance_claim_payout';
+    | 'insurance_claim_payout'
+    | 'merchant_activation_waiver'
+    | 'float_adjustment';
   resourceType: string;
   resourceId: string;
   payload: Record<string, unknown>;
@@ -770,6 +784,26 @@ export async function apiDecideApproval(
     method: 'POST',
     body: JSON.stringify({ decision, reason }),
   });
+}
+
+export type OpsApprovalRequest = {
+  id: string;
+  action_type: string;
+  resource_type: string;
+  resource_id: string;
+  state: string;
+  maker_operator_id: string;
+  checker_operator_id: string | null;
+  reason: string;
+  decision_reason: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+};
+
+export async function apiListApprovals() {
+  return opsFetch<{ approvals: OpsApprovalRequest[] }>('/api/ops/approvals');
 }
 
 /** @deprecated Prefer apiEnqueueReconciliation — admin run now only queues the worker. */
@@ -1001,4 +1035,84 @@ export async function apiOpsSettlementSuspense() {
 
 export async function apiOpsCommissionLiabilities() {
   return opsFetch<{ liabilities: Array<Record<string, unknown>> }>('/api/ops/commissions/liabilities');
+}
+
+export async function apiCreditFloatTopup(topupId: string) {
+  return opsFetch<{ ok?: boolean; credited?: boolean; reference?: string }>(
+    `/api/ops/merchant-float/topups/${encodeURIComponent(topupId)}/credit`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function apiFreezeMerchantFloat(merchantUserId: string, reason: string) {
+  return opsFetch<{ frozen: boolean }>(
+    `/api/ops/merchant-float/${encodeURIComponent(merchantUserId)}/freeze`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  );
+}
+
+export async function apiAdjustMerchantFloat(
+  merchantUserId: string,
+  body: { amount: string; reason: string; approvalRequestId: string },
+) {
+  return opsFetch<Record<string, unknown>>(
+    `/api/ops/merchant-float/${encodeURIComponent(merchantUserId)}/adjust`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export async function apiPayoutAgentAction(
+  agentId: string,
+  action: 'approve' | 'reject' | 'suspend' | 'reactivate',
+  reason?: string,
+) {
+  return opsFetch<{ status: string }>(
+    `/api/ops/payout-agents/${encodeURIComponent(agentId)}/${action}`,
+    { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
+  );
+}
+
+export async function apiRunSafeguarding(body?: {
+  actualClientFundsCents?: string;
+  poolId?: string;
+}) {
+  return opsFetch<Record<string, unknown>>('/api/ops/safeguarding/run', {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export async function apiSignOffSafeguarding(reportId: string, note?: string) {
+  return opsFetch<Record<string, unknown>>(
+    `/api/ops/safeguarding/${encodeURIComponent(reportId)}/sign-off`,
+    { method: 'POST', body: JSON.stringify(note ? { note } : {}) },
+  );
+}
+
+export async function apiRecordProductReadinessEvidence(body: {
+  product: string;
+  environment: 'sandbox' | 'production';
+  control: string;
+  decision: 'approved' | 'rejected' | 'withdrawn';
+  authority: string;
+  authorityReference: string;
+  artifactUri: string;
+  artifactSha256: string;
+  notes: string;
+  expiresAt?: string;
+}) {
+  return opsFetch<{ id: string; evidenceSha256: string }>(
+    '/api/ops/product-readiness/evidence',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export async function apiRunProductReadinessCheck(body: {
+  product: string;
+  environment: 'sandbox' | 'production';
+}) {
+  return opsFetch<{ id: string; snapshotSha256: string; status: unknown }>(
+    '/api/ops/product-readiness/checks',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
 }

@@ -30,7 +30,12 @@ import {
   Wallet,
   Download,
   History,
-  Banknote } from
+  Banknote,
+  ArrowLeftRight,
+  UserCog,
+  ClipboardCheck,
+  Store,
+} from
 'lucide-react';
 import type {
   User,
@@ -400,6 +405,18 @@ export const MorePage = ({
         {t('more.communityServices')}
       </h3>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8 divide-y divide-slate-100">
+        <button
+          onClick={() => navigate('transfer')}
+          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <ArrowLeftRight className="w-4 h-4" />
+            </div>
+            <span className="font-medium text-slate-700">Wallet Transfer</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-300" />
+        </button>
+
         {productVisibility.cashSend ? (
           <button
             onClick={() => navigate('send')}
@@ -423,6 +440,22 @@ export const MorePage = ({
                 <Download className="w-4 h-4" />
               </div>
               <span className="font-medium text-slate-700">Collect Cash</span>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        ) : null}
+
+        {productVisibility.utilities ? (
+          <button
+            onClick={() => navigate('buy')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-700 flex items-center justify-center">
+                <Zap className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">
+                Buy airtime / electricity
+              </span>
             </div>
             <ChevronRight className="w-5 h-5 text-slate-300" />
           </button>
@@ -498,7 +531,7 @@ export const MorePage = ({
             </button>
             <button
             onClick={() => navigate('ledger')}
-            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
             
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
@@ -506,6 +539,56 @@ export const MorePage = ({
                 </div>
                 <span className="font-medium text-slate-700">
                   Immutable Ledger
+                </span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-300" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('users')}
+              className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+                  <UserCog className="w-4 h-4" />
+                </div>
+                <span className="font-medium text-slate-700">User management</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-300" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('compliance')}
+              className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+                  <ClipboardCheck className="w-4 h-4" />
+                </div>
+                <span className="font-medium text-slate-700">Compliance flags</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-300" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('claims')}
+              className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+                  <Shield className="w-4 h-4" />
+                </div>
+                <span className="font-medium text-slate-700">Insurance claims</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-300" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('merchant-approvals')}
+              className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+                  <Store className="w-4 h-4" />
+                </div>
+                <span className="font-medium text-slate-700">
+                  Merchant approvals
                 </span>
               </div>
               <ChevronRight className="w-5 h-5 text-slate-300" />

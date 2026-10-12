@@ -800,6 +800,8 @@ export function App() {
             }
             markAlertRead={state.markAlertRead}
             navigate={state.navigate}
+            isAdmin={isAdmin}
+            showMerchantWorkspace={showMerchantWorkspace}
           />
         );
       // Admin pages

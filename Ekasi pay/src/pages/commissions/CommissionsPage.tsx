@@ -73,8 +73,7 @@ export const CommissionsPage = ({
         </div>
 
         <motion.div
-          className="bg-amber-500 rounded-3xl p-6 text-white shadow-xl shadow-amber-500/20 mb-2 relative overflow-hidden"
-          whileTap={{ scale: 0.98 }}>
+          className="bg-amber-500 rounded-3xl p-6 text-white shadow-xl shadow-amber-500/20 mb-2 relative overflow-hidden">
           <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/20 rounded-full blur-2xl"></div>
           <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-amber-700/20 rounded-full blur-2xl"></div>
 

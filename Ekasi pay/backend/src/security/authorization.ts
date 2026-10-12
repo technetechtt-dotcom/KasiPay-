@@ -72,37 +72,67 @@ export function roleHasCapability(role: string, capability: Capability): boolean
   return ROLE_CAPABILITIES[role as OperatorRole].has(capability);
 }
 
+async function loadActiveOperator(
+  req: Request,
+  res: Response,
+): Promise<{ role: OperatorRole } | null> {
+  if (!req.opsAuth || !isPostgresMode()) {
+    res.status(403).json({ error: 'Capability unavailable.' });
+    return null;
+  }
+  const current = await getPgPool().query<{
+    role: string;
+    is_active: boolean;
+    token_version: number;
+  }>(
+    `SELECT role, is_active, token_version FROM ops_admin_users WHERE id = $1`,
+    [req.opsAuth.operatorId],
+  );
+  const row = current.rows[0];
+  if (
+    !row ||
+    !row.is_active ||
+    row.token_version !== req.opsAuth.tokenVersion
+  ) {
+    res.status(401).json({ error: 'Operator session revoked.' });
+    return null;
+  }
+  return { role: row.role as OperatorRole };
+}
+
 /** Deny by default. Authentication is followed by a live DB role check. */
 export function requireCapability(capability: Capability) {
   return [
     requireOpsAuth,
     async (req: Request, res: Response, next: NextFunction) => {
-      if (!req.opsAuth || !isPostgresMode()) {
-        return res.status(403).json({ error: 'Capability unavailable.' });
-      }
-      const current = await getPgPool().query<{
-        role: string;
-        is_active: boolean;
-        token_version: number;
-      }>(
-        `SELECT role, is_active, token_version FROM ops_admin_users WHERE id = $1`,
-        [req.opsAuth.operatorId],
-      );
-      const row = current.rows[0];
-      if (
-        !row ||
-        !row.is_active ||
-        row.token_version !== req.opsAuth.tokenVersion
-      ) {
-        return res.status(401).json({ error: 'Operator session revoked.' });
-      }
-      if (!roleHasCapability(row.role, capability)) {
+      const operator = await loadActiveOperator(req, res);
+      if (!operator) return;
+      if (!roleHasCapability(operator.role, capability)) {
         return res.status(403).json({
           error: 'Required capability is not assigned.',
           capability,
         });
       }
-      req.opsAuth.role = row.role as OperatorRole;
+      req.opsAuth!.role = operator.role;
+      return next();
+    },
+  ] as const;
+}
+
+/** Deny by default unless the operator has at least one of the listed capabilities. */
+export function requireAnyCapability(...capabilities: Capability[]) {
+  return [
+    requireOpsAuth,
+    async (req: Request, res: Response, next: NextFunction) => {
+      const operator = await loadActiveOperator(req, res);
+      if (!operator) return;
+      if (!capabilities.some((capability) => roleHasCapability(operator.role, capability))) {
+        return res.status(403).json({
+          error: 'Required capability is not assigned.',
+          capabilities,
+        });
+      }
+      req.opsAuth!.role = operator.role;
       return next();
     },
   ] as const;

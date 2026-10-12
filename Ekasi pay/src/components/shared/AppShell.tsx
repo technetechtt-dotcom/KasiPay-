@@ -99,15 +99,25 @@ export const AppShell: FC<AppShellProps> = ({
     'voice-notes',
     'food-safety',
     'stock-value',
+    'float-cash',
+    'record-purchase-slip',
   ];
 
   /** Wallet-mode subpages opened from More (community money tools). */
-  const walletOnlyMoreSubpages = ['stokvel', 'insurance', 'loadshedding'];
+  const walletOnlyMoreSubpages = [
+    'stokvel',
+    'insurance',
+    'loadshedding',
+    'transfer',
+    'buy',
+    'notifications',
+  ];
 
   /** Pages that highlight the "More" tab (includes shared tools like load shedding). */
   const moreHighlightPages = [
     ...(isMerchantMode ? merchantOnlyMoreSubpages : walletOnlyMoreSubpages),
     'loadshedding',
+    'notifications',
     'admin',
     'ledger',
     'users',

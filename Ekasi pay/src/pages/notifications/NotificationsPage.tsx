@@ -58,6 +58,8 @@ function buildNotifications({
   products,
   navigate,
   onAcknowledgeAlert,
+  isAdmin,
+  showMerchantWorkspace,
 }: {
   alerts: FoodSafetyAlert[];
   flags: ComplianceFlag[];
@@ -65,6 +67,8 @@ function buildNotifications({
   products: Product[];
   navigate: (page: string) => void;
   onAcknowledgeAlert: (id: string) => void;
+  isAdmin: boolean;
+  showMerchantWorkspace: boolean;
 }): NotificationItem[] {
   const out: NotificationItem[] = [];
   const now = Date.now();
@@ -99,7 +103,8 @@ function buildNotifications({
       createdAt: f.createdAt,
       severity: sev,
       unread: true,
-      onOpen: () => navigate('compliance'),
+      // Compliance review is admin-only; merchants go to Help for support.
+      onOpen: () => navigate(isAdmin ? 'compliance' : 'help'),
     });
   }
 
@@ -121,7 +126,8 @@ function buildNotifications({
       createdAt: e.expiryDate,
       severity: daysOut < 0 ? 'critical' : daysOut <= 2 ? 'warning' : 'info',
       unread: true,
-      onOpen: () => navigate('food-safety'),
+      onOpen: () =>
+        navigate(showMerchantWorkspace ? 'food-safety' : 'more'),
     });
   }
 
@@ -138,7 +144,8 @@ function buildNotifications({
       createdAt: new Date().toISOString(),
       severity: p.stock === 0 ? 'critical' : 'warning',
       unread: true,
-      onOpen: () => navigate('inventory'),
+      onOpen: () =>
+        navigate(showMerchantWorkspace ? 'inventory' : 'more'),
     });
   }
 
@@ -178,6 +185,8 @@ export const NotificationsPage = ({
   products,
   markAlertRead,
   navigate,
+  isAdmin = false,
+  showMerchantWorkspace = false,
 }: {
   alerts: FoodSafetyAlert[];
   flags: ComplianceFlag[];
@@ -185,6 +194,8 @@ export const NotificationsPage = ({
   products: Product[];
   markAlertRead: (id: string) => void;
   navigate: (page: string) => void;
+  isAdmin?: boolean;
+  showMerchantWorkspace?: boolean;
 }) => {
   const items = useMemo(
     () =>
@@ -195,8 +206,19 @@ export const NotificationsPage = ({
         products,
         navigate,
         onAcknowledgeAlert: markAlertRead,
+        isAdmin,
+        showMerchantWorkspace,
       }),
-    [alerts, flags, expiry, products, navigate, markAlertRead],
+    [
+      alerts,
+      flags,
+      expiry,
+      products,
+      navigate,
+      markAlertRead,
+      isAdmin,
+      showMerchantWorkspace,
+    ],
   );
 
   const markAllRead = () => {

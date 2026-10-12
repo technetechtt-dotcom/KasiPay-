@@ -15,7 +15,7 @@ import {
   type RegulatedProduct,
 } from '../productReadiness.js';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { requireCapability } from '../security/authorization.js';
+import { requireAnyCapability, requireCapability } from '../security/authorization.js';
 import {
   assessAffordability,
   calculateLoanSchedule,
@@ -779,5 +779,91 @@ phase7OpsRouterPg.get(
       [product],
     );
     return res.json({ reports: rows.rows });
+  },
+);
+
+async function rowsIfTable(
+  table: string,
+  sql: string,
+  params: unknown[] = [],
+): Promise<Record<string, unknown>[]> {
+  const pool = getPgPool();
+  const exists = await pool.query<{ ok: boolean }>(
+    `SELECT to_regclass($1) IS NOT NULL AS ok`,
+    [`public.${table}`],
+  );
+  if (!exists.rows[0]?.ok) return [];
+  try {
+    const result = await pool.query(sql, params);
+    return result.rows as Record<string, unknown>[];
+  } catch {
+    return [];
+  }
+}
+
+phase7OpsRouterPg.get(
+  '/ops/product-monitors',
+  ...requireAnyCapability('finance:approve', 'support:read'),
+  async (_req, res) => {
+    const [
+      stokvelAccounts,
+      utilityPurchases,
+      creditObligations,
+      insurancePolicies,
+      reconciliation,
+    ] = await Promise.all([
+      rowsIfTable(
+        'stokvel_accounts',
+        `SELECT id, name, state, created_at
+           FROM stokvel_accounts
+          ORDER BY created_at DESC
+          LIMIT 50`,
+      ),
+      rowsIfTable(
+        'utility_purchases',
+        `SELECT id, category, provider, status,
+                COALESCE(amount_cents, ROUND(amount::numeric * 100)::bigint) AS amount_cents,
+                created_at
+           FROM utility_purchases
+          ORDER BY created_at DESC
+          LIMIT 50`,
+      ),
+      rowsIfTable(
+        'merchant_credit_obligations',
+        `SELECT o.id, o.customer_id, c.merchant_id, c.name AS customer_name,
+                c.phone AS customer_phone, o.state, o.principal_cents,
+                o.outstanding_cents, o.created_at
+           FROM merchant_credit_obligations o
+           JOIN credit_customers c ON c.id = o.customer_id
+          ORDER BY o.created_at DESC
+          LIMIT 50`,
+      ),
+      rowsIfTable(
+        'insurance_policies',
+        `SELECT id, merchant_id, provider, type, status,
+                COALESCE(coverage_amount_cents, ROUND(coverage_amount::numeric * 100)::bigint) AS coverage_amount_cents,
+                COALESCE(monthly_premium_cents, ROUND(monthly_premium::numeric * 100)::bigint) AS monthly_premium_cents,
+                next_payment_date
+           FROM insurance_policies
+          ORDER BY id DESC
+          LIMIT 50`,
+      ),
+      rowsIfTable(
+        'product_reconciliation_runs',
+        `SELECT id, product, period_start, period_end, expected_cents,
+                actual_cents, break_cents, item_count, break_count, state,
+                run_by, created_at
+           FROM product_reconciliation_runs
+          ORDER BY created_at DESC
+          LIMIT 20`,
+      ),
+    ]);
+    return res.json({
+      stokvelAccounts,
+      utilityPurchases,
+      creditObligations,
+      insurancePolicies,
+      reconciliation,
+    });
   },
 );
