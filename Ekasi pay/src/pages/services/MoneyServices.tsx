@@ -39,11 +39,8 @@ import {
 import { clearSenderKycProfile } from '../../lib/senderKycProfile';
 import { cashSendVoucherPinMessage } from '../../lib/pinValidation';
 import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import { useRuntimeControls } from '../../hooks/useCustomerProductVisibility';
 import { useTranslations } from '../../hooks/useTranslations';
-import {
-  apiGetRuntimeControls,
-  type RuntimeProductControls,
-} from '../../services/api';
 import { saIdValidationMessage } from '../../lib/saIdValidation';
 import {
   isSaCellphoneInput,
@@ -130,31 +127,9 @@ export const MoneyServices = ({
   const [activeTab, setActiveTab] = useState<'send' | 'receive' | 'vouchers'>(
     () => inferCashSendTabFromDraft(initialTab),
   );
-  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
-  useEffect(() => {
-    let active = true;
-    apiGetRuntimeControls()
-      .then((r) => {
-        if (active) setControls(r.controls);
-      })
-      .catch(() => {
-        if (active) {
-          setControls({
-            financialPosting: false,
-            lending: false,
-            insurance: false,
-            stokvelMoneyMovement: false,
-            cashSend: false,
-            liveUtilities: false,
-          });
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { controls } = useRuntimeControls();
   const { t } = useTranslations(language);
-  const cashSendEnabled = controls?.cashSend === true;
+  const cashSendEnabled = controls.cashSend === true;
   return (
     <PageTransition className="min-h-0 h-full flex flex-col bg-slate-50">
       <CashSendConsentGate>

@@ -22,6 +22,8 @@ interface AppShellProps {
    * wallet mode shows Services (Cash Send / money services).
    */
   workspaceMode?: 'merchant' | 'wallet';
+  /** When false, the Services tab is omitted (Cash Send disabled by ops). */
+  showServicesTab?: boolean;
   /** Sale / expense records queued for replay (offline outbox). */
   pendingOutbox?: number;
   language?: Language;
@@ -34,6 +36,7 @@ export const AppShell: FC<AppShellProps> = ({
   navigate,
   isOffline = false,
   workspaceMode = 'merchant',
+  showServicesTab = true,
   pendingOutbox = 0,
   language = 'en',
   floatingOverlay,
@@ -72,10 +75,14 @@ export const AppShell: FC<AppShellProps> = ({
     label: t('nav.more'),
   }];
 
-  /** Merchant mode hides Services; wallet mode hides Shop. */
-  const navItems = navItemsAll.filter((item) =>
-    isMerchantMode ? item.id !== 'services' : item.id !== 'shop'
-  );
+  /** Merchant mode hides Services; wallet mode hides Shop; ops can hide Services. */
+  const navItems = navItemsAll.filter((item) => {
+    if (item.id === 'services' && (isMerchantMode || !showServicesTab)) {
+      return false;
+    }
+    if (item.id === 'shop' && !isMerchantMode) return false;
+    return true;
+  });
 
   const merchantOnlyMoreSubpages = [
     'inventory',

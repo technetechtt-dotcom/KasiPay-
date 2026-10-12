@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { apiListInsuranceClaims, type InsuranceClaim } from '../../services/api';
 import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
 import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
+import { useRuntimeControls } from '../../hooks/useCustomerProductVisibility';
 import {
   compareMoney,
   formatMoney,
@@ -44,6 +45,8 @@ export const MicroInsurancePage = ({
   ) => Promise<boolean>;
   navigate: (p: string) => void;
 }) => {
+  const { controls } = useRuntimeControls();
+  const insuranceEnabled = controls.insurance === true;
   const [busyPlan, setBusyPlan] = useState<null | 'basic' | 'comprehensive'>(null);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimType, setClaimType] = useState<'stock' | 'fire' | 'theft'>('stock');
@@ -105,6 +108,10 @@ export const MicroInsurancePage = ({
   };
 
   const buy = async (plan: 'basic' | 'comprehensive') => {
+    if (!insuranceEnabled) {
+      toast.error('Insurance is disabled on this deployment.');
+      return;
+    }
     setBusyPlan(plan);
     try {
       const ok = await onSubscribePlan(plan);
@@ -140,13 +147,19 @@ export const MicroInsurancePage = ({
       </div>
 
       <ProductReadinessNotice product="insurance" />
-      <ProductDisabledNotice
-        title="Insurance is disabled"
-        detail="Policy activation and claims processing are blocked until a licensed insurer or intermediary model is approved."
-      />
+      {!insuranceEnabled ? (
+        <ProductDisabledNotice
+          title="Insurance is disabled"
+          detail="Policy activation and claims processing are blocked until INSURANCE_ENABLED is approved for this environment."
+        />
+      ) : null}
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto p-6 pb-8">
-        {activePolicy ?
+        {!insuranceEnabled ? (
+          <p className="text-center text-slate-500 py-8 text-sm">
+            Micro-insurance is not available on this deployment.
+          </p>
+        ) : activePolicy ?
         <div className="space-y-6">
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
               Your Active Coverage

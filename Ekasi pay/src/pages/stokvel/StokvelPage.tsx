@@ -25,10 +25,7 @@ import type {
 import { toast } from 'sonner';
 import { ProductReadinessNotice } from '../../components/shared/ProductReadinessNotice';
 import { ProductDisabledNotice } from '../../components/shared/ProductDisabledNotice';
-import {
-  apiGetRuntimeControls,
-  type RuntimeProductControls,
-} from '../../services/api';
+import { useRuntimeControls } from '../../hooks/useCustomerProductVisibility';
 import {
   addMoney,
   compareMoney,
@@ -120,32 +117,8 @@ export const StokvelPage = ({
   const [showCreate, setShowCreate] = useState(false);
   const [showLoan, setShowLoan] = useState(false);
   const [showContribution, setShowContribution] = useState(false);
-  const [controls, setControls] = useState<RuntimeProductControls | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    apiGetRuntimeControls()
-      .then((r) => {
-        if (active) setControls(r.controls);
-      })
-      .catch(() => {
-        if (active) {
-          setControls({
-            financialPosting: false,
-            lending: false,
-            insurance: false,
-            stokvelMoneyMovement: false,
-            cashSend: false,
-            liveUtilities: false,
-          });
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const moneyMovementEnabled = controls?.stokvelMoneyMovement === true;
+  const { controls } = useRuntimeControls();
+  const moneyMovementEnabled = controls.stokvelMoneyMovement === true;
 
   const selected = useMemo(
     () => groups.find((g) => g.id === selectedId) ?? null,

@@ -51,6 +51,8 @@ import type {
 } from '../../types';
 import type { WorkspaceMode } from '../../hooks/useAppState';
 import { useTranslations } from '../../hooks/useTranslations';
+import type { CustomerProductVisibility } from '../../lib/productVisibility';
+import { HIDDEN_CUSTOMER_PRODUCTS } from '../../lib/productVisibility';
 import { countUnreadNotifications } from '../notifications/notificationCount';
 const OnboardingOverlay = ({ onComplete }: {onComplete: () => void;}) => {
   const [step, setStep] = useState(0);
@@ -194,6 +196,7 @@ export const SpazaHome = ({
   merchant,
   showMerchantWorkspace,
   agentWithoutMerchantProfile,
+  productVisibility = HIDDEN_CUSTOMER_PRODUCTS,
   transactions,
   sales,
   products,
@@ -215,6 +218,8 @@ export const SpazaHome = ({
   showMerchantWorkspace: boolean;
   /** Agents without a linked shop still get payout-style shortcuts */
   agentWithoutMerchantProfile: boolean;
+  /** Ops-gated products — disabled services stay off the home grid. */
+  productVisibility?: CustomerProductVisibility;
   transactions: Transaction[];
   sales: Sale[];
   products: Product[];
@@ -489,27 +494,31 @@ export const SpazaHome = ({
                 </span>
               </button>
 
-              <button
-                onClick={() => navigate('send')}
-                className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform">
-                <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
-                  <ArrowDownLeft className="w-5 h-5" />
-                </div>
-                <span className="font-semibold text-amber-800 text-sm">
-                  Cash Send
-                </span>
-              </button>
+              {productVisibility.cashSend ? (
+                <button
+                  onClick={() => navigate('send')}
+                  className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
+                    <ArrowDownLeft className="w-5 h-5" />
+                  </div>
+                  <span className="font-semibold text-amber-800 text-sm">
+                    Cash Send
+                  </span>
+                </button>
+              ) : null}
 
-              <button
-                onClick={() => navigate('receive')}
-                className="col-span-2 bg-blue-50 border border-blue-100 p-4 rounded-2xl flex flex-row items-center justify-center gap-3 active:scale-95 transition-transform">
-                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
-                  <Download className="w-5 h-5" />
-                </div>
-                <span className="font-semibold text-blue-800 text-sm">
-                  Collect Cash (payout at shop)
-                </span>
-              </button>
+              {productVisibility.cashSend ? (
+                <button
+                  onClick={() => navigate('receive')}
+                  className="col-span-2 bg-blue-50 border border-blue-100 p-4 rounded-2xl flex flex-row items-center justify-center gap-3 active:scale-95 transition-transform">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <span className="font-semibold text-blue-800 text-sm">
+                    Collect Cash (payout at shop)
+                  </span>
+                </button>
+              ) : null}
             </>
           : null}
 
@@ -568,15 +577,17 @@ export const SpazaHome = ({
             </>
           : null}
 
-          <button
-            type="button"
-            onClick={() => navigate('buy')}
-            className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform">
-            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
-              <Zap className="w-5 h-5" />
-            </div>
-            <span className="font-semibold text-amber-800 text-sm">Buy airtime / electricity</span>
-          </button>
+          {productVisibility.utilities ? (
+            <button
+              type="button"
+              onClick={() => navigate('buy')}
+              className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform">
+              <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
+                <Zap className="w-5 h-5" />
+              </div>
+              <span className="font-semibold text-amber-800 text-sm">Buy airtime / electricity</span>
+            </button>
+          ) : null}
 
           <button
             type="button"

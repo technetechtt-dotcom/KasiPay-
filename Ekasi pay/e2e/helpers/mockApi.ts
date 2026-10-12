@@ -119,8 +119,20 @@ export async function seedMerchantSession(page: Page) {
     if (url.includes('/api/expiry')) return json({ items: [] });
     if (url.includes('/api/food-safety')) return json({ alerts: [] });
     if (url.includes('/api/stock-movements')) return json({ movements: [] });
-    if (url.includes('/api/runtime-controls') || url.includes('/api/product-readiness')) {
-      return json({ flags: {}, cashSendEnabled: false });
+    if (url.includes('/api/runtime-controls')) {
+      return json({
+        controls: {
+          financialPosting: false,
+          lending: false,
+          insurance: false,
+          stokvelMoneyMovement: false,
+          cashSend: false,
+          liveUtilities: false,
+        },
+      });
+    }
+    if (url.includes('/api/product-readiness')) {
+      return json({ environment: 'sandbox', products: [] });
     }
     return json({ ok: true });
   });

@@ -40,6 +40,8 @@ import type {
 } from '../../types';
 import type { WorkspaceMode } from '../../hooks/useAppState';
 import { useTranslations } from '../../hooks/useTranslations';
+import type { CustomerProductVisibility } from '../../lib/productVisibility';
+import { HIDDEN_CUSTOMER_PRODUCTS } from '../../lib/productVisibility';
 export const MorePage = ({
   user,
   merchant,
@@ -47,6 +49,7 @@ export const MorePage = ({
   workspaceMode,
   setWorkspaceMode,
   agentWithoutMerchantProfile,
+  productVisibility = HIDDEN_CUSTOMER_PRODUCTS,
   alerts,
   language = 'en',
   navigate,
@@ -58,6 +61,8 @@ export const MorePage = ({
   workspaceMode: WorkspaceMode;
   setWorkspaceMode: (mode: WorkspaceMode) => void;
   agentWithoutMerchantProfile: boolean;
+  /** Ops-gated products — disabled entries are omitted from the menu. */
+  productVisibility?: CustomerProductVisibility;
   alerts: FoodSafetyAlert[];
   language?: Language;
   navigate: (p: string) => void;
@@ -118,18 +123,20 @@ export const MorePage = ({
             Agent workspace
           </h3>
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
-            <button
-              type="button"
-              onClick={() => navigate('send')}
-              className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <Wallet className="w-4 h-4" />
+            {productVisibility.cashSend ? (
+              <button
+                type="button"
+                onClick={() => navigate('send')}
+                className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-slate-700">Cash Send</span>
                 </div>
-                <span className="font-medium text-slate-700">Cash Send</span>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-300" />
-            </button>
+                <ChevronRight className="w-5 h-5 text-slate-300" />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => navigate('commissions')}
@@ -199,20 +206,22 @@ export const MorePage = ({
           </div>
         </button>
 
-        <button
-          onClick={() => navigate('credit-book')}
-          className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
-          
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <BookOpen className="w-4 h-4" />
+        {productVisibility.merchantCredit ? (
+          <button
+            onClick={() => navigate('credit-book')}
+            className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
+            
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <BookOpen className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">
+                Credit Book (Izikweletu)
+              </span>
             </div>
-            <span className="font-medium text-slate-700">
-              Credit Book (Izikweletu)
-            </span>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-300" />
-        </button>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        ) : null}
 
         <button
           onClick={() => navigate('voice-notes')}
@@ -384,64 +393,72 @@ export const MorePage = ({
         </div>
       : null}
 
-      {/* Community & Services — wallet mode only */}
+      {/* Community & Services — wallet mode only; ops-disabled products omitted */}
       {!showMerchantWorkspace ? (
         <>
       <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
         {t('more.communityServices')}
       </h3>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8 divide-y divide-slate-100">
-        <button
-          onClick={() => navigate('send')}
-          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Wallet className="w-4 h-4" />
+        {productVisibility.cashSend ? (
+          <button
+            onClick={() => navigate('send')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Wallet className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">Cash Send</span>
             </div>
-            <span className="font-medium text-slate-700">Cash Send</span>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-300" />
-        </button>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        ) : null}
 
-        <button
-          onClick={() => navigate('receive')}
-          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Download className="w-4 h-4" />
+        {productVisibility.cashSend ? (
+          <button
+            onClick={() => navigate('receive')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Download className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">Collect Cash</span>
             </div>
-            <span className="font-medium text-slate-700">Collect Cash</span>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-300" />
-        </button>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        ) : null}
 
-        <button
-          onClick={() => navigate('stokvel')}
-          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
+        {productVisibility.stokvel ? (
+          <button
+            onClick={() => navigate('stokvel')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">
+                Community Stokvel
+              </span>
             </div>
-            <span className="font-medium text-slate-700">
-              Community Stokvel
-            </span>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-300" />
-        </button>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        ) : null}
 
-        <button
-          onClick={() => navigate('insurance')}
-          className="w-full flex items-center justify-between p-4 active:bg-slate-50">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Shield className="w-4 h-4" />
+        {productVisibility.insurance ? (
+          <button
+            onClick={() => navigate('insurance')}
+            className="w-full flex items-center justify-between p-4 active:bg-slate-50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Shield className="w-4 h-4" />
+              </div>
+              <span className="font-medium text-slate-700">
+                Micro-Insurance
+              </span>
             </div>
-            <span className="font-medium text-slate-700">
-              Micro-Insurance
-            </span>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-300" />
-        </button>
+            <ChevronRight className="w-5 h-5 text-slate-300" />
+          </button>
+        ) : null}
 
         <button
           onClick={() => navigate('loadshedding')}

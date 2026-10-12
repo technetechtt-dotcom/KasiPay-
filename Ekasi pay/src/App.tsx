@@ -63,6 +63,11 @@ import {
   MERCHANT_PORTAL_PAGE_IDS,
   WALLET_ONLY_PAGE_IDS,
 } from './config/merchantPortalPages';
+import { useCustomerProductVisibility } from './hooks/useCustomerProductVisibility';
+import {
+  CUSTOMER_PRODUCT_PAGES,
+  isCustomerProductPageVisible,
+} from './lib/productVisibility';
 
 const getLockRemainingSeconds = (lockedUntil: number | null) => {
   if (!lockedUntil) return 0;
@@ -71,6 +76,8 @@ const getLockRemainingSeconds = (lockedUntil: number | null) => {
 };
 export function App() {
   const state = useAppState();
+  const { visibility: productVisibility, loading: productsLoading } =
+    useCustomerProductVisibility();
   const [scannedBarcode, setScannedBarcode] = useState<string | undefined>();
   const [shopSetupBusy, setShopSetupBusy] = useState(false);
   const isAdmin = state.currentUser?.role === 'admin';
@@ -382,6 +389,34 @@ export function App() {
         </div>
       );
     }
+    if (CUSTOMER_PRODUCT_PAGES[state.currentPage]) {
+      if (productsLoading) {
+        return (
+          <div className="p-8 text-center text-slate-500 mt-20 text-sm">
+            Checking available services…
+          </div>
+        );
+      }
+      if (!isCustomerProductPageVisible(state.currentPage, productVisibility)) {
+        return (
+          <div className="p-8 text-center text-slate-600 mt-16 px-6">
+            <p className="text-base font-medium text-slate-800 mb-2">
+              Service unavailable
+            </p>
+            <p className="text-sm mb-6 max-w-xs mx-auto leading-relaxed">
+              This service is turned off by operations and is not available on
+              your account right now.
+            </p>
+            <button
+              type="button"
+              onClick={() => state.navigate('home')}
+              className="block mx-auto text-emerald-600 font-medium text-sm">
+              Go home
+            </button>
+          </div>
+        );
+      }
+    }
     if (
       showMerchantWorkspace &&
       agentWithoutMerchantProfile &&
@@ -443,6 +478,7 @@ export function App() {
             merchant={merchant}
             showMerchantWorkspace={showMerchantWorkspace}
             agentWithoutMerchantProfile={agentWithoutMerchantProfile}
+            productVisibility={productVisibility}
             transactions={state.transactions}
             sales={state.sales}
             products={state.products}
@@ -520,6 +556,7 @@ export function App() {
             workspaceMode={state.workspaceMode}
             setWorkspaceMode={state.setWorkspaceMode}
             agentWithoutMerchantProfile={agentWithoutMerchantProfile}
+            productVisibility={productVisibility}
             alerts={state.foodSafetyAlerts}
             language={state.language}
             navigate={state.navigate}
@@ -812,6 +849,7 @@ export function App() {
       isOffline={state.isOffline}
       pendingOutbox={state.pendingOutbox}
       workspaceMode={state.workspaceMode}
+      showServicesTab={productVisibility.cashSend}
       language={state.language}
       floatingOverlay={
         state.currentPage === 'home' ?
