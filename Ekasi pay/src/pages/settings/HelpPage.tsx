@@ -14,13 +14,17 @@ import { faqs } from '../../data/faqs';
 import { readSupportContacts } from '../../lib/supportContacts';
 import type { Language } from '../../types';
 import { useTranslations } from '../../hooks/useTranslations';
+import type { CustomerProductVisibility } from '../../lib/productVisibility';
+import { HIDDEN_CUSTOMER_PRODUCTS } from '../../lib/productVisibility';
 
 export const HelpPage = ({
   navigate,
   language = 'en',
+  productVisibility = HIDDEN_CUSTOMER_PRODUCTS,
 }: {
   navigate: (p: string) => void;
   language?: Language;
+  productVisibility?: CustomerProductVisibility;
 }) => {
   const { t } = useTranslations(language);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -89,7 +93,7 @@ export const HelpPage = ({
                 </div>
                 <div>
                   <p className="font-bold text-slate-900">{t('help.whatsapp')}</p>
-                  <p className="text-sm text-slate-500">Usually replies in 5 mins</p>
+                  <p className="text-sm text-slate-500">Chat with KasiPay support</p>
                 </div>
               </KPCard>
             ) : null}
@@ -174,12 +178,14 @@ export const HelpPage = ({
               <strong>Scan</strong> bumps stock when the barcode already exists,
               otherwise opens Add stock with the barcode filled.
             </p>
-            <p>
+            {productVisibility.cashSend ? (
+<p>
               <strong className="text-slate-900">Cash Send:</strong>{' '}
               <em className="not-italic text-emerald-700">Services</em> → capture KYC
               honestly; beneficiary ID must match the document scanned at payout. Use
               the camera scanner icon or a USB wedge pointed at ID barcodes.
             </p>
+) : null}
             <p>
               <strong className="text-slate-900">Scanner tips:</strong> add light, hold
               steady ~20–40 cm away; if the camera fails, plug in a retail USB scanner
@@ -195,7 +201,7 @@ export const HelpPage = ({
         </section>
 
         <div className="text-center pt-8 pb-4">
-          <p className="text-xs text-slate-400 font-medium">KasiPay Spaza App v2.1.0</p>
+          <p className="text-xs text-slate-400 font-medium">KasiPay Spaza App {(import.meta.env.VITE_APP_VERSION as string | undefined) || 'production'}</p>
           <p className="text-xs text-slate-400">© 2026 KasiPay Network</p>
         </div>
       </div>

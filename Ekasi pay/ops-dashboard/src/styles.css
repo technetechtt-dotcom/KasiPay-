@@ -518,5 +518,132 @@ button.linkish {
   overflow: hidden;
   background: #0f172a;
 }
-  gap: 0.35rem;
+
+
+/* Production operations layout */
+.app-shell {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.tabs {
+  grid-column: 1;
+  grid-row: 2;
+  align-content: flex-start;
+  align-items: stretch;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  min-width: 0;
+  height: calc(100vh - 65px);
+  overflow-y: auto;
+  border-right: 1px solid #334155;
+  border-bottom: 0;
+  padding: 1rem;
+}
+
+.tabs button {
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+}
+
+.main {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  overflow: auto;
+}
+
+tbody tr {
+  cursor: default;
+}
+
+button,
+input,
+select {
+  min-height: 40px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .topbar {
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .tabs {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-direction: row;
+    align-items: center;
+    height: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    border-right: 0;
+    border-bottom: 1px solid #334155;
+    padding: 0.75rem 1rem;
+    scrollbar-width: thin;
+  }
+
+  .tabs button {
+    width: auto;
+    flex: 0 0 auto;
+    text-align: center;
+  }
+
+  .main {
+    padding: 1rem;
+  }
+
+  .panel-head,
+  .action-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .login-wrap {
+    padding: 1rem;
+  }
+
+  .login-card,
+  .panel {
+    padding: 1rem;
+  }
+
+  .topbar {
+    padding: 0.875rem 1rem;
+  }
+
+  .filters input,
+  .filters select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .detail-dl {
+    grid-template-columns: 1fr;
+  }
 }

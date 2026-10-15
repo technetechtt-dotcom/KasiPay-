@@ -283,8 +283,8 @@ export function App() {
 
   if (needsMerchantOnboarding && state.merchantProfile) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-8 max-sm:p-0 max-sm:bg-slate-50">
-        <div className="relative w-full max-w-[400px] h-[850px] max-h-[95dvh] max-sm:max-w-none max-sm:h-[100dvh] max-sm:max-h-[100dvh] bg-slate-50 rounded-[3rem] max-sm:rounded-none shadow-2xl max-sm:shadow-none overflow-hidden border-[8px] max-sm:border-0 border-slate-800 flex flex-col">
+      <div className="min-h-[100dvh] bg-slate-100 flex items-center justify-center p-0 sm:p-4">
+        <div className="relative w-full max-w-[720px] h-[100dvh] sm:h-[calc(100dvh-2rem)] bg-slate-50 sm:rounded-[2rem] shadow-xl overflow-hidden sm:border border-slate-200 flex flex-col">
           <MerchantOnboardingPage
             merchant={state.merchantProfile}
             onMerchantUpdated={state.setMerchantProfile}
@@ -307,7 +307,13 @@ export function App() {
     };
 
   const hasMerchantProfile = state.merchantProfile !== null;
-  const showMerchantWorkspace = state.workspaceMode === 'merchant';
+  const canUseMerchantWorkspace =
+    currentUser.role === 'merchant' ||
+    currentUser.role === 'agent' ||
+    currentUser.role === 'admin';
+  const effectiveWorkspaceMode =
+    canUseMerchantWorkspace ? state.workspaceMode : 'wallet';
+  const showMerchantWorkspace = effectiveWorkspaceMode === 'merchant';
   const isAgent = currentUser.role === 'agent';
   const agentWithoutMerchantProfile = isAgent && !hasMerchantProfile;
 
@@ -553,7 +559,8 @@ export function App() {
             user={currentUser}
             merchant={merchant}
             showMerchantWorkspace={showMerchantWorkspace}
-            workspaceMode={state.workspaceMode}
+            canUseMerchantWorkspace={canUseMerchantWorkspace}
+            workspaceMode={effectiveWorkspaceMode}
             setWorkspaceMode={state.setWorkspaceMode}
             agentWithoutMerchantProfile={agentWithoutMerchantProfile}
             productVisibility={productVisibility}
@@ -776,7 +783,13 @@ export function App() {
 
 
       case 'help':
-        return <HelpPage navigate={state.navigate} language={state.language} />;
+        return (
+          <HelpPage
+            navigate={state.navigate}
+            language={state.language}
+            productVisibility={productVisibility}
+          />
+        );
       case 'buy':
         return (
           <BuyUtilityPage
@@ -850,11 +863,11 @@ export function App() {
       navigate={state.navigate}
       isOffline={state.isOffline}
       pendingOutbox={state.pendingOutbox}
-      workspaceMode={state.workspaceMode}
+      workspaceMode={effectiveWorkspaceMode}
       showServicesTab={productVisibility.cashSend}
       language={state.language}
       floatingOverlay={
-        state.currentPage === 'home' ?
+        state.currentPage === 'home' && canUseMerchantWorkspace ?
           <WorkspaceModeFab
             workspaceMode={state.workspaceMode}
             setWorkspaceMode={state.setWorkspaceMode}

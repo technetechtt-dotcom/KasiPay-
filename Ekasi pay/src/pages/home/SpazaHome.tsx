@@ -73,8 +73,8 @@ const OnboardingOverlay = ({ onComplete }: {onComplete: () => void;}) => {
     icon: <Package className="w-12 h-12 text-purple-600" />
   },
   {
-    title: 'Money Services',
-    desc: 'Earn extra income by helping customers send and receive money.',
+    title: 'Business Tools',
+    desc: 'Use the wallet and business services that are enabled for your account.',
     icon: <ArrowUpRight className="w-12 h-12 text-amber-600" />
   }];
 
@@ -483,7 +483,8 @@ export const SpazaHome = ({
         <div className="grid grid-cols-2 gap-3 mb-8">
           {!showMerchantWorkspace ?
             <>
-              <button
+              {productVisibility.walletTransfer ? (
+<button
                 onClick={() => navigate('transfer')}
                 className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform">
                 <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
@@ -493,6 +494,7 @@ export const SpazaHome = ({
                   Wallet Transfer
                 </span>
               </button>
+) : null}
 
               {productVisibility.cashSend ? (
                 <button

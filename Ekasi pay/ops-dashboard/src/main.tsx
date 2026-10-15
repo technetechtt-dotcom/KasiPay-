@@ -8,7 +8,6 @@ import QRCode from 'qrcode';
 import {
   apiAdminUsers,
   apiAuditEvents,
-  apiBaseUrl,
   apiCashSendVouchers,
   apiComplianceFlags,
   apiCreateAdminUser,
@@ -119,13 +118,12 @@ function fmtDate(iso: string) {
 }
 
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [username, setUsername] = useState('IvanIJ');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [mfaSetup, setMfaSetup] = useState<OpsMfaEnrollment | null>(null);
-  const apiUrl = apiBaseUrl() || '(dev proxy)';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,9 +162,6 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           {mfaSetup
             ? 'Scan the QR code, then enter the 6-digit code to finish signing in.'
             : 'Enter your username and password. If MFA is already set up, also enter its 6-digit code.'}
-        </p>
-        <p className="muted" style={{ fontSize: 12 }}>
-          API: {apiUrl}
         </p>
         <label>
           Username

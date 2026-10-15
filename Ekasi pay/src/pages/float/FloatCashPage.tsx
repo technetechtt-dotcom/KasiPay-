@@ -8,6 +8,7 @@ import {
   PageTransition,
 } from '../../components/shared/UIComponents';
 import {
+  ApiError,
   apiAdjustCashAvailability,
   apiDeclareCashAvailability,
   apiGetCashAvailability,
@@ -33,6 +34,7 @@ export const FloatCashPage = ({
   navigate: (p: string) => void;
 }) => {
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [balance, setBalance] = useState('0.00');
   const [alerts, setAlerts] = useState<Array<{ code: string; message: string }>>([]);
   const [pending, setPending] = useState<Array<Record<string, unknown>>>([]);
@@ -72,7 +74,11 @@ export const FloatCashPage = ({
         await reload();
       } catch (err) {
         if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : 'Could not load float');
+          if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {
+            setAccessDenied(true);
+          } else {
+            toast.error(err instanceof Error ? err.message : 'Could not load float');
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -82,6 +88,29 @@ export const FloatCashPage = ({
       cancelled = true;
     };
   }, []);
+
+  if (accessDenied) {
+    return (
+      <PageTransition className="min-h-0 h-full bg-slate-50">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-12 pb-28">
+          <button
+            type="button"
+            className="flex items-center gap-2 text-slate-500 mb-6 min-h-11"
+            onClick={() => navigate('more')}>
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Float &amp; cash</h2>
+          <KPCard className="p-5 border border-amber-200 bg-amber-50">
+            <h3 className="font-semibold text-amber-900 mb-2">Payout-agent access required</h3>
+            <p className="text-sm text-amber-800 leading-relaxed">
+              Float and cash-out controls are available only to approved KasiPay payout agents.
+              Contact operations if this shop should be enrolled.
+            </p>
+          </KPCard>
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition className="min-h-0 h-full bg-slate-50">

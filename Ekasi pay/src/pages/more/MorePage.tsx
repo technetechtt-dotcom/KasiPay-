@@ -51,6 +51,7 @@ export const MorePage = ({
   user,
   merchant,
   showMerchantWorkspace,
+  canUseMerchantWorkspace,
   workspaceMode,
   setWorkspaceMode,
   agentWithoutMerchantProfile,
@@ -63,6 +64,7 @@ export const MorePage = ({
   user: User;
   merchant: Merchant;
   showMerchantWorkspace: boolean;
+  canUseMerchantWorkspace: boolean;
   workspaceMode: WorkspaceMode;
   setWorkspaceMode: (mode: WorkspaceMode) => void;
   agentWithoutMerchantProfile: boolean;
@@ -104,6 +106,7 @@ export const MorePage = ({
         </div>
       </KPCard>
 
+      {canUseMerchantWorkspace ? (
       <KPCard className="mb-8 p-4 border border-slate-200 bg-white">
         <p className="text-xs text-slate-600 mb-3 leading-relaxed">
           {workspaceMode === 'merchant' ?
@@ -121,6 +124,7 @@ export const MorePage = ({
           : 'Switch to merchant mode'}
         </KPButton>
       </KPCard>
+      ) : null}
 
       {agentWithoutMerchantProfile && !showMerchantWorkspace ?
         <>
@@ -142,7 +146,8 @@ export const MorePage = ({
                 <ChevronRight className="w-5 h-5 text-slate-300" />
               </button>
             ) : null}
-            <button
+            {productVisibility.cashSend ? (
+<button
               type="button"
               onClick={() => navigate('commissions')}
               className="w-full flex items-center justify-between p-4 border-b border-slate-100 active:bg-slate-50">
@@ -154,6 +159,7 @@ export const MorePage = ({
               </div>
               <ChevronRight className="w-5 h-5 text-slate-300" />
             </button>
+) : null}
             <button
               type="button"
               onClick={() => navigate('history')}
@@ -367,7 +373,7 @@ export const MorePage = ({
         </>
       )}
 
-      {showFullShopTools && !agentWithoutMerchantProfile ?
+      {showFullShopTools && !agentWithoutMerchantProfile && productVisibility.cashSend ?
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
           <button
             onClick={() => navigate('float-cash')}
@@ -405,7 +411,8 @@ export const MorePage = ({
         {t('more.communityServices')}
       </h3>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8 divide-y divide-slate-100">
-        <button
+        {productVisibility.walletTransfer ? (
+<button
           onClick={() => navigate('transfer')}
           className="w-full flex items-center justify-between p-4 active:bg-slate-50">
           <div className="flex items-center gap-3">
@@ -416,6 +423,7 @@ export const MorePage = ({
           </div>
           <ChevronRight className="w-5 h-5 text-slate-300" />
         </button>
+) : null}
 
         {productVisibility.cashSend ? (
           <button

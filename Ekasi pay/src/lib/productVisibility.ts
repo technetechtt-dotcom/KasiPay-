@@ -12,6 +12,7 @@ export const DISABLED_RUNTIME_CONTROLS: RuntimeProductControls = {
 
 export type CustomerProductVisibility = {
   cashSend: boolean;
+  walletTransfer: boolean;
   stokvel: boolean;
   insurance: boolean;
   utilities: boolean;
@@ -21,6 +22,7 @@ export type CustomerProductVisibility = {
 
 export const HIDDEN_CUSTOMER_PRODUCTS: CustomerProductVisibility = {
   cashSend: false,
+  walletTransfer: false,
   stokvel: false,
   insurance: false,
   utilities: false,
@@ -33,6 +35,7 @@ export const CUSTOMER_PRODUCT_PAGES: Record<string, keyof CustomerProductVisibil
   services: 'cashSend',
   send: 'cashSend',
   receive: 'cashSend',
+  transfer: 'walletTransfer',
   stokvel: 'stokvel',
   insurance: 'insurance',
   buy: 'utilities',
@@ -57,6 +60,7 @@ export function resolveCustomerProductVisibility(
 ): CustomerProductVisibility {
   return {
     cashSend: controls.cashSend === true,
+    walletTransfer: controls.financialPosting === true,
     stokvel:
       controls.stokvelMoneyMovement === true &&
       readinessEnabled(readiness, 'stokvel'),

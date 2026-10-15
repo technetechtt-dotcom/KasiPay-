@@ -6,9 +6,6 @@ import {
   ShoppingCart,
   History,
   MoreHorizontal,
-  Wifi,
-  Battery,
-  Signal,
   WifiOff } from
 'lucide-react';
 import type { Language } from '../../types';
@@ -44,10 +41,6 @@ export const AppShell: FC<AppShellProps> = ({
 }) => {
   const { t } = useTranslations(language);
   const isMerchantMode = workspaceMode === 'merchant';
-  const time = new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
   const navItemsAll = [
   {
     id: 'home',
@@ -133,28 +126,12 @@ export const AppShell: FC<AppShellProps> = ({
   const hideBottomNav = new Set(['scanner']);
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-8 max-sm:p-0 max-sm:bg-slate-50">
-      {/* Phone Frame — full-bleed on real mobile browsers */}
-      <div className="relative w-full max-w-[400px] h-[850px] max-h-[95dvh] max-sm:max-w-none max-sm:h-[100dvh] max-sm:max-h-[100dvh] bg-slate-50 rounded-[3rem] max-sm:rounded-none shadow-2xl max-sm:shadow-none overflow-hidden border-[8px] max-sm:border-0 border-slate-800 flex flex-col">
-        {/* Fake Status Bar */}
-        <div className="h-12 w-full bg-slate-50 flex items-center justify-between px-6 text-slate-900 text-xs font-medium z-50 shrink-0">
-          <span>{time}</span>
-          {/* Dynamic Island Mock */}
-          <div className="absolute left-1/2 -translate-x-1/2 top-2 w-32 h-7 bg-black rounded-full"></div>
-          <div className="flex items-center gap-2">
-            <Signal className="w-3.5 h-3.5" />
-            {isOffline ?
-            <WifiOff className="w-3.5 h-3.5 text-red-500" /> :
-
-            <Wifi className="w-3.5 h-3.5" />
-            }
-            <Battery className="w-4 h-4" />
-          </div>
-        </div>
-
+    <div className="min-h-[100dvh] bg-slate-100 flex items-center justify-center p-0 sm:p-4 lg:p-6">
+      {/* Production shell: full-bleed on phones, wider workspace on tablets/desktops. */}
+      <div className="relative w-full max-w-[960px] h-[100dvh] sm:h-[calc(100dvh-2rem)] sm:max-h-[960px] bg-slate-50 sm:rounded-[2rem] shadow-xl overflow-hidden sm:border border-slate-200 flex flex-col">
         {/* Offline / outbox banner */}
         {isOffline ?
-          <div className="bg-amber-500 text-white text-[10px] font-bold py-1.5 px-4 flex items-center justify-center gap-2 z-40 shadow-sm">
+          <div className="bg-amber-500 text-white text-xs font-bold py-1.5 px-4 flex items-center justify-center gap-2 z-40 shadow-sm">
             <WifiOff className="w-3 h-3" />
             <span>
               You're offline — money services paused.
@@ -164,7 +141,7 @@ export const AppShell: FC<AppShellProps> = ({
             </span>
           </div>
         : pendingOutbox > 0 ?
-          <div className="bg-blue-500 text-white text-[10px] font-bold py-1.5 px-4 flex items-center justify-center gap-2 z-40 shadow-sm">
+          <div className="bg-blue-500 text-white text-xs font-bold py-1.5 px-4 flex items-center justify-center gap-2 z-40 shadow-sm">
             <span>
               Syncing {pendingOutbox} queued item{pendingOutbox === 1 ? '' : 's'}…
             </span>
@@ -202,7 +179,7 @@ export const AppShell: FC<AppShellProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => navigate(item.id)}
-                  className="relative flex flex-1 flex-col items-center justify-center min-h-[3.5rem] max-w-[4.75rem] py-1 overflow-visible">
+                  className="relative flex flex-1 flex-col items-center justify-center min-h-[3.75rem] max-w-[5.5rem] py-1 overflow-visible">
                   
                   <motion.div
                     animate={{
@@ -214,7 +191,7 @@ export const AppShell: FC<AppShellProps> = ({
                       className={`w-6 h-6 shrink-0 ${isActive ? 'fill-emerald-50' : ''}`}
                       strokeWidth={isActive ? 2.5 : 2} />
                     
-                    <span className="text-[10px] font-medium leading-tight whitespace-nowrap">
+                    <span className="text-[11px] font-medium leading-tight whitespace-nowrap">
                       {item.label}
                     </span>
                   </motion.div>

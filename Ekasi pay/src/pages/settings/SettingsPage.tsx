@@ -49,6 +49,7 @@ export const SettingsPage = ({
   navigate: (p: string) => void;
 }) => {
   const { t } = useTranslations(language);
+  const hasBusinessProfile = Boolean(merchant.id) || user.role === 'merchant';
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -148,6 +149,7 @@ export const SettingsPage = ({
               </div>
             </div>
 
+            {hasBusinessProfile ? (
             <div className="space-y-4 border-t border-slate-100 pt-4">
               {editingBiz ?
                 <>
@@ -216,6 +218,7 @@ export const SettingsPage = ({
                 </>
               }
             </div>
+            ) : null}
           </KPCard>
         </section>
 
@@ -353,7 +356,7 @@ export const SettingsPage = ({
                 value={currentPin}
                 onChange={(e) => setCurrentPin(e.target.value)} />
               
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <KPInput
                   type="password"
                   label="New PIN"
@@ -417,17 +420,17 @@ export const SettingsPage = ({
             </h3>
             <p className="text-sm text-slate-500 mb-4 leading-relaxed">
               Withdraw any remaining wallet balance first. To confirm, enter
-              your 4-digit PIN and type the phrase{' '}
+              your current 4–12 digit PIN and type the phrase{' '}
               <strong className="text-slate-700">DELETE MY ACCOUNT</strong>.
             </p>
             <KPInput
               label="Your PIN"
               type="password"
               inputMode="numeric"
-              maxLength={4}
+              maxLength={12}
               value={deletePin}
               onChange={(e) =>
-                setDeletePin(e.target.value.replace(/\D/g, '').slice(0, 4))
+                setDeletePin(e.target.value.replace(/\D/g, '').slice(0, 12))
               }
             />
             <KPInput
@@ -451,7 +454,7 @@ export const SettingsPage = ({
                 onClick={closeAccount}
                 disabled={
                   deleteBusy ||
-                  deletePin.length !== 4 ||
+                  deletePin.length < 4 || deletePin.length > 12 ||
                   deleteConfirm.trim().toUpperCase() !== 'DELETE MY ACCOUNT'
                 }
                 className="flex-1 py-3 rounded-xl bg-red-600 text-white font-medium text-sm disabled:bg-red-300">

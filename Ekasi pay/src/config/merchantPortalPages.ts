@@ -34,5 +34,6 @@ export const WALLET_ONLY_PAGE_IDS = new Set([
   'receive',
   'stokvel',
   'insurance',
+  'buy',
   'loadshedding',
 ]);
