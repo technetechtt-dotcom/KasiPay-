@@ -178,7 +178,7 @@ const createBody = z.object({
   ]),
   resourceType: z.string().trim().min(1).max(100),
   resourceId: z.string().trim().min(1).max(200),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   reason: z.string().trim().min(10).max(2000),
   evidence: z.array(z.unknown()).max(20).default([]),
   expiresMinutes: z.number().int().min(5).max(120).default(30),

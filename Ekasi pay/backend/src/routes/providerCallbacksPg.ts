@@ -17,7 +17,7 @@ const callbackBody = z.object({
   eventId: z.string().min(1).max(200),
   providerReference: z.string().min(1).max(200),
   state: z.enum(['accepted', 'fulfilled', 'failed', 'unknown', 'reversed']),
-  response: z.record(z.unknown()).default({}),
+  response: z.record(z.string(), z.unknown()).default({}),
 });
 
 providerCallbacksRouterPg.post('/providers/:endpointId/callback', async (req, res) => {

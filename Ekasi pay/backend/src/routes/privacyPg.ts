@@ -44,7 +44,7 @@ privacyRouterPg.get('/privacy/consents', requireAuth, async (req, res) => {
 
 const requestBody = z.object({
   requestType: z.enum(['access', 'correction', 'export', 'deletion']),
-  details: z.record(z.unknown()).default({}),
+  details: z.record(z.string(), z.unknown()).default({}),
 });
 
 privacyRouterPg.post('/privacy/requests', requireAuth, async (req, res) => {

@@ -20,8 +20,8 @@ const refundBody = z.object({
   currency: z.string().regex(/^[A-Z]{3}$/),
   reason: z.string().trim().min(10).max(1000),
   approvalRequestId: z.string().uuid().optional(),
-  stockCompensation: z.record(z.unknown()).optional(),
-  domainCompensation: z.record(z.unknown()).optional(),
+  stockCompensation: z.record(z.string(), z.unknown()).optional(),
+  domainCompensation: z.record(z.string(), z.unknown()).optional(),
 });
 
 refundsRouterPg.post('/refunds', requireAuth, async (req, res) => {

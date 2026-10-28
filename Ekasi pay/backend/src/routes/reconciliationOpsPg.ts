@@ -216,7 +216,7 @@ reconciliationOpsRouterPg.post(
 const resolveBody = z.object({
   state: z.enum(['resolved', 'accepted_risk', 'wont_fix']),
   note: z.string().trim().min(10).max(4000),
-  evidence: z.record(z.unknown()).default({}),
+  evidence: z.record(z.string(), z.unknown()).default({}),
 });
 
 reconciliationOpsRouterPg.post(

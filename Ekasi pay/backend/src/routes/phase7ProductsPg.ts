@@ -268,7 +268,7 @@ const stokvelAccountBody = z.object({
   legalCustodianName: z.string().trim().min(2).max(200),
   legalCustodianReference: z.string().trim().min(2).max(500),
   legalEvidenceId: z.string().uuid(),
-  constitution: z.record(z.unknown()),
+  constitution: z.record(z.string(), z.unknown()),
   votingThresholdBps: z.number().int().min(1).max(10_000),
   withdrawalApprovalCount: z.number().int().min(2).max(20),
 });

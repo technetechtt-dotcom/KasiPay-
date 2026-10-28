@@ -431,7 +431,7 @@ const closeBody = z.object({
   statementCents: z.string().regex(/^[0-9]+$/),
   matchedCents: z.string().regex(/^[0-9]+$/),
   breakCents: z.string().regex(/^-?[0-9]+$/),
-  evidence: z.array(z.record(z.unknown())).min(1).max(100),
+  evidence: z.array(z.record(z.string(), z.unknown())).min(1).max(100),
 });
 
 phase6OpsRouterPg.post(
@@ -492,7 +492,7 @@ const feeScheduleBody = z.object({
     rateBasisPoints: z.number().int().min(0).max(10_000),
     minFeeCents: z.string().regex(/^[0-9]+$/),
     maxFeeCents: z.string().regex(/^[0-9]+$/).nullable(),
-    allocations: z.record(z.number().int().min(0).max(10_000)),
+    allocations: z.record(z.string(), z.number().int().min(0).max(10_000)),
   })).min(1).max(100),
 });
 
