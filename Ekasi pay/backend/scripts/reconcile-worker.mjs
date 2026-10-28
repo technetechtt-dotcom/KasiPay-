@@ -23,6 +23,7 @@ const intervalMs = Math.max(
   60_000,
   Number(process.env.RECONCILIATION_INTERVAL_MINUTES?.trim() || '15') * 60_000,
 );
+const heartbeatIntervalMs = 60_000;
 const workerId = `worker:${process.pid}:${randomUUID()}`;
 const nonFunds = isNonFundsDeployment(process.env);
 
@@ -126,14 +127,20 @@ async function beat() {
   return fingerprint;
 }
 
-async function tick() {
-  const pool = getPgPool();
-  const fingerprint = await beat().catch((error) => {
+async function safeBeat() {
+  try {
+    return await beat();
+  } catch (error) {
     structuredLog('error', 'reconciliation.worker_heartbeat_failed', {
       message: error instanceof Error ? error.message : 'failed',
     });
     return null;
-  });
+  }
+}
+
+async function tick() {
+  const pool = getPgPool();
+  const fingerprint = await safeBeat();
   await processQueue();
   for (const runType of jobTypes) {
     try {
@@ -181,9 +188,16 @@ if (!process.env.DATABASE_URL?.trim()) {
 
 structuredLog('info', 'reconciliation.worker_started', {
   intervalMs,
+  heartbeatIntervalMs,
   jobTypes,
   nonFunds,
 });
+
+if (!once) {
+  setInterval(() => {
+    void safeBeat();
+  }, heartbeatIntervalMs);
+}
 
 await safeTick();
 if (once) {
