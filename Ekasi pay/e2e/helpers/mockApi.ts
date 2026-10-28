@@ -21,7 +21,10 @@ const PRODUCT = {
   category: 'Food',
 };
 
-export async function seedMerchantSession(page: Page) {
+export async function seedMerchantSession(
+  page: Page,
+  options: { cashSendEnabled?: boolean } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'kasiPay.prefs.v1',
@@ -126,7 +129,7 @@ export async function seedMerchantSession(page: Page) {
           lending: false,
           insurance: false,
           stokvelMoneyMovement: false,
-          cashSend: false,
+          cashSend: options.cashSendEnabled ?? false,
           liveUtilities: false,
         },
       });

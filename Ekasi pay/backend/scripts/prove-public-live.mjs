@@ -10,6 +10,10 @@
 const API = (process.env.KASIPAY_API_URL || 'https://ekasi-pay-api.onrender.com').replace(/\/$/, '');
 const WEB = (process.env.KASIPAY_WEB_URL || 'https://ekasi-pay-web.onrender.com').replace(/\/$/, '');
 const OPS = (process.env.KASIPAY_OPS_URL || 'https://ekasi-ops-dashboard.onrender.com').replace(/\/$/, '');
+const EXPECTED_RELEASE_SHA = (process.env.EXPECTED_RELEASE_SHA || '').trim().toLowerCase();
+const EXPECTED_SCHEMA_MIGRATIONS = Number(
+  process.env.EXPECTED_SCHEMA_MIGRATIONS || '24',
+);
 
 const checks = [];
 function record(name, ok, detail) {
@@ -62,21 +66,48 @@ async function main() {
     } catch {
       parsed = {};
     }
-    const bodyOk = ready.status === 200 || (ready.status === 503 && ready.text.includes('database'));
+    const bodyOk =
+      ready.status === 200 &&
+      parsed.ok === true &&
+      parsed.database === 'ready';
     record(
       'API /health/ready',
-      ready.status !== 404 && bodyOk,
+      bodyOk,
       ready.status === 404
         ? '404 — deployed build is older than current main; wait for Render'
         : `${ready.status} ${ready.text.slice(0, 200)}`,
     );
-    if (typeof parsed.schemaMigrations === 'number') {
-      record(
-        'API schema fingerprint',
-        parsed.schemaMigrations >= 19 && parsed.database === 'ready',
-        `schemaMigrations=${parsed.schemaMigrations} fingerprint=${parsed.schemaFingerprint || '(none)'} gitSha=${parsed.gitSha || '(none)'}`,
-      );
-    }
+    const gitSha = typeof parsed.gitSha === 'string' ? parsed.gitSha.toLowerCase() : '';
+    const releaseMatches = Boolean(gitSha) && (
+      !EXPECTED_RELEASE_SHA || EXPECTED_RELEASE_SHA.startsWith(gitSha)
+    );
+    record(
+      'API release alignment',
+      releaseMatches,
+      `running=${gitSha || '(none)'} expected=${EXPECTED_RELEASE_SHA || '(any recorded SHA)'}`,
+    );
+    record(
+      'API schema fingerprint',
+      typeof parsed.schemaMigrations === 'number' &&
+        Number.isFinite(EXPECTED_SCHEMA_MIGRATIONS) &&
+        parsed.schemaMigrations >= EXPECTED_SCHEMA_MIGRATIONS &&
+        Boolean(parsed.schemaFingerprint),
+      `schemaMigrations=${parsed.schemaMigrations ?? '(none)'} expected>=${EXPECTED_SCHEMA_MIGRATIONS} fingerprint=${parsed.schemaFingerprint || '(none)'}`,
+    );
+    record(
+      'Reconciliation worker heartbeat',
+      Boolean(parsed.worker) &&
+        parsed.worker.stale === false &&
+        parsed.worker.fingerprintMismatch === false,
+      parsed.worker
+        ? `stale=${parsed.worker.stale} heartbeatAgeMs=${parsed.worker.heartbeatAgeMs ?? '(none)'} fingerprintMismatch=${parsed.worker.fingerprintMismatch ?? '(none)'}`
+        : 'missing',
+    );
+    record(
+      'Redis rate limiting',
+      parsed.redis?.configured === true && parsed.redis?.healthy === true,
+      `configured=${parsed.redis?.configured ?? false} healthy=${parsed.redis?.healthy ?? false}`,
+    );
   } catch (error) {
     record('API /health/ready', false, error instanceof Error ? error.message : 'request failed');
   }

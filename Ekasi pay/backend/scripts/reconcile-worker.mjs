@@ -7,6 +7,8 @@
  */
 import 'dotenv/config';
 
+import { randomUUID } from 'node:crypto';
+
 import { closePg, getPgPool } from '../src/dbPg.ts';
 import { isNonFundsDeployment } from '../src/deploymentMode.ts';
 import { structuredLog } from '../src/observability.ts';
@@ -21,7 +23,7 @@ const intervalMs = Math.max(
   60_000,
   Number(process.env.RECONCILIATION_INTERVAL_MINUTES?.trim() || '15') * 60_000,
 );
-const workerId = `worker:${process.pid}`;
+const workerId = `worker:${process.pid}:${randomUUID()}`;
 const nonFunds = isNonFundsDeployment(process.env);
 
 const moneyJobTypes = [
@@ -55,6 +57,16 @@ async function processQueue() {
         runType: job.runType,
         triggeredBy: `${workerId}:queue`,
       });
+      if (result.skipped) {
+        await pool.query(
+          `UPDATE reconciliation_job_requests
+              SET state = 'queued', claimed_by = NULL, claimed_at = NULL,
+                  error_message = 'Lease busy; returned to queue'
+            WHERE id = $1`,
+          [job.id],
+        );
+        continue;
+      }
       await pool.query(
         `UPDATE reconciliation_job_requests
             SET state = $2, completed_at = clock_timestamp(), run_id = NULLIF($3,'')::uuid,
@@ -179,6 +191,10 @@ if (once) {
   process.exit(process.exitCode ?? 0);
 }
 
-setInterval(() => {
-  void safeTick();
-}, intervalMs);
+const scheduleNextTick = () => {
+  setTimeout(async () => {
+    await safeTick();
+    scheduleNextTick();
+  }, intervalMs);
+};
+scheduleNextTick();

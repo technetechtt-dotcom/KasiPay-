@@ -25,7 +25,7 @@ services:
     buildCommand: npm ci && npm run migrate:validate && npm run build
     preDeployCommand: npm run migrate:deploy
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
     autoDeployTrigger: checksPass
     plan: starter
     envVars:

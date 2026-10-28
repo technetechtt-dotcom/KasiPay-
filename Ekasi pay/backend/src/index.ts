@@ -16,6 +16,7 @@ import {
 } from './config.js';
 import { getDb } from './db.js';
 import { getPgPool } from './dbPg.js';
+import { assertSchemaReady } from './migrations.js';
 import { schemaFingerprintPg } from './services/schemaFingerprintPg.js';
 import { closeDataStore, initDataStore, isPostgresMode } from './dbRuntime.js';
 import { validateProductionConfig } from './validateProductionConfig.js';
@@ -201,6 +202,9 @@ app.get('/health/ready', async (_req, res) => {
     return res.status(IS_LOCAL_ENV ? 200 : 503).json({ ok: IS_LOCAL_ENV, database: 'local' });
   }
   try {
+    // A database connection alone is not readiness. Reject a release whose
+    // checked-in migration set does not exactly match the applied history.
+    await assertSchemaReady(getPgPool());
     const readyRow = await getPgPool().query<{ n: number }>(
       `SELECT count(*)::int AS n FROM schema_migrations`,
     );

@@ -77,7 +77,6 @@ export async function acquireReconciliationLeasePg(
            last_status = 'running',
            updated_at = clock_timestamp()
      WHERE reconciliation_job_leases.leased_until < clock_timestamp()
-        OR reconciliation_job_leases.lease_owner = EXCLUDED.lease_owner
      RETURNING lease_token`,
     [jobKey, owner, token, leaseSeconds],
   );
@@ -182,6 +181,27 @@ async function checkProjection(database: PoolClient): Promise<CheckResult> {
     ok,
     critical: true,
     detail: row ?? {},
+  };
+}
+
+async function checkMoneyColumns(database: PoolClient): Promise<CheckResult> {
+  const invalid = await database.query<{
+    table_name: string;
+    column_name: string;
+    data_type: string;
+  }>(`
+    SELECT table_name, column_name, data_type
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND column_name LIKE '%\\_cents' ESCAPE '\\'
+       AND data_type <> 'bigint'
+     ORDER BY table_name, column_name
+  `);
+  return {
+    name: 'money_columns',
+    ok: invalid.rows.length === 0,
+    critical: true,
+    detail: { invalidColumns: invalid.rows },
   };
 }
 
@@ -424,6 +444,13 @@ export async function claimQueuedReconciliationJobsPg(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query(
+      `UPDATE reconciliation_job_requests
+          SET state = 'queued', claimed_by = NULL, claimed_at = NULL,
+              error_message = 'Stale claim reclaimed by worker'
+        WHERE state = 'claimed'
+          AND claimed_at < clock_timestamp() - interval '15 minutes'`,
+    );
     const rows = await client.query<{ id: string; run_type: ReconcileRunType }>(
       `WITH next AS (
          SELECT id FROM reconciliation_job_requests
@@ -526,6 +553,9 @@ export async function runScheduledReconciliationPg(
       if (['full', 'wallet_ledger'].includes(runType)) {
         await runCheck('wallet_ledger', () => withClient(checkWalletLedger));
       }
+      if (['full', 'money_columns'].includes(runType)) {
+        await runCheck('money_columns', () => withClient(checkMoneyColumns));
+      }
       if (['full', 'journal'].includes(runType)) {
         await runCheck('journal', () => withClient(checkJournal));
       }
@@ -625,6 +655,21 @@ export async function runScheduledReconciliationPg(
       };
     } catch (error) {
       lastError = error;
+      await pool.query(
+        `UPDATE reconciliation_runs
+            SET state = 'failed', completed_at = clock_timestamp(),
+                report = $2::jsonb
+          WHERE id = $1 AND state = 'running'`,
+        [
+          runId,
+          JSON.stringify({
+            error: error instanceof Error ? error.message : 'unknown',
+            attempt,
+          }),
+        ],
+      ).catch(() => {
+        /* preserve the original reconciliation failure */
+      });
       structuredLog('error', 'reconciliation.attempt_failed', {
         attempt,
         message: error instanceof Error ? error.message : 'unknown',
