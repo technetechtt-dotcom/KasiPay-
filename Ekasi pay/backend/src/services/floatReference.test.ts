@@ -29,7 +29,9 @@ describe('merchant float references', () => {
 
   it('rejects a tampered checksum', () => {
     const valid = generateMerchantFloatReference('merchant-1');
-    assert.equal(parseMerchantFloatReference(valid.slice(0, -1) + '0'), null);
+    const replacement = valid.endsWith('0') ? '1' : '0';
+    const tampered = `${valid.slice(0, -1)}${replacement}`;
+    assert.equal(parseMerchantFloatReference(tampered), null);
   });
 
   it('still accepts a legacy deterministic reference', () => {
