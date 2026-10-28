@@ -157,9 +157,12 @@ services:
         value: "true"
       - key: RECONCILIATION_INTERVAL_MINUTES
         value: "15"
-      # Same Neon connection as ekasi-pay-api (set in dashboard; blueprint cannot copy secrets).
+      # Reuse the API's Neon connection without exposing the credential in source.
       - key: DATABASE_URL
-        sync: false
+        fromService:
+          name: ekasi-pay-api
+          type: web
+          envVarKey: DATABASE_URL
       - key: SMS_PROVIDER
         value: "disabled"
       - key: FINANCIAL_POSTING_ENABLED
